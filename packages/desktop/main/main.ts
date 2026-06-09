@@ -4,7 +4,7 @@ import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, normalizeLocalCliModelName, assertLocalCliExecutionAllowed, type AgentConfig } from '@room/engine';
+import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, normalizeLocalCliModelName, assertLocalCliExecutionAllowed, AGY_FALLBACK_MODELS, type AgentConfig } from '@room/engine';
 
 const execFileP = promisify(execFile);
 
@@ -210,6 +210,21 @@ function sanitizeWorkspaceRelativePath(input: string): string {
   return normalized;
 }
 
+function isRoomManagedWorkspaceFile(relPath: string): boolean {
+  return relPath.toLowerCase().startsWith(`${ROOM_DIR}/`);
+}
+
+function isSearchableRoomContextFile(relPath: string): boolean {
+  const normalized = relPath.toLowerCase();
+  if (!normalized.startsWith(`${ROOM_DIR}/`)) return true;
+  if (normalized.startsWith(`${ROOM_DIR}/tasks/`)) return normalized.endsWith('.md');
+  if (normalized.startsWith(`${ROOM_DIR}/documents/`)) return normalized.endsWith('.md');
+  if (normalized.startsWith(`${ROOM_DIR}/reviews/`)) return normalized.endsWith('.md');
+  if (normalized.startsWith(`${ROOM_DIR}/decisions/`)) return normalized.endsWith('.md');
+  if (normalized.startsWith(`${ROOM_DIR}/discussions/`)) return normalized.endsWith('.md');
+  return false;
+}
+
 async function listWorkspaceFiles(projectRoot: string) {
   const root = resolveProjectPath(projectRoot);
   const files: { path: string; name: string; size: number; modifiedAt: string }[] = [];
@@ -237,6 +252,9 @@ async function listWorkspaceFiles(projectRoot: string) {
 
       const stat = await fs.stat(fullPath);
       const relPath = path.relative(root, fullPath).split(path.sep).join('/');
+      if (isRoomManagedWorkspaceFile(relPath)) {
+        continue;
+      }
       files.push({
         path: relPath,
         name: entry.name,
@@ -422,7 +440,7 @@ async function searchContextItems(projectRoot: string, query = ''): Promise<Cont
 
       const relPath = path.relative(root, fullPath).split(path.sep).join('/');
       const normalized = relPath.toLowerCase();
-      if (normalized.startsWith(`${ROOM_DIR}/discussions/`) && !normalized.endsWith('.md')) {
+      if (!isSearchableRoomContextFile(relPath)) {
         continue;
       }
       const shouldReadPreview = /\.(md|mdx|txt)$/i.test(relPath) || normalized.startsWith('docs/') || normalized.startsWith(`${ROOM_DIR}/`);
@@ -1624,18 +1642,15 @@ ipcMain.handle('detect-cli-models', async (_, cliId: string) => {
         });
         const stdout = result.stdout;
         if (stdout) {
-          const lines = stdout.split('\n');
-          for (let line of lines) {
-            line = line.trim();
-            if (!line || line.toLowerCase().includes('available models')) {
+          const output = stdout.replace(/available models:?/ig, ' ').replace(/\s+/g, ' ').trim();
+          const knownModels = AGY_FALLBACK_MODELS
+            .map(model => model.value)
+            .filter(model => model !== 'default');
+          for (const modelId of knownModels) {
+            if (!output.includes(modelId)) {
               continue;
             }
-            const cleanLine = line.replace(/^[\s*]+/, '');
-            const parts = cleanLine.split(' ');
-            const modelId = parts[0];
-            if (modelId) {
-              models.push({ value: modelId, label: cleanLine });
-            }
+            models.push({ value: modelId, label: modelId });
           }
         }
       } catch {}

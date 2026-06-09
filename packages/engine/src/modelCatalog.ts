@@ -11,6 +11,18 @@ export type CliPresetId =
   | 'codewhale'
   | 'agy';
 
+export const AGY_FALLBACK_MODELS: ModelOption[] = [
+  { value: 'default', label: 'Default (CLI config)' },
+  { value: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' },
+  { value: 'Gemini 3.5 Flash (High)', label: 'Gemini 3.5 Flash (High)' },
+  { value: 'Gemini 3.5 Flash (Low)', label: 'Gemini 3.5 Flash (Low)' },
+  { value: 'Gemini 3.1 Pro (Low)', label: 'Gemini 3.1 Pro (Low)' },
+  { value: 'Gemini 3.1 Pro (High)', label: 'Gemini 3.1 Pro (High)' },
+  { value: 'Claude Sonnet 4.6 (Thinking)', label: 'Claude Sonnet 4.6 (Thinking)' },
+  { value: 'Claude Opus 4.6 (Thinking)', label: 'Claude Opus 4.6 (Thinking)' },
+  { value: 'GPT-OSS 120B (Medium)', label: 'GPT-OSS 120B (Medium)' }
+];
+
 export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
   claude: [
     { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
@@ -33,6 +45,7 @@ export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
     { value: 'gpt-5.5', label: 'gpt-5.5' },
     { value: 'gpt-5.4', label: 'gpt-5.4' },
     { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
+    { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
     { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
     { value: 'gpt-5.1', label: 'gpt-5.1' },
     { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
@@ -49,17 +62,7 @@ export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
     { value: 'deepseek-coder', label: 'DeepSeek Coder' },
     { value: 'deepseek-chat', label: 'DeepSeek Chat' }
   ],
-  agy: [
-    { value: 'default', label: 'Default (CLI config)' },
-    { value: 'Gemini 3.1 Pro (High)', label: 'Gemini 3.1 Pro (High)' },
-    { value: 'Gemini 3.1 Pro (Low)', label: 'Gemini 3.1 Pro (Low)' },
-    { value: 'Gemini 3.5 Flash (High)', label: 'Gemini 3.5 Flash (High)' },
-    { value: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' },
-    { value: 'Gemini 3.5 Flash (Low)', label: 'Gemini 3.5 Flash (Low)' },
-    { value: 'Claude Sonnet 4.6 (Thinking)', label: 'Claude Sonnet 4.6 (Thinking)' },
-    { value: 'Claude Opus 4.6 (Thinking)', label: 'Claude Opus 4.6 (Thinking)' },
-    { value: 'GPT-OSS 120B (Medium)', label: 'GPT-OSS 120B (Medium)' }
-  ]
+  agy: AGY_FALLBACK_MODELS
 };
 
 export type CloudProvider = 'Gemini' | 'Claude' | 'Codex';
@@ -84,6 +87,7 @@ export const CLOUD_API_FALLBACK_MODELS: Record<CloudProvider, ModelOption[]> = {
     { value: 'gpt-5.5', label: 'gpt-5.5' },
     { value: 'gpt-5.4', label: 'gpt-5.4' },
     { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
+    { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
     { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
     { value: 'gpt-5.1', label: 'gpt-5.1' },
     { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },

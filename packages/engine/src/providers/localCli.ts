@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { createHash } from 'crypto';
+import { StringDecoder } from 'string_decoder';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
@@ -285,7 +286,34 @@ export class LocalCliProvider implements Provider {
       let stdoutData = '';
       let stderrData = '';
       let stdoutLineBuffer = '';
+      const stdoutDecoder = new StringDecoder('utf8');
+      const stderrDecoder = new StringDecoder('utf8');
       const shouldParseJsonStream = !!this.cliPreset && this.cliPreset !== 'none' && ['claude', 'gemini', 'codex', 'copilot', 'codewhale'].includes(this.cliPreset);
+
+      const handleStdoutText = (text: string) => {
+        if (!text) return;
+        stdoutData += text;
+
+        if (!options?.onChunk) {
+          return;
+        }
+
+        if (!shouldParseJsonStream) {
+          options.onChunk(text);
+          return;
+        }
+
+        stdoutLineBuffer += text;
+        const lines = stdoutLineBuffer.split('\n');
+        stdoutLineBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const parsedText = this.parseJsonLine(line);
+          if (parsedText) {
+            options.onChunk(parsedText);
+          }
+        }
+      };
 
       const stopProcess = () => {
         if (cp.exitCode === null && cp.signalCode === null) {
@@ -330,32 +358,11 @@ export class LocalCliProvider implements Provider {
       options?.signal?.addEventListener('abort', onAbort, { once: true });
       
       cp.stdout.on('data', (chunk) => {
-        const text = chunk.toString();
-        stdoutData += text;
-
-        if (!options?.onChunk) {
-          return;
-        }
-
-        if (!shouldParseJsonStream) {
-          options.onChunk(text);
-          return;
-        }
-
-        stdoutLineBuffer += text;
-        const lines = stdoutLineBuffer.split('\n');
-        stdoutLineBuffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const parsedText = this.parseJsonLine(line);
-          if (parsedText) {
-            options.onChunk(parsedText);
-          }
-        }
+        handleStdoutText(stdoutDecoder.write(chunk));
       });
 
       cp.stderr.on('data', (chunk) => {
-        stderrData += chunk;
+        stderrData += stderrDecoder.write(chunk);
       });
 
       cp.on('error', (err) => {
@@ -372,13 +379,16 @@ export class LocalCliProvider implements Provider {
         }
         options?.signal?.removeEventListener('abort', onAbort);
         console.log(`[Local CLI Provider] Process exited with code ${code}`);
+        handleStdoutText(stdoutDecoder.end());
+        stderrData += stderrDecoder.end();
         await cleanup();
         if (code !== 0 && code !== null) {
           const stderr = stderrData.trim();
           const stdout = stdoutData.trim();
+          const readableStdout = shouldParseJsonStream ? this.parseJsonStream(stdout) : stdout;
           const details = [
             stderr ? `Error: ${stderr}` : '',
-            stdout ? `Stdout: ${stdout}` : ''
+            readableStdout ? `Agent output:\n${readableStdout}` : ''
           ].filter(Boolean).join('\n');
           reject(new Error(`Local CLI exited with code ${code}.${details ? `\n${details}` : ''}`));
           return;
@@ -463,28 +473,104 @@ export class LocalCliProvider implements Provider {
       // Claude Code JSON events
       if (parsed.type === 'text_delta' && typeof parsed.text === 'string') {
         return parsed.text;
-      } else if (parsed.type === 'thinking_delta' && typeof parsed.text === 'string') {
+      }
+      if (parsed.type === 'thinking_delta' && typeof parsed.text === 'string') {
         return '';
+      }
+
+      // Codex / structured CLI error events
+      if (parsed.type === 'error') {
+        return this.formatJsonError(parsed.message || parsed.error);
+      }
+      if (parsed.type === 'turn.failed') {
+        return this.formatJsonError(parsed.error);
+      }
+
+      const assistantText = this.extractAssistantText(parsed);
+      if (assistantText) {
+        return assistantText;
       }
       
       // Gemini / Qwen CLI / CodeWhale JSON events
-      else if (parsed.text_delta && typeof parsed.text_delta === 'string') {
+      if (parsed.text_delta && typeof parsed.text_delta === 'string') {
         return parsed.text_delta;
-      } else if (parsed.content && typeof parsed.content === 'string' && parsed.type !== 'session_capture') {
-        return parsed.content;
       }
 
       // Copilot JSON events
-      else if (parsed.message_delta && typeof parsed.message_delta === 'string') {
+      if (parsed.message_delta && typeof parsed.message_delta === 'string') {
         return parsed.message_delta;
-      }
-      else if (parsed.type === 'assistant' && parsed.content && typeof parsed.content === 'string') {
-        return parsed.content;
       }
     } catch {
       // Line is not valid JSON, ignore
     }
 
     return '';
+  }
+
+  private formatJsonError(rawError: unknown): string {
+    if (!rawError) return '';
+
+    if (typeof rawError === 'string') {
+      const trimmed = rawError.trim();
+      if (!trimmed) return '';
+      try {
+        const parsed = JSON.parse(trimmed);
+        return this.formatJsonError(parsed) || trimmed;
+      } catch {
+        return trimmed;
+      }
+    }
+
+    if (typeof rawError !== 'object') {
+      return String(rawError);
+    }
+
+    const errorRecord = rawError as Record<string, unknown>;
+    const nestedError = errorRecord.error;
+    if (nestedError && typeof nestedError === 'object') {
+      const nestedRecord = nestedError as Record<string, unknown>;
+      if (typeof nestedRecord.message === 'string') {
+        return nestedRecord.message.trim();
+      }
+      const nestedFormatted = this.formatJsonError(nestedError);
+      if (nestedFormatted) return nestedFormatted;
+    }
+
+    if (typeof errorRecord.message === 'string') {
+      return errorRecord.message.trim();
+    }
+
+    return '';
+  }
+
+  private extractAssistantText(parsed: Record<string, unknown>): string {
+    const item = parsed.item && typeof parsed.item === 'object'
+      ? parsed.item as Record<string, unknown>
+      : parsed;
+    const role = typeof item.role === 'string' ? item.role : typeof parsed.role === 'string' ? parsed.role : '';
+    const type = typeof item.type === 'string' ? item.type : typeof parsed.type === 'string' ? parsed.type : '';
+    const isAssistantMessage = role === 'assistant' || type === 'assistant' || type === 'message' || type === 'message_delta';
+    if (!isAssistantMessage) return '';
+
+    const content = item.content ?? parsed.content;
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (!Array.isArray(content)) {
+      const text = item.text ?? parsed.text;
+      return typeof text === 'string' ? text : '';
+    }
+
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (!part || typeof part !== 'object') return '';
+        const partRecord = part as Record<string, unknown>;
+        if (typeof partRecord.text === 'string') return partRecord.text;
+        if (typeof partRecord.content === 'string') return partRecord.content;
+        return '';
+      })
+      .join('');
   }
 }

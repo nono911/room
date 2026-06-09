@@ -179,6 +179,7 @@ interface UIMessage {
   time: string;
   text: string;
   streaming?: boolean;
+  progressStep?: number;
   contextSummary?: string;
 }
 
@@ -993,6 +994,8 @@ export default function App() {
   const [dismissedOnboarding, setDismissedOnboarding] = useState<boolean>(false);
   const [onboardingSessionDismissed, setOnboardingSessionDismissed] = useState<boolean>(false);
   const [hasCompletedScan, setHasCompletedScan] = useState<boolean>(false);
+  const [scanStatus, setScanStatus] = useState<string>('');
+  const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
 
   // Custom workspace control states
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
@@ -1004,8 +1007,6 @@ export default function App() {
   const [skillPreview, setSkillPreview] = useState<SkillPreviewResult | null>(null);
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
-  const [selectedTeamPresetName, setSelectedTeamPresetName] = useState<string>(teamPresets[0]?.name || '');
-  const [teamPresetProvider, setTeamPresetProvider] = useState<'Gemini' | 'Claude' | 'Codex'>('Gemini');
   const [selectedDiscussionAgents, setSelectedDiscussionAgents] = useState<string[]>([]);
   const [dynamicCliModels, setDynamicCliModels] = useState<Record<string, { value: string; label: string }[]>>({});
   const [contextPickerTarget, setContextPickerTarget] = useState<'discussion' | 'task' | null>(null);
@@ -1110,6 +1111,24 @@ export default function App() {
       setShowOnboardingTour(true);
     }
   }, [projectPath, isRoomProject, projectData, onboardingSessionDismissed]);
+
+  useEffect(() => {
+    if (!scanStartedAt) return;
+    const messages = [
+      'Scanning repository files and detecting project structure...',
+      'Updating readable workspace overview and structure...',
+      projectConfig.mainAgent && projectConfig.mainAgent !== 'none'
+        ? 'Running the configured main agent to enrich the workspace overview...'
+        : 'Refreshing workspace metadata...'
+    ];
+    setScanStatus(messages[0]);
+    const interval = window.setInterval(() => {
+      const elapsed = Date.now() - scanStartedAt;
+      const index = elapsed > 7000 ? 2 : elapsed > 2500 ? 1 : 0;
+      setScanStatus(messages[index]);
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [scanStartedAt, projectConfig.mainAgent]);
 
   // Fetch dynamic models when Main Workspace Agent changes in settings
   useEffect(() => {
@@ -1228,6 +1247,8 @@ export default function App() {
     setDismissedOnboarding(false);
     setOnboardingSessionDismissed(false);
     setHasCompletedScan(false);
+    setScanStatus('');
+    setScanStartedAt(null);
     setActiveTab('Discussions');
   };
 
@@ -1489,9 +1510,9 @@ export default function App() {
     }
   };
 
-  const handleAddTeamPreset = async () => {
+  const handleAddTeamPreset = async (presetName: string) => {
     if (!projectPath) return;
-    const preset = teamPresets.find(team => team.name === selectedTeamPresetName) || teamPresets[0];
+    const preset = teamPresets.find(team => team.name === presetName);
     if (!preset) return;
 
     const existingNames = new Set((projectData?.agents || []).map((agent: any) => String(agent.name).toLowerCase()));
@@ -1508,15 +1529,15 @@ export default function App() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const modelOptions = getModelOptions(teamPresetProvider, 'none');
-      const defaultModel = modelOptions[0]?.value;
-
       for (const template of templatesToAdd) {
+        const provider = template.provider as 'Gemini' | 'Claude' | 'Codex';
+        const modelOptions = getModelOptions(provider, 'none');
+        const defaultModel = modelOptions[0]?.value;
         const skillFiles = await ensureTemplateSkills(template.skills);
         const res = await window.electronAPI.saveAgent(projectPath, {
           name: template.name,
           role: template.role,
-          provider: teamPresetProvider,
+          provider,
           modelName: defaultModel,
           systemPrompt: template.prompt,
           skills: skillFiles
@@ -1773,18 +1794,31 @@ export default function App() {
 
   const triggerScan = async () => {
     if (!projectPath) return;
+    const finishScanStatus = (message: string) => {
+      setScanStartedAt(null);
+      setScanStatus(message);
+      window.setTimeout(() => {
+        setScanStatus(current => current === message ? '' : current);
+      }, 4000);
+    };
     setLoading(true);
     setErrorMsg(null);
+    setScanStartedAt(Date.now());
+    setScanStatus('Starting repository scan...');
     try {
       const res = await window.electronAPI.runScan(projectPath, projectConfig.mainAgent, projectConfig.modelName, !!projectConfig.allowDangerousCli);
       if (!res.success) {
+        finishScanStatus('Scan failed.');
         setErrorMsg(res.error || 'Scan failed.');
         return;
       }
+      setScanStatus('Refreshing ROOM workspace data...');
       localStorage.setItem(`room_scan_completed:${projectPath}`, new Date().toISOString());
       setHasCompletedScan(true);
       await loadProjectData(projectPath);
+      finishScanStatus('Scan complete. Workspace context is up to date.');
     } catch (err: any) {
+      finishScanStatus('Scan failed.');
       setErrorMsg(err.message || 'Scan failed.');
     } finally {
       setLoading(false);
@@ -2052,6 +2086,187 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     });
   };
 
+  const getAgentProgressMessage = (step = 0) => {
+    const messages = [
+      'Reading the workspace context...',
+      'Reviewing the discussion so far...',
+      'Planning the response...',
+      'Checking details before answering...',
+      'Preparing the final answer...'
+    ];
+    return messages[step % messages.length];
+  };
+
+  const advanceAgentProgressMessage = (message: UIMessage): UIMessage => {
+    const nextStep = (message.progressStep || 0) + 1;
+    return {
+      ...message,
+      text: getAgentProgressMessage(nextStep),
+      progressStep: nextStep,
+      streaming: true
+    };
+  };
+
+  const decodeHtmlEntities = (value: string) => {
+    if (!/[&]/.test(value) || typeof document === 'undefined') return value;
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = value;
+    return textarea.value;
+  };
+
+  const normalizeMarkupForMarkdown = (value: string) => {
+    return decodeHtmlEntities(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<p\b[^>]*>/gi, '')
+      .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, body) => `${'#'.repeat(Math.min(Number(level), 3))} ${body.trim()}\n\n`)
+      .replace(/<li\b[^>]*>/gi, '- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/?(ul|ol)\b[^>]*>/gi, '\n')
+      .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, '**$2**')
+      .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, '*$2*')
+      .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, '`$1`')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim();
+  };
+
+  const renderInlineMarkdown = (value: string) => {
+    const nodes: React.ReactNode[] = [];
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(value)) !== null) {
+      if (match.index > lastIndex) {
+        nodes.push(value.slice(lastIndex, match.index));
+      }
+      const token = match[0];
+      if (token.startsWith('`')) {
+        nodes.push(<code key={`inline-code-${nodes.length}`}>{token.slice(1, -1)}</code>);
+      } else if (token.startsWith('**')) {
+        nodes.push(<strong key={`inline-strong-${nodes.length}`}>{token.slice(2, -2)}</strong>);
+      } else {
+        nodes.push(<em key={`inline-em-${nodes.length}`}>{token.slice(1, -1)}</em>);
+      }
+      lastIndex = match.index + token.length;
+    }
+
+    if (lastIndex < value.length) {
+      nodes.push(value.slice(lastIndex));
+    }
+    return nodes.length > 0 ? nodes : value;
+  };
+
+  const renderMarkdownContent = (text: string, streaming?: boolean, className = 'message-markdown') => {
+    const content = normalizeMarkupForMarkdown(text || (streaming ? 'Waiting for output...' : ''));
+    const lines = content.split('\n');
+    const blocks: React.ReactNode[] = [];
+    let paragraph: string[] = [];
+    let listItems: string[] = [];
+    let codeLines: string[] = [];
+    let inCode = false;
+    let codeIndex = 0;
+
+    const flushParagraph = () => {
+      if (paragraph.length === 0) return;
+      const value = paragraph.join('\n');
+      blocks.push(
+        <p key={`p-${blocks.length}`} style={{ margin: '0 0 0.65em 0', whiteSpace: 'pre-wrap' }}>
+          {renderInlineMarkdown(value)}
+        </p>
+      );
+      paragraph = [];
+    };
+
+    const flushList = () => {
+      if (listItems.length === 0) return;
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} style={{ margin: '0 0 0.75em 1.15em', padding: 0 }}>
+          {listItems.map((item, index) => (
+            <li key={`${item}-${index}`} style={{ marginBottom: '0.25em' }}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      );
+      listItems = [];
+    };
+
+    const flushCode = () => {
+      blocks.push(
+        <pre key={`code-${codeIndex++}`} style={{
+          margin: '0 0 0.75em 0',
+          padding: '10px 12px',
+          borderRadius: '8px',
+          border: '1px solid hsl(var(--border-dim))',
+          background: 'hsl(var(--bg-input))',
+          overflowX: 'auto',
+          whiteSpace: 'pre-wrap'
+        }}>
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      codeLines = [];
+    };
+
+    lines.forEach((line) => {
+      if (line.trim().startsWith('```')) {
+        flushParagraph();
+        flushList();
+        if (inCode) {
+          flushCode();
+        }
+        inCode = !inCode;
+        return;
+      }
+
+      if (inCode) {
+        codeLines.push(line);
+        return;
+      }
+
+      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+      if (headingMatch) {
+        flushParagraph();
+        flushList();
+        const level = headingMatch[1].length;
+        blocks.push(
+          <div key={`h-${blocks.length}`} style={{
+            margin: blocks.length === 0 ? '0 0 0.5em 0' : '0.85em 0 0.5em 0',
+            color: 'white',
+            fontWeight: 700,
+            fontSize: level === 1 ? '1.04em' : level === 2 ? '0.98em' : '0.92em'
+          }}>
+            {renderInlineMarkdown(headingMatch[2])}
+          </div>
+        );
+        return;
+      }
+
+      const bulletMatch = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
+      if (bulletMatch) {
+        flushParagraph();
+        listItems.push(bulletMatch[1]);
+        return;
+      }
+
+      if (!line.trim()) {
+        flushParagraph();
+        flushList();
+        return;
+      }
+
+      flushList();
+      paragraph.push(line);
+    });
+
+    if (inCode || codeLines.length > 0) flushCode();
+    flushParagraph();
+    flushList();
+
+    return <div className={className}>{blocks.length > 0 ? blocks : content}</div>;
+  };
+
   const startNewDiscussion = () => {
     setActiveDiscussionId(null);
     setLastDiscussionLog(null);
@@ -2185,8 +2400,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             author: `${event.agentName} (${event.providerName})`,
             role: event.agentName.toLowerCase(),
             time: event.timestamp,
-            text: '',
+            text: getAgentProgressMessage(0),
             streaming: true,
+            progressStep: 0,
             contextSummary: `Cycle ${event.round} • ${event.role}`
           }
         ]);
@@ -2200,7 +2416,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           const updated = prev.map(msg => {
             if (msg.id !== id) return msg;
             found = true;
-            return { ...msg, text: `${msg.text}${event.chunk}`, streaming: true };
+            return advanceAgentProgressMessage(msg);
           });
           if (found) return updated;
           return [
@@ -2210,8 +2426,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               author: `${event.agentName} (${event.providerName})`,
               role: event.agentName.toLowerCase(),
               time: new Date().toLocaleTimeString(),
-              text: event.chunk,
-              streaming: true
+              text: getAgentProgressMessage(0),
+              streaming: true,
+              progressStep: 0
             }
           ];
         });
@@ -2231,6 +2448,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: event.message.content,
               time: event.message.timestamp,
               streaming: false,
+              progressStep: undefined,
               contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
             };
           });
@@ -2244,6 +2462,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               time: event.message.timestamp,
               text: event.message.content,
               streaming: false,
+              progressStep: undefined,
               contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
             }
           ];
@@ -2424,8 +2643,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             author: `${event.agentName} (${event.providerName})`,
             role: event.agentName.toLowerCase(),
             time: event.timestamp,
-            text: '',
-            streaming: true
+            text: getAgentProgressMessage(0),
+            streaming: true,
+            progressStep: 0
           }
         ]);
         return;
@@ -2439,9 +2659,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             if (msg.id !== id) return msg;
             found = true;
             return {
-              ...msg,
-              text: `${msg.text}${event.chunk}`,
-              streaming: true
+              ...advanceAgentProgressMessage(msg)
             };
           });
 
@@ -2454,8 +2672,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               author: `${event.agentName} (${event.providerName})`,
               role: event.agentName.toLowerCase(),
               time: new Date().toLocaleTimeString(),
-              text: event.chunk,
-              streaming: true
+              text: getAgentProgressMessage(0),
+              streaming: true,
+              progressStep: 0
             }
           ];
         });
@@ -2478,6 +2697,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: event.message.content,
               time: event.message.timestamp,
               streaming: false,
+              progressStep: undefined,
               contextSummary
             };
           });
@@ -2493,6 +2713,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               time: event.message.timestamp,
               text: event.message.content,
               streaming: false,
+              progressStep: undefined,
               contextSummary
             }
           ];
@@ -2528,14 +2749,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         setLastDiscussionTopic(userTopic);
         setActiveDiscussionId(res.log.id);
         const formatted = formatDiscussionLogMessages(res.log);
-        const statusMessage = discussionReviewMode
+        const statusMessage = discussionReviewMode && res.log.status === 'approved'
           ? [{
               author: 'System Engine',
               role: 'system',
               time: new Date().toLocaleTimeString(),
-              text: res.log.status === 'approved'
-                ? 'Review loop completed: output passed the active gate.'
-                : 'Review loop stopped with findings still needing revision.'
+              text: 'Review loop completed: output passed the active gate.'
             }]
           : [];
         const summaryMessage = res.summary?.filename
@@ -2758,7 +2977,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           position: 'fixed',
           inset: 0,
           zIndex: 80,
-          background: 'rgba(6, 8, 16, 0.72)',
+          background: 'rgba(3, 5, 12, 0.84)',
+          backdropFilter: 'blur(10px)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
@@ -2774,7 +2994,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           display: 'grid',
           gridTemplateColumns: 'minmax(0, 1fr) 300px',
           overflow: 'hidden',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.42)'
+          boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
+          isolation: 'isolate'
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border-dim))', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
@@ -3040,6 +3261,30 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
             Use this as a quick path from empty workspace to useful agent runs.
           </div>
+          {scanStatus && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginTop: '10px',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1px solid hsl(var(--accent-purple) / 0.28)',
+              background: 'hsl(var(--accent-purple) / 0.08)',
+              color: 'hsl(var(--text-secondary))',
+              fontSize: '0.76rem'
+            }}>
+              <span style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '999px',
+                background: scanStartedAt ? 'hsl(var(--accent-purple))' : '#10b981',
+                boxShadow: scanStartedAt ? '0 0 0 4px hsl(var(--accent-purple) / 0.12)' : 'none',
+                flexShrink: 0
+              }} />
+              <span>{scanStatus}</span>
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '12px' }}>
             {setupItems.map(item => (
               <button
@@ -3092,7 +3337,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           position: 'fixed',
           inset: 0,
           zIndex: 90,
-          background: 'rgba(6, 8, 16, 0.72)',
+          background: 'rgba(3, 5, 12, 0.84)',
+          backdropFilter: 'blur(10px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -3104,11 +3350,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           background: 'hsl(var(--bg-main))',
           border: '1px solid hsl(var(--border-dim))',
           borderRadius: '8px',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.42)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
           padding: '22px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '18px'
+          gap: '18px',
+          isolation: 'isolate'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start' }}>
             <div>
@@ -3276,18 +3523,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 >
                   <div className="bubble-meta">
                     <span className="bubble-author">{msg.author}</span>
-                    <span>{msg.streaming ? 'Streaming...' : msg.time}</span>
+                    <span>{msg.streaming ? 'Working...' : msg.time}</span>
                   </div>
-                  {msg.contextSummary && (
-                    <div style={{
-                      fontSize: '0.72rem',
-                      color: 'hsl(var(--text-muted))',
-                      marginBottom: '8px'
-                    }}>
-                      {msg.contextSummary}
-                    </div>
-                  )}
-                  <p style={{ whiteSpace: 'pre-wrap' }}>{msg.text || (msg.streaming ? 'Waiting for output...' : '')}</p>
+                  {renderMarkdownContent(msg.text, msg.streaming)}
                 </div>
               );
             })}
@@ -3691,14 +3929,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   >
                     <div className="bubble-meta">
                       <span className="bubble-author">{msg.author}</span>
-                      <span>{msg.streaming ? 'Streaming...' : msg.time}</span>
+                      <span>{msg.streaming ? 'Working...' : msg.time}</span>
                     </div>
-                    {msg.contextSummary && (
-                      <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>
-                        {msg.contextSummary}
-                      </div>
-                    )}
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{msg.text || (msg.streaming ? 'Waiting for output...' : '')}</p>
+                    {renderMarkdownContent(msg.text, msg.streaming)}
                   </div>
                 ))
               )}
@@ -3749,74 +3982,67 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               <div>
                 <h4 style={{ fontSize: '0.95rem', margin: 0, color: 'white' }}>Recommended Teams</h4>
                 <p style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', margin: '4px 0 0 0' }}>
-                  Choose what you are working on, then add the suggested AI members. Existing members are skipped.
+                  Add a starter team for a common workflow. Existing members are skipped.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <select
-                  className="form-select"
-                  value={selectedTeamPresetName}
-                  disabled={loading}
-                  onChange={(e) => setSelectedTeamPresetName(e.target.value)}
-                  style={{ minWidth: '220px', height: '36px', fontSize: '0.82rem' }}
-                >
-                  {teamPresets.map(team => (
-                    <option key={team.name} value={team.name}>{team.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="form-select"
-                  value={teamPresetProvider}
-                  disabled={loading}
-                  onChange={(e) => setTeamPresetProvider(e.target.value as 'Gemini' | 'Claude' | 'Codex')}
-                  style={{ minWidth: '130px', height: '36px', fontSize: '0.82rem' }}
-                >
-                  <option value="Gemini">Gemini</option>
-                  <option value="Claude">Claude</option>
-                  <option value="Codex">Codex</option>
-                </select>
-                <button
-                  className="btn-primary"
-                  type="button"
-                  onClick={handleAddTeamPreset}
-                  disabled={loading}
-                  style={{ height: '36px', padding: '0 16px', fontSize: '0.82rem' }}
-                >
-                  Add Team
-                </button>
-              </div>
             </div>
-            {(() => {
-              const selectedTeam = teamPresets.find(team => team.name === selectedTeamPresetName) || teamPresets[0];
-              if (!selectedTeam) return null;
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))' }}>
-                    {selectedTeam.description}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
+              {teamPresets.map(team => {
+                const missingRoles = team.roles.filter(role => !agents.some((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase()));
+                const allAdded = missingRoles.length === 0;
+                return (
+                  <div
+                    key={team.name}
+                    style={{
+                      background: 'hsl(var(--bg-input))',
+                      border: '1px solid hsl(var(--border-dim))',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      minHeight: '156px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.86rem', color: 'white', fontWeight: 600 }}>{team.name}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5, marginTop: '3px' }}>
+                        {team.description}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1, alignContent: 'flex-start' }}>
+                      {team.roles.map(role => {
+                        const exists = agents.some((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase());
+                        return (
+                          <span
+                            key={role}
+                            style={{
+                              background: exists ? 'hsl(var(--bg-card))' : 'hsl(var(--accent-purple) / 0.12)',
+                              border: exists ? '1px solid hsl(var(--border-dim))' : '1px solid hsl(var(--accent-purple) / 0.35)',
+                              color: exists ? 'hsl(var(--text-muted))' : 'hsl(var(--text-secondary))',
+                              fontSize: '0.7rem',
+                              padding: '4px 8px',
+                              borderRadius: '14px'
+                            }}
+                          >
+                            {role}{exists ? ' · added' : ''}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      onClick={() => handleAddTeamPreset(team.name)}
+                      disabled={loading || allAdded}
+                      style={{ height: '34px', padding: '0 14px', fontSize: '0.8rem', alignSelf: 'flex-start' }}
+                    >
+                      {allAdded ? 'Added' : 'Add Team'}
+                    </button>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {selectedTeam.roles.map(role => {
-                      const exists = agents.some((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase());
-                      return (
-                        <span
-                          key={role}
-                          style={{
-                            background: exists ? 'hsl(var(--bg-input))' : 'hsl(var(--accent-purple) / 0.12)',
-                            border: exists ? '1px solid hsl(var(--border-dim))' : '1px solid hsl(var(--accent-purple) / 0.35)',
-                            color: exists ? 'hsl(var(--text-muted))' : 'hsl(var(--text-secondary))',
-                            fontSize: '0.72rem',
-                            padding: '4px 9px',
-                            borderRadius: '14px'
-                          }}
-                        >
-                          {role}{exists ? ' · added' : ''}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
+                );
+              })}
+            </div>
           </div>
 
           {/* Registered Agents Grid */}
@@ -3919,6 +4145,16 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                             fontFamily: 'monospace'
                           }}>
                             {agent.cliPreset && agent.cliPreset !== 'none' ? `Preset: ${agent.cliPreset === 'claude' ? 'Claude Code' : agent.cliPreset === 'gemini' ? 'Gemini CLI' : agent.cliPreset === 'codex' ? 'Codex CLI' : agent.cliPreset === 'copilot' ? 'GitHub Copilot CLI' : agent.cliPreset === 'codewhale' ? 'CodeWhale' : agent.cliPreset === 'agy' ? 'Antigravity CLI' : agent.cliPreset}` : `$ ${agent.command}`}
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            color: 'hsl(var(--text-secondary))',
+                            backgroundColor: 'hsl(var(--bg-input))',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid hsl(var(--border-dim))'
+                          }}>
+                            {agent.modelName ? `Model: ${agent.modelName}` : 'Model: Default CLI config'}
                           </span>
                             {agent.permissionMode === 'dangerous' && (
                               <span style={{
@@ -4811,7 +5047,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           </div>
           </div>
           <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-            {selectedDecisionContent || (decisions.length > 0 ? '# Select an ADR to preview.' : '# No decision records found.')}
+            {renderMarkdownContent(selectedDecisionContent || (decisions.length > 0 ? '# Select an ADR to preview.' : '# No decision records found.'), false, 'message-markdown')}
           </div>
         </div>
       );
@@ -4850,7 +5086,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             </div>
           </div>
           <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-            {selectedTaskContent || (tasks.length > 0 ? '# Select a task file to preview.' : '# No task files found.')}
+            {renderMarkdownContent(selectedTaskContent || (tasks.length > 0 ? '# Select a task file to preview.' : '# No task files found.'), false, 'message-markdown')}
           </div>
         </div>
       );
@@ -4901,7 +5137,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             </div>
           </div>
           <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-            {selectedReviewContent || (items.length > 0 ? '# Select a review or discussion log to preview.' : '# No review logs found.')}
+            {renderMarkdownContent(selectedReviewContent || (items.length > 0 ? '# Select a review or discussion log to preview.' : '# No review logs found.'), false, 'message-markdown')}
           </div>
         </div>
       );
@@ -5550,6 +5786,43 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           font-family: ${contentFontFamily} !important;
           font-size: ${contentFontSize} !important;
           line-height: ${contentLineHeight} !important;
+        }
+        .message-markdown {
+          color: inherit;
+          overflow-wrap: anywhere;
+        }
+        .markdown-preview .message-markdown {
+          padding: 20px 22px;
+          max-width: 920px;
+        }
+        .message-markdown > :last-child {
+          margin-bottom: 0 !important;
+        }
+        .message-markdown ul {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25em;
+        }
+        .message-markdown strong {
+          color: hsl(var(--text-primary));
+          font-weight: 700;
+        }
+        .message-markdown em {
+          color: hsl(var(--text-secondary));
+        }
+        .message-markdown code {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 0.86em;
+          background: hsl(var(--bg-input));
+          border: 1px solid hsl(var(--border-dim));
+          border-radius: 5px;
+          padding: 0.08em 0.32em;
+        }
+        .message-markdown pre code {
+          background: transparent;
+          border: 0;
+          border-radius: 0;
+          padding: 0;
         }
       `}</style>
       <div className="titlebar-drag">

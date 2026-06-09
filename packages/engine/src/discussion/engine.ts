@@ -119,6 +119,104 @@ When there is prior chat history, explicitly reference at least one concrete poi
 State whether you are building on, refining, challenging, or resolving that point before adding your own contribution.
 Avoid restarting from scratch unless the user asks for a new direction.`;
 
+const USER_FACING_OUTPUT_POLICY = `=== User-Facing Output Policy ===
+Return only the useful answer for the user in clean Markdown.
+Do not dump raw JSON events, HTML, CSS, bundled JavaScript, source maps, lockfile content, or generated build artifacts.
+When you need to mention source code or files, summarize the relevant behavior and cite concise file paths or tiny snippets only.
+Ignore generated directories and artifacts such as dist, dist-packaged, build, coverage, .next, node_modules, minified assets, and source maps unless the user explicitly asks to inspect them.`;
+
+const LOCAL_CLI_OUTPUT_POLICY = `=== Local CLI Agent Policy ===
+Use only the prompt, discussion history, selected context, active skills, and project context provided here.
+Do not inspect the workspace with shell commands, file listing, permission checks, config reads, or tool calls unless the user's current request explicitly asks you to perform that inspection.
+Do not narrate intended tool use such as "I will list files", "Let's read config", or "I am running on model...".
+If you cannot answer from the provided context, say what specific context is missing and ask for it.`;
+
+function isLikelyGeneratedArtifactLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < 320) return false;
+  const whitespaceRatio = (trimmed.match(/\s/g) || []).length / trimmed.length;
+  const punctuationRatio = (trimmed.match(/[{};:(),.=#[\]$]/g) || []).length / trimmed.length;
+  const hasCssBundlePattern = /(?:^|[}.])[-_a-zA-Z0-9]+[.#:_a-zA-Z0-9 -]*\{[^}]+[:;]/.test(trimmed) || /--[a-z0-9-]+:\s*[^;]+;/.test(trimmed);
+  const hasJsBundlePattern = /\b(?:function|const|let|var)\b.{80,}[{};]/.test(trimmed) || /=>\{.{80,}/.test(trimmed);
+  const hasSourceMapPattern = /sourceMappingURL|webpack|vite|rollup|__vite|React\.createElement/.test(trimmed);
+  return whitespaceRatio < 0.18 && punctuationRatio > 0.12 && (hasCssBundlePattern || hasJsBundlePattern || hasSourceMapPattern);
+}
+
+function cleanAgentUserContent(content: string): string {
+  const lines = content.split('\n');
+  let omitted = 0;
+  let actionNarration = 0;
+  const kept = lines.filter((line) => {
+    if (isLikelyGeneratedArtifactLine(line)) {
+      omitted += 1;
+      return false;
+    }
+    if (isToolNarrationLine(line)) {
+      actionNarration += 1;
+      return false;
+    }
+    return true;
+  });
+  const cleaned = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (omitted === 0 && actionNarration === 0) return content.trim();
+  const notes = [
+    omitted > 0 ? `[Generated build artifact omitted: ${omitted} minified line${omitted === 1 ? '' : 's'}.]` : '',
+    actionNarration > 0 ? `[Tool/action narration omitted: ${actionNarration} line${actionNarration === 1 ? '' : 's'}.]` : ''
+  ].filter(Boolean);
+  return cleaned ? `${cleaned}\n\n${notes.join('\n')}` : notes.join('\n');
+}
+
+function cleanAgentStreamChunk(chunk: string): string {
+  if (isToolNarrationLine(chunk)) return '';
+  if (!isLikelyGeneratedArtifactLine(chunk)) return chunk;
+  return '\n[Generated build artifact omitted.]\n';
+}
+
+function isOnlyOmissionNotes(content: string): boolean {
+  const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every(line => /^\[[^\]]+ omitted:?\s*.*\]$/.test(line));
+}
+
+function localCliNoFinalAnswerMessage(agentName: string): string {
+  return `[System Notice from ${agentName}]: This Local CLI did not produce a final answer. It only emitted tool/action narration. The agent should answer from the provided ROOM context; if it must inspect files directly, enable an explicit tool-capable workflow for that agent.`;
+}
+
+function isToolNarrationLine(line: string): boolean {
+  const normalized = line.trim();
+  if (!normalized) return false;
+  if (/^I'?m Antigravity\b/i.test(normalized)) return true;
+  if (/^It looks like you'?ve selected the\b/i.test(normalized)) return true;
+  if (/^I am powered by\b/i.test(normalized)) return true;
+  if (/^I am (currently )?running (on|Gemini|Claude|Codex|GPT)/i.test(normalized)) return true;
+  if (/^I am running\b/i.test(normalized)) return true;
+  if (/^(I will|I'll|Let'?s|I am going to)\s+(list|read|view|inspect|check|open|look at|see|search|run)\b/i.test(normalized)) return true;
+  if (/^I will (list|view|read) the contents of\b/i.test(normalized)) return true;
+  if (/^Let's (list|read|view|see|check)\b/i.test(normalized)) return true;
+  return false;
+}
+
+function formatMessageForPromptHistory(message: DiscussionMessage): string {
+  if (message.type === 'user') {
+    return `--- ${message.agentName} ---\n${message.content}`;
+  }
+
+  const cleanedContent = cleanAgentUserContent(message.content);
+  const content = isOnlyOmissionNotes(cleanedContent)
+    ? '[Previous Local CLI action narration omitted.]'
+    : cleanedContent;
+  return `--- ${message.agentName} (${message.providerName}) ---\n${content}`;
+}
+
+function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ...sections: string[]): string {
+  return [
+    basePrompt,
+    LANGUAGE_POLICY,
+    USER_FACING_OUTPUT_POLICY,
+    localCliAgent ? LOCAL_CLI_OUTPUT_POLICY : '',
+    ...sections.filter(section => section.trim())
+  ].join('\n\n');
+}
+
 function renderDiscussionMarkdown(log: DiscussionLog): string {
   const messages = log.messages.map((message, index) => {
     if (message.type === 'user') {
@@ -624,12 +722,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     };
     discussionLog.messages.push(userMessage);
 
-    let conversationHistory = discussionLog.messages.map(message => {
-      if (message.type === 'user') {
-        return `--- ${message.agentName} ---\n${message.content}`;
-      }
-      return `--- ${message.agentName} (${message.providerName}) ---\n${message.content}`;
-    }).join('\n\n');
+    let conversationHistory = discussionLog.messages.map(formatMessageForPromptHistory).join('\n\n');
     conversationHistory += '\n\n';
     let approved = false;
     let successfulAgentRuns = 0;
@@ -678,7 +771,14 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
           ? `\n\nYou have ${contextMessages.length} previous chat message(s) in the discussion history, including the user's latest message. Explicitly build on, refine, challenge, or resolve points from that history instead of answering as a standalone first response.`
           : '\n\nYou are the first AI member to respond. Establish a useful starting point for the later members.';
         const reviewProtocol = options.reviewMode ? this.buildReviewProtocol(agent) : '';
-        const systemPrompt = `${agent.systemPrompt}\n\n${LANGUAGE_POLICY}\n\n${DISCUSSION_PROTOCOL}${skillsContext}${reviewProtocol}\n\n=== Project Context ===\n${projectContext}`;
+        const systemPrompt = composeAgentSystemPrompt(
+          agent.systemPrompt,
+          agent.provider === 'Local CLI',
+          DISCUSSION_PROTOCOL,
+          skillsContext,
+          reviewProtocol,
+          `=== Project Context ===\n${projectContext}`
+        );
         const prompt = `Here is the discussion history so far:\n${conversationHistory}\n\nPlease provide your response as the ${agent.name} (${agent.role}).${priorMessageInstruction}${options.reviewMode ? '\n\nIf this is a later round, focus on closing remaining OPEN_FINDINGS before introducing new recommendations.' : ''}`;
 
         let response = '';
@@ -692,11 +792,18 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
                 agentName: agent.name,
                 providerName: agent.provider,
                 round,
-                chunk
+                chunk: cleanAgentStreamChunk(chunk)
               });
             }
           });
-          successfulAgentRuns++;
+          response = cleanAgentUserContent(response);
+          if (agent.provider === 'Local CLI' && isOnlyOmissionNotes(response)) {
+            agentFailed = true;
+            failedAgentRuns++;
+            response = localCliNoFinalAnswerMessage(agent.name);
+          } else {
+            successfulAgentRuns++;
+          }
         } catch (err: any) {
           agentFailed = true;
           failedAgentRuns++;
@@ -709,7 +816,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
             round,
             error: err.message
           });
-          response = `[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${err.message}`;
+          response = cleanAgentUserContent(`[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${err.message}`);
         }
 
         const msg: DiscussionMessage = {
@@ -906,11 +1013,11 @@ Instructions:
 ${doerWorkInstructions}
 - Use the same natural language as the user's task unless the user explicitly asks otherwise.`;
 
-      const developerSystemPrompt = `${developer.systemPrompt}
-
-${LANGUAGE_POLICY}
-
-You are in a ROOM task execution loop. Your responsibility is to produce the requested deliverable, then address reviewer feedback until it is approved.`;
+      const developerSystemPrompt = composeAgentSystemPrompt(
+        developer.systemPrompt,
+        developer.provider === 'Local CLI',
+        'You are in a ROOM task execution loop. Your responsibility is to produce the requested deliverable, then address reviewer feedback until it is approved.'
+      );
 
       let developerOutput = '';
       try {
@@ -922,10 +1029,14 @@ You are in a ROOM task execution loop. Your responsibility is to produce the req
               agentName: developer.name,
               providerName: developer.provider,
               round: cycle,
-              chunk
+              chunk: cleanAgentStreamChunk(chunk)
             });
           }
         });
+        developerOutput = cleanAgentUserContent(developerOutput);
+        if (developer.provider === 'Local CLI' && isOnlyOmissionNotes(developerOutput)) {
+          developerOutput = localCliNoFinalAnswerMessage(developer.name);
+        }
       } catch (err: any) {
         options.onEvent?.({
           type: 'agent_error',
@@ -935,7 +1046,7 @@ You are in a ROOM task execution loop. Your responsibility is to produce the req
           round: cycle,
           error: err.message
         });
-        developerOutput = `[System Error from ${developer.name}]: ${err.message}`;
+        developerOutput = cleanAgentUserContent(`[System Error from ${developer.name}]: ${err.message}`);
       }
 
       const contextMessages = result.messages.map(message => ({
@@ -1000,11 +1111,11 @@ Output format:
 - VALIDATION_NOTES
 - APPROVAL_STATUS: APPROVED | NEEDS_CHANGES`;
 
-        const reviewerSystemPrompt = `${reviewer.systemPrompt}
-
-${LANGUAGE_POLICY}
-
-You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do not approve incomplete work.`;
+        const reviewerSystemPrompt = composeAgentSystemPrompt(
+          reviewer.systemPrompt,
+          reviewer.provider === 'Local CLI',
+          `You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do not approve incomplete work.`
+        );
 
         let reviewOutput = '';
         try {
@@ -1016,10 +1127,14 @@ You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do no
                 agentName: reviewer.name,
                 providerName: reviewer.provider,
                 round: cycle,
-                chunk
+                chunk: cleanAgentStreamChunk(chunk)
               });
             }
           });
+          reviewOutput = cleanAgentUserContent(reviewOutput);
+          if (reviewer.provider === 'Local CLI' && isOnlyOmissionNotes(reviewOutput)) {
+            reviewOutput = localCliNoFinalAnswerMessage(reviewer.name);
+          }
         } catch (err: any) {
           options.onEvent?.({
             type: 'agent_error',
@@ -1029,7 +1144,7 @@ You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do no
             round: cycle,
             error: err.message
           });
-          reviewOutput = `[System Error from ${reviewer.name}]: ${err.message}`;
+          reviewOutput = cleanAgentUserContent(`[System Error from ${reviewer.name}]: ${err.message}`);
         }
 
         reviewerOutputs.push(reviewOutput);
