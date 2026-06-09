@@ -1,0 +1,22 @@
+{
+  "name": "room-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ROOM: AI-native Project Workspace",
+  "workspaces": [
+    "packages/engine",
+    "packages/desktop"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev:desktop": "npm run dev -w packages/desktop",
+    "build:engine": "npm run build -w packages/engine",
+    "build:desktop": "npm run build -w packages/desktop",
+    "package:desktop": "npm run dist -w packages/desktop",
+    "start": "npm run start -w packages/desktop"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  }
+}

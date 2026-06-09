@@ -1,0 +1,51 @@
+{
+  "name": "@room/desktop",
+  "version": "1.0.0",
+  "description": "ROOM Electron Desktop UI",
+  "main": "dist/main/main.js",
+  "type": "module",
+  "scripts": {
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json -w",
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\" \"sleep 2 && electron .\"",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json && cp main/preload.js dist/main/preload.js",
+    "build": "npm run build:renderer && npm run build:main",
+    "dist": "npm run build && electron-builder",
+    "start": "electron ."
+  },
+  "build": {
+    "appId": "com.room.workspace",
+    "productName": "ROOM",
+    "directories": {
+      "output": "dist-packaged"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "identity": null,
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
+    }
+  },
+  "dependencies": {
+    "@room/engine": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "30.5.1",
+    "electron-builder": "^26.15.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
