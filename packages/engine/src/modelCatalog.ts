@@ -81,7 +81,6 @@ export const CLOUD_API_FALLBACK_MODELS: Record<CloudProvider, ModelOption[]> = {
     { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Latest)' }
   ],
   Codex: [
-    { value: 'default', label: 'Default (CLI config)' },
     { value: 'gpt-5.5', label: 'gpt-5.5' },
     { value: 'gpt-5.4', label: 'gpt-5.4' },
     { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },

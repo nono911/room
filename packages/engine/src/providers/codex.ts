@@ -1,5 +1,10 @@
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
 
+function normalizeCodexModelName(modelName?: string): string | undefined {
+  const normalized = (modelName || '').trim();
+  return normalized.toLowerCase() === 'default' ? undefined : normalized || undefined;
+}
+
 export class CodexProvider implements Provider {
   name = 'Codex';
   private apiKey: string;
@@ -7,7 +12,7 @@ export class CodexProvider implements Provider {
 
   constructor(config: ProviderConfig) {
     this.apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
-    this.modelName = config.modelName || 'gpt-4o'; // Use standard OpenAI model for Codex tasks
+    this.modelName = normalizeCodexModelName(config.modelName) || 'gpt-4o'; // Use standard OpenAI model for Codex tasks
     if (!this.apiKey) {
       console.warn('Warning: OpenAI API Key (used by Codex) is missing.');
     }

@@ -91,9 +91,12 @@ const SUPPORTED_LOCAL_CLI_PRESETS_SET = new Set<string>(SUPPORTED_LOCAL_CLI_PRES
 const ALLOWED_PROJECT_MAIN_AGENT_SET = new Set<string>(ALLOWED_PROJECT_MAIN_AGENTS);
 const ALLOWED_PROJECT_CONFIG_KEYS = ['mainAgent', 'modelName', 'allowDangerousCli'] as const;
 const ALLOWED_MCP_CONFIG_KEYS = ['mcpServers'] as const;
-const ALLOWED_ROOM_FILE_SECTIONS = ['documents', 'tasks', 'discussions', 'decisions', 'reviews'] as const;
+const ALLOWED_ROOM_FILE_SECTIONS = ['documents', 'tasks', 'discussions', 'decisions', 'reviews', 'skills'] as const;
 const WORKSPACE_FILE_LIMIT = 500;
 const WORKSPACE_FILE_READ_LIMIT_BYTES = 1024 * 1024;
+const CONTEXT_SEARCH_SCAN_LIMIT = 2500;
+const CONTEXT_SEARCH_RESULT_LIMIT = 80;
+const CONTEXT_SEARCH_PREVIEW_LIMIT_BYTES = 48 * 1024;
 const DISCUSSION_CONTEXT_FILE_LIMIT_BYTES = 200 * 1024;
 const DISCUSSION_CONTEXT_TOTAL_LIMIT = 700 * 1024;
 const IGNORED_WORKSPACE_DIRS = new Set([
@@ -134,6 +137,25 @@ interface McpConfig {
     args?: string[];
     env?: Record<string, string>;
   }>;
+}
+
+interface ContextSearchResult {
+  ref: string;
+  label: string;
+  type: 'workspace' | 'task' | 'doc' | 'discussion' | 'file';
+  path?: string;
+  detail: string;
+  modifiedAt?: string;
+  size?: number;
+}
+
+interface SkillPreviewItem {
+  filename: string;
+  readable: boolean;
+  source?: 'skills' | 'roles';
+  bytes?: number;
+  heading?: string;
+  error?: string;
 }
 
 function resolveProjectPath(dirPath: string): string {
@@ -226,6 +248,233 @@ async function listWorkspaceFiles(projectRoot: string) {
 
   await walk(root);
   return files;
+}
+
+function getContextResultType(relPath: string): ContextSearchResult['type'] {
+  const normalized = relPath.toLowerCase();
+  if (normalized.startsWith(`${ROOM_DIR}/tasks/`)) return 'task';
+  if (normalized.startsWith(`${ROOM_DIR}/discussions/`)) return 'discussion';
+  if (
+    normalized.startsWith(`${ROOM_DIR}/documents/`) ||
+    normalized.startsWith(`${ROOM_DIR}/reviews/`) ||
+    normalized.startsWith(`${ROOM_DIR}/decisions/`) ||
+    normalized.startsWith('docs/') ||
+    normalized.endsWith('/todo.md') ||
+    normalized.endsWith('/roadmap.md') ||
+    normalized.endsWith('/requirements.md') ||
+    normalized.endsWith('/spec.md')
+  ) {
+    return 'doc';
+  }
+  return 'file';
+}
+
+function getContextRef(relPath: string): string {
+  if (
+    relPath.startsWith(`${ROOM_DIR}/documents/`) ||
+    relPath.startsWith(`${ROOM_DIR}/reviews/`) ||
+    relPath.startsWith(`${ROOM_DIR}/decisions/`) ||
+    relPath.startsWith(`${ROOM_DIR}/discussions/`)
+  ) {
+    return `file:${relPath}`;
+  }
+  if (relPath.startsWith(`${ROOM_DIR}/tasks/`)) {
+    return `task:${path.basename(relPath)}`;
+  }
+  return `file:${relPath}`;
+}
+
+function getContextLabel(type: ContextSearchResult['type'], relPath: string, heading?: string): string {
+  if (type === 'workspace') return relPath;
+  const prefix = type === 'task' ? 'Task' : type === 'doc' ? 'Doc' : type === 'discussion' ? 'Chat' : 'File';
+  return `${prefix}: ${heading || relPath}`;
+}
+
+function scoreContextCandidate(relPath: string, query: string, modifiedAtMs: number): number {
+  const normalized = relPath.toLowerCase();
+  const queryParts = query.split(/\s+/).filter(Boolean);
+  let score = 0;
+
+  if (normalized.startsWith(`${ROOM_DIR}/tasks/`)) score += 180;
+  if (normalized.startsWith(`${ROOM_DIR}/documents/`)) score += 145;
+  if (normalized.startsWith(`${ROOM_DIR}/reviews/`) || normalized.startsWith(`${ROOM_DIR}/decisions/`)) score += 130;
+  if (normalized.startsWith(`${ROOM_DIR}/discussions/`)) score += 90;
+  if (normalized.startsWith('docs/')) score += 150;
+  if (!normalized.includes('/')) score += 90;
+  if (/\b(todo|roadmap|plan|spec|requirement|requirements|issue|bug|feature|implementation|ticket|backlog|notes?)\b/.test(normalized)) score += 80;
+  if (normalized.endsWith('.md') || normalized.endsWith('.mdx') || normalized.endsWith('.txt')) score += 45;
+  if (normalized.endsWith('.ts') || normalized.endsWith('.tsx') || normalized.endsWith('.js') || normalized.endsWith('.jsx')) score += 25;
+
+  if (queryParts.length > 0) {
+    const basename = path.basename(normalized);
+    const allMatch = queryParts.every(part => normalized.includes(part));
+    if (!allMatch) return -1;
+    score += 220;
+    for (const part of queryParts) {
+      if (basename.includes(part)) score += 80;
+      if (normalized.startsWith(part)) score += 60;
+    }
+  }
+
+  const ageHours = Math.max(0, (Date.now() - modifiedAtMs) / 36e5);
+  score += Math.max(0, 60 - Math.min(60, ageHours / 12));
+  return score;
+}
+
+async function readContextSearchPreview(filePath: string, size: number): Promise<string> {
+  if (size > CONTEXT_SEARCH_PREVIEW_LIMIT_BYTES) return '';
+  const buffer = await fs.readFile(filePath).catch(() => Buffer.alloc(0));
+  if (buffer.includes(0)) return '';
+  return buffer.toString('utf-8');
+}
+
+function extractMarkdownHeading(content: string): string | undefined {
+  const heading = content
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => /^#{1,3}\s+\S/.test(line));
+  return heading?.replace(/^#{1,3}\s+/, '').trim().slice(0, 100);
+}
+
+async function readSkillPreview(projectRoot: string, filename: string): Promise<SkillPreviewItem> {
+  const safeFilename = sanitizeFileName(filename);
+  if (!safeFilename.toLowerCase().endsWith('.md')) {
+    return { filename: safeFilename, readable: false, error: 'Skill filename must end with .md.' };
+  }
+
+  for (const source of ['skills', 'roles'] as const) {
+    const candidate = resolveWithinProject(projectRoot, ROOM_DIR, source, safeFilename);
+    try {
+      const content = await readTextFileWithLimit(candidate, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES);
+      return {
+        filename: safeFilename,
+        readable: true,
+        source,
+        bytes: Buffer.byteLength(content, 'utf-8'),
+        heading: extractMarkdownHeading(content)
+      };
+    } catch {}
+  }
+
+  return { filename: safeFilename, readable: false, error: 'Skill file was not found in .room/skills or .room/roles.' };
+}
+
+function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat?: string): string {
+  if (provider !== 'Local CLI') {
+    return 'Sent in the provider system instruction as an Active Skills block.';
+  }
+  if (cliPreset === 'codewhale' || cliPreset === 'agy') {
+    return 'Sent inside the composed prompt argument under # Instructions and Active Skills.';
+  }
+  if (cliPreset && cliPreset !== 'none') {
+    return 'Sent to the local CLI through stdin with instructions before the request.';
+  }
+  return stdinFormat === 'json'
+    ? 'Sent to the custom command as JSON systemInstruction plus prompt.'
+    : 'Sent to the custom command as plain text instructions before the request.';
+}
+
+async function searchContextItems(projectRoot: string, query = ''): Promise<ContextSearchResult[]> {
+  const root = resolveProjectPath(projectRoot);
+  const normalizedQuery = query.trim().toLowerCase();
+  const results: Array<ContextSearchResult & { score: number }> = [
+    {
+      ref: 'workspace:overview',
+      label: 'Workspace Overview',
+      type: 'workspace' as const,
+      detail: '.room/context/overview.md',
+      score: normalizedQuery ? ('workspace overview'.includes(normalizedQuery) ? 500 : -1) : 500
+    },
+    {
+      ref: 'workspace:structure',
+      label: 'Workspace Structure',
+      type: 'workspace' as const,
+      detail: '.room/context/structure.md',
+      score: normalizedQuery ? ('workspace structure architecture'.includes(normalizedQuery) ? 490 : -1) : 490
+    }
+  ].filter(result => result.score >= 0);
+  let scanned = 0;
+
+  async function walk(currentDir: string) {
+    if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
+    const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
+      if (entry.name.startsWith('.') && entry.name !== ROOM_DIR) continue;
+      if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
+
+      const fullPath = resolveWithinProject(root, path.relative(root, path.join(currentDir, entry.name)));
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      scanned += 1;
+      const stat = await fs.stat(fullPath).catch(() => null);
+      if (!stat || !stat.isFile()) continue;
+      if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) continue;
+
+      const relPath = path.relative(root, fullPath).split(path.sep).join('/');
+      const normalized = relPath.toLowerCase();
+      if (normalized.startsWith(`${ROOM_DIR}/discussions/`) && !normalized.endsWith('.md')) {
+        continue;
+      }
+      const shouldReadPreview = /\.(md|mdx|txt)$/i.test(relPath) || normalized.startsWith('docs/') || normalized.startsWith(`${ROOM_DIR}/`);
+      const preview = shouldReadPreview ? await readContextSearchPreview(fullPath, stat.size) : '';
+      const previewSearch = preview.toLowerCase();
+      const isLikelyContext =
+        normalizedQuery ||
+        normalized.startsWith(`${ROOM_DIR}/`) ||
+        normalized.startsWith('docs/') ||
+        !normalized.includes('/') ||
+        /\.(md|mdx|txt)$/i.test(relPath);
+      if (!isLikelyContext) continue;
+
+      let score = scoreContextCandidate(relPath, normalizedQuery, stat.mtimeMs);
+      if (score < 0 && normalizedQuery && previewSearch) {
+        const queryParts = normalizedQuery.split(/\s+/).filter(Boolean);
+        if (queryParts.every(part => previewSearch.includes(part))) {
+          score = 210 + Math.max(0, 60 - Math.min(60, (Date.now() - stat.mtimeMs) / 36e5 / 12));
+        }
+      }
+      if (score < 0) continue;
+      const type = getContextResultType(relPath);
+      const heading = preview ? extractMarkdownHeading(preview) : undefined;
+      results.push({
+        ref: getContextRef(relPath),
+        label: getContextLabel(type, relPath, heading),
+        type,
+        path: relPath,
+        detail: `${formatBytes(stat.size)} · modified ${stat.mtime.toISOString().slice(0, 10)}`,
+        modifiedAt: stat.mtime.toISOString(),
+        size: stat.size,
+        score
+      });
+    }
+  }
+
+  await walk(root);
+  const byRef = new Map<string, ContextSearchResult & { score: number }>();
+  for (const result of results) {
+    const existing = byRef.get(result.ref);
+    if (!existing || result.score > existing.score) byRef.set(result.ref, result);
+  }
+  return Array.from(byRef.values())
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+    .slice(0, CONTEXT_SEARCH_RESULT_LIMIT)
+    .map(({ score, ...result }) => result);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function readFirstExistingFile(paths: string[]): Promise<string> {
@@ -782,15 +1031,19 @@ ipcMain.handle('read-room-file', async (event, { dirPath, section, filename }: {
     const safeFilename = sanitizeFileName(filename);
     const sectionsToTry = section === 'documents'
       ? ['documents', 'reviews', 'decisions']
-      : [section];
+      : section === 'skills'
+        ? ['skills', 'roles']
+        : [section];
 
     let filePath = '';
+    let sourceSection = '';
     for (const sectionToTry of sectionsToTry) {
       const candidate = resolveWithinProject(projectRoot, ROOM_DIR, sectionToTry, safeFilename);
       try {
         const stat = await fs.stat(candidate);
         if (stat.isFile()) {
           filePath = candidate;
+          sourceSection = sectionToTry;
           break;
         }
       } catch {}
@@ -801,7 +1054,7 @@ ipcMain.handle('read-room-file', async (event, { dirPath, section, filename }: {
     }
 
     const content = await fs.readFile(filePath, 'utf-8');
-    return { success: true, content };
+    return { success: true, content, sourceSection };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -812,6 +1065,16 @@ ipcMain.handle('list-workspace-files', async (event, dirPath: string) => {
     const projectRoot = requireBoundProjectRoot(dirPath);
     const files = await listWorkspaceFiles(projectRoot);
     return { success: true, files, truncated: files.length >= WORKSPACE_FILE_LIMIT };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('search-context-items', async (event, { dirPath, query }: { dirPath: string; query?: string }) => {
+  try {
+    const projectRoot = requireBoundProjectRoot(dirPath);
+    const items = await searchContextItems(projectRoot, query || '');
+    return { success: true, items };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -1103,10 +1366,11 @@ ipcMain.handle('save-context-file', async (event, { dirPath, filename, content }
   }
 });
 
-ipcMain.handle('save-skill', async (event, { dirPath, name, content }: { dirPath: string; name: string; content: string }) => {
+ipcMain.handle('save-skill', async (event, { dirPath, name, content, source }: { dirPath: string; name: string; content: string; source?: string }) => {
   try {
     const projectRoot = requireBoundProjectRoot(dirPath);
-    const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'skills');
+    const targetSection = source === 'roles' ? 'roles' : 'skills';
+    const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, targetSection);
     await fs.mkdir(skillsDir, { recursive: true });
     const filename = sanitizeFileName(name || 'untitled', 'untitled');
     const fileNameWithExt = filename.endsWith('.md') ? filename : `${filename}.md`;
@@ -1141,6 +1405,26 @@ ipcMain.handle('save-agent', async (event, { dirPath, agent }: { dirPath: string
     const filePath = resolveWithinProject(agentsDir, filename);
     await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
     return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('preview-agent-skills', async (event, { dirPath, agent }: { dirPath: string; agent: any }) => {
+  try {
+    const projectRoot = requireBoundProjectRoot(dirPath);
+    const skills: string[] = Array.isArray(agent?.skills)
+      ? agent.skills.filter((skill: unknown): skill is string => typeof skill === 'string')
+      : [];
+    const items = await Promise.all(skills.map(skill => readSkillPreview(projectRoot, skill)));
+    const readableCount = items.filter(item => item.readable).length;
+    return {
+      success: true,
+      delivery: describeSkillDelivery(agent?.provider || '', agent?.cliPreset, agent?.stdinFormat),
+      readableCount,
+      totalCount: items.length,
+      items
+    };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

@@ -30,6 +30,30 @@ interface WorkspaceFileEntry {
   modifiedAt: string;
 }
 
+interface ContextPickerItem {
+  ref: string;
+  label: string;
+  type: 'workspace' | 'task' | 'doc' | 'discussion' | 'file';
+  path?: string;
+  detail: string;
+  modifiedAt?: string;
+  size?: number;
+}
+
+interface SkillPreviewResult {
+  delivery: string;
+  readableCount: number;
+  totalCount: number;
+  items: {
+    filename: string;
+    readable: boolean;
+    source?: 'skills' | 'roles';
+    bytes?: number;
+    heading?: string;
+    error?: string;
+  }[];
+}
+
 interface ApiKeyStatus {
   gemini: boolean;
   anthropic: boolean;
@@ -56,8 +80,9 @@ declare global {
         agents: any[];
         error?: string;
       }>;
-      readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions', filename: string) => Promise<{ success: boolean; content?: string; error?: string }>;
+      readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) => Promise<{ success: boolean; content?: string; sourceSection?: string; error?: string }>;
       listWorkspaceFiles: (dirPath: string) => Promise<{ success: boolean; files?: WorkspaceFileEntry[]; truncated?: boolean; error?: string }>;
+      searchContextItems: (dirPath: string, query?: string) => Promise<{ success: boolean; items?: ContextPickerItem[]; error?: string }>;
       readWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>;
       runScan: (dirPath: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) => Promise<{ success: boolean; message: string }>;
       runDiscussion: (
@@ -129,7 +154,8 @@ declare global {
       saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
       saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
       deleteAgent: (dirPath: string, agentName: string) => Promise<{ success: boolean; error?: string }>;
-      saveSkill: (dirPath: string, name: string, content: string) => Promise<{ success: boolean; error?: string }>;
+      saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<{ success: boolean; error?: string }>;
+      previewAgentSkills: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string } & Partial<SkillPreviewResult>>;
       detectLocalAgents: () => Promise<{ success: boolean; agents?: DetectedAgent[]; error?: string }>;
       loadApiKeys: () => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
       saveApiKeys: (keys: { geminiApiKey?: string; anthropicApiKey?: string; openaiApiKey?: string }) => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
@@ -965,12 +991,21 @@ export default function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
   const [customSkillName, setCustomSkillName] = useState<string>('');
   const [customSkillDesc, setCustomSkillDesc] = useState<string>('');
+  const [editingSkillFile, setEditingSkillFile] = useState<string>('');
+  const [editingSkillContent, setEditingSkillContent] = useState<string>('');
+  const [editingSkillSource, setEditingSkillSource] = useState<'skills' | 'roles'>('skills');
+  const [skillPreview, setSkillPreview] = useState<SkillPreviewResult | null>(null);
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
   const [selectedTeamPresetName, setSelectedTeamPresetName] = useState<string>(teamPresets[0]?.name || '');
   const [teamPresetProvider, setTeamPresetProvider] = useState<'Gemini' | 'Claude' | 'Codex'>('Gemini');
   const [selectedDiscussionAgents, setSelectedDiscussionAgents] = useState<string[]>([]);
   const [dynamicCliModels, setDynamicCliModels] = useState<Record<string, { value: string; label: string }[]>>({});
+  const [contextPickerTarget, setContextPickerTarget] = useState<'discussion' | 'task' | null>(null);
+  const [contextPickerQuery, setContextPickerQuery] = useState<string>('');
+  const [contextPickerTab, setContextPickerTab] = useState<'Suggested' | 'Tasks' | 'Docs' | 'Files'>('Suggested');
+  const [contextPickerItems, setContextPickerItems] = useState<ContextPickerItem[]>([]);
+  const [contextPickerLoading, setContextPickerLoading] = useState<boolean>(false);
 
   // MCP Client State
   const [mcpConfig, setMcpConfig] = useState<{ mcpServers: Record<string, any> }>({ mcpServers: {} });
@@ -1025,6 +1060,38 @@ export default function App() {
   const [selectedWorkspaceFile, setSelectedWorkspaceFile] = useState<string>('');
   const [selectedWorkspaceFileContent, setSelectedWorkspaceFileContent] = useState<string>('');
   const [workspaceFileSearch, setWorkspaceFileSearch] = useState<string>('');
+
+  useEffect(() => {
+    if (!projectPath || !contextPickerTarget) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setContextPickerLoading(true);
+      try {
+        const res = await window.electronAPI.searchContextItems(projectPath, contextPickerQuery);
+        if (cancelled) return;
+        if (res.success) {
+          setContextPickerItems(res.items || []);
+        } else {
+          setContextPickerItems([]);
+          setErrorMsg(res.error || 'Failed to search context.');
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setContextPickerItems([]);
+          setErrorMsg(err.message || 'Failed to search context.');
+        }
+      } finally {
+        if (!cancelled) {
+          setContextPickerLoading(false);
+        }
+      }
+    }, contextPickerQuery.trim() ? 180 : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [projectPath, contextPickerTarget, contextPickerQuery]);
 
   // Fetch dynamic models when Main Workspace Agent changes in settings
   useEffect(() => {
@@ -1301,6 +1368,10 @@ export default function App() {
     setNewAgentPermissionMode('safe');
     setCustomSkillName('');
     setCustomSkillDesc('');
+    setEditingSkillFile('');
+    setEditingSkillContent('');
+    setEditingSkillSource('skills');
+    setSkillPreview(null);
     setEditingAgent(null);
   };
 
@@ -1313,10 +1384,12 @@ export default function App() {
     setNewAgentModelCustom(false);
     setNewAgentPrompt(agent.systemPrompt);
     setNewAgentSkills(agent.skills || []);
+    setSkillPreview(null);
     setNewAgentPreset(agent.cliPreset || 'none');
     setNewAgentCommand(agent.command || '');
     setNewAgentStdinFormat(agent.stdinFormat || 'text');
     setNewAgentPermissionMode(agent.permissionMode || 'safe');
+    setEditingSkillSource('skills');
     setActiveTab(`Agent:${agent.name}`);
   };
 
@@ -1740,7 +1813,7 @@ export default function App() {
   };
 
   const loadRoomFilePreview = async (
-    section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions',
+    section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills',
     filename: string
   ) => {
     if (!projectPath || !filename) return;
@@ -1763,6 +1836,10 @@ export default function App() {
         setSelectedReviewFile(filename);
         setSelectedReviewSection(section);
         setSelectedReviewContent(res.content || '');
+      } else if (section === 'skills') {
+        setEditingSkillFile(filename);
+        setEditingSkillContent(res.content || '');
+        setEditingSkillSource(res.sourceSection === 'roles' ? 'roles' : 'skills');
       } else {
         setSelectedReviewFile(filename);
         setSelectedReviewSection(section);
@@ -1795,20 +1872,70 @@ export default function App() {
     }
   };
 
-  const toggleDiscussionContextRef = (ref: string) => {
-    setSelectedDiscussionContextRefs(prev =>
-      prev.includes(ref)
-        ? prev.filter(item => item !== ref)
-        : [...prev, ref]
+  const openContextPicker = (target: 'discussion' | 'task') => {
+    setContextPickerTarget(target);
+    setContextPickerQuery('');
+    setContextPickerTab('Suggested');
+  };
+
+  const closeContextPicker = () => {
+    setContextPickerTarget(null);
+  };
+
+  const getContextSelection = (target: 'discussion' | 'task') => (
+    target === 'discussion' ? selectedDiscussionContextRefs : selectedCodingTaskContextRefs
+  );
+
+  const setContextSelection = (target: 'discussion' | 'task', refs: string[]) => {
+    if (target === 'discussion') {
+      setSelectedDiscussionContextRefs(refs);
+    } else {
+      setSelectedCodingTaskContextRefs(refs);
+    }
+  };
+
+  const toggleContextSelection = (target: 'discussion' | 'task', ref: string) => {
+    const selectedRefs = getContextSelection(target);
+    setContextSelection(
+      target,
+      selectedRefs.includes(ref)
+        ? selectedRefs.filter(item => item !== ref)
+        : [...selectedRefs, ref]
     );
   };
 
-  const toggleCodingTaskContextRef = (ref: string) => {
-    setSelectedCodingTaskContextRefs(prev =>
-      prev.includes(ref)
-        ? prev.filter(item => item !== ref)
-        : [...prev, ref]
-    );
+  const getContextLabel = (ref: string) => {
+    if (ref === 'workspace:overview') return 'Workspace Overview';
+    if (ref === 'workspace:structure') return 'Workspace Structure';
+    const known = contextPickerItems.find(item => item.ref === ref);
+    if (known) return known.label;
+    if (ref.startsWith('task:')) return `Task: ${ref.slice('task:'.length)}`;
+    if (ref.startsWith('document:')) return `Doc: ${ref.slice('document:'.length)}`;
+    if (ref.startsWith('discussion:')) return `Chat: ${ref.slice('discussion:'.length)}`;
+    if (ref.startsWith('file:')) return `File: ${ref.slice('file:'.length)}`;
+    return ref;
+  };
+
+  const getFilteredContextItems = () => {
+    if (contextPickerTab === 'Tasks') {
+      return contextPickerItems.filter(item => item.type === 'task' || /task|todo|plan|issue|bug|ticket|backlog/i.test(`${item.label} ${item.path || ''}`));
+    }
+    if (contextPickerTab === 'Docs') {
+      return contextPickerItems.filter(item => item.type === 'doc' || item.type === 'workspace');
+    }
+    if (contextPickerTab === 'Files') {
+      return contextPickerItems.filter(item => item.type === 'file');
+    }
+    return contextPickerItems;
+  };
+
+  const estimateContextTokens = (target: 'discussion' | 'task') => {
+    const selectedRefs = getContextSelection(target);
+    const bytes = selectedRefs.reduce((total, ref) => {
+      const item = contextPickerItems.find(candidate => candidate.ref === ref);
+      return total + (item?.size || 12000);
+    }, 0);
+    return Math.max(selectedRefs.length * 80, Math.round(bytes / 4));
   };
 
   const buildDiscussionSummaryMarkdown = () => {
@@ -2400,6 +2527,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       if (res.success) {
         setCustomSkillName('');
         setCustomSkillDesc('');
+        setEditingSkillFile(filename);
+        setEditingSkillContent(defaultContent);
+        setEditingSkillSource('skills');
         await loadProjectData(projectPath);
         setNewAgentSkills(prev => [...prev, filename]);
       } else {
@@ -2407,6 +2537,54 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving skill.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveEditingSkill = async () => {
+    if (!projectPath || !editingSkillFile.trim()) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const res = await window.electronAPI.saveSkill(projectPath, editingSkillFile, editingSkillContent, editingSkillSource);
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to save skill.');
+        return;
+      }
+      await loadProjectData(projectPath);
+      setNewAgentSkills(prev => prev.includes(editingSkillFile) ? prev : [...prev, editingSkillFile]);
+      setSkillPreview(null);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error occurred while saving skill.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePreviewAgentSkills = async () => {
+    if (!projectPath) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const res = await window.electronAPI.previewAgentSkills(projectPath, {
+        provider: newAgentProvider,
+        cliPreset: newAgentProvider === 'Local CLI' ? newAgentPreset : undefined,
+        stdinFormat: newAgentProvider === 'Local CLI' ? newAgentStdinFormat : undefined,
+        skills: newAgentSkills
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to check skills.');
+        return;
+      }
+      setSkillPreview({
+        delivery: res.delivery || 'Skills are sent as Active Skills in the agent instructions.',
+        readableCount: res.readableCount || 0,
+        totalCount: res.totalCount || 0,
+        items: res.items || []
+      });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error occurred while checking skills.');
     } finally {
       setLoading(false);
     }
@@ -2460,6 +2638,249 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     )}
   ];
 
+  const renderContextControl = (target: 'discussion' | 'task', title: string) => {
+    const selectedRefs = getContextSelection(target);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px 14px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>
+            {title}
+          </span>
+          <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
+            {selectedRefs.length} selected · ~{estimateContextTokens(target).toLocaleString()} tokens
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={loading}
+            onClick={() => openContextPicker(target)}
+            style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+          >
+            Add Context
+          </button>
+          {selectedRefs.length > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={loading}
+              onClick={() => setContextSelection(target, [])}
+              style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '86px', overflowY: 'auto' }}>
+          {selectedRefs.length === 0 ? (
+            <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-muted))' }}>
+              No additional context selected.
+            </span>
+          ) : selectedRefs.map(ref => (
+            <button
+              key={ref}
+              type="button"
+              disabled={loading}
+              onClick={() => toggleContextSelection(target, ref)}
+              title={getContextLabel(ref)}
+              className="skill-checkbox-chip selected"
+              style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '14px', maxWidth: '280px' }}
+            >
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                ✓ {getContextLabel(ref)}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderContextPickerPanel = () => {
+    if (!contextPickerTarget) return null;
+    const selectedRefs = getContextSelection(contextPickerTarget);
+    const filteredItems = getFilteredContextItems();
+    const tabs: Array<typeof contextPickerTab> = ['Suggested', 'Tasks', 'Docs', 'Files'];
+
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 80,
+          background: 'rgba(6, 8, 16, 0.72)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '28px'
+        }}
+      >
+        <div style={{
+          width: 'min(1080px, 100%)',
+          height: 'min(720px, calc(100vh - 56px))',
+          background: 'hsl(var(--bg-main))',
+          border: '1px solid hsl(var(--border-dim))',
+          borderRadius: '8px',
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) 300px',
+          overflow: 'hidden',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.42)'
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border-dim))', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '1rem', fontWeight: 700 }}>Add Context</div>
+                <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
+                  Search project tasks, docs, and files without loading the whole workspace into the picker.
+                </div>
+              </div>
+              <button type="button" className="btn-secondary" onClick={closeContextPicker} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                Close
+              </button>
+            </div>
+
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid hsl(var(--border-dim))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input
+                type="search"
+                autoFocus
+                value={contextPickerQuery}
+                onChange={(e) => setContextPickerQuery(e.target.value)}
+                placeholder="Search tasks, docs, paths, filenames..."
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  backgroundColor: 'hsl(var(--bg-input))',
+                  border: '1px solid hsl(var(--border-dim))',
+                  borderRadius: '8px',
+                  padding: '0 12px',
+                  color: 'white',
+                  fontFamily: 'inherit',
+                  outline: 'none'
+                }}
+              />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {tabs.map(tab => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={contextPickerTab === tab ? 'btn-primary' : 'btn-secondary'}
+                    onClick={() => setContextPickerTab(tab)}
+                    style={{ padding: '7px 12px', fontSize: '0.78rem' }}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {contextPickerLoading ? (
+                <div style={{ color: 'hsl(var(--text-muted))', padding: '24px 4px', fontSize: '0.86rem' }}>Searching context...</div>
+              ) : filteredItems.length === 0 ? (
+                <div style={{ color: 'hsl(var(--text-muted))', padding: '24px 4px', fontSize: '0.86rem' }}>No matching context found.</div>
+              ) : filteredItems.map(item => {
+                const selected = selectedRefs.includes(item.ref);
+                return (
+                  <button
+                    key={`${item.ref}-${item.path || item.label}`}
+                    type="button"
+                    onClick={() => toggleContextSelection(contextPickerTarget, item.ref)}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '22px minmax(0, 1fr) auto',
+                      gap: '10px',
+                      alignItems: 'center',
+                      width: '100%',
+                      minHeight: '58px',
+                      background: selected ? 'hsl(var(--accent-purple) / 0.14)' : 'hsl(var(--bg-card))',
+                      border: selected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      color: 'inherit',
+                      textAlign: 'left',
+                      font: 'inherit',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '4px',
+                      border: selected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
+                      background: selected ? 'hsl(var(--accent-purple))' : 'transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.72rem'
+                    }}>
+                      {selected ? '✓' : ''}
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.86rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.label}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.72rem', color: 'hsl(var(--text-muted))', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.detail}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>
+                      {item.type}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ borderLeft: '1px solid hsl(var(--border-dim))', background: 'hsl(var(--bg-sidebar))', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{ padding: '16px', borderBottom: '1px solid hsl(var(--border-dim))' }}>
+              <div style={{ fontSize: '0.82rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>Selected Context</div>
+              <div style={{ fontSize: '0.76rem', color: 'hsl(var(--text-secondary))', marginTop: '4px' }}>
+                {selectedRefs.length} items · ~{estimateContextTokens(contextPickerTarget).toLocaleString()} tokens
+              </div>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {selectedRefs.length === 0 ? (
+                <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.82rem', lineHeight: 1.45 }}>Selected items will appear here before they are attached.</div>
+              ) : selectedRefs.map(ref => (
+                <button
+                  key={ref}
+                  type="button"
+                  onClick={() => toggleContextSelection(contextPickerTarget, ref)}
+                  title={getContextLabel(ref)}
+                  style={{
+                    border: '1px solid hsl(var(--border-dim))',
+                    background: 'hsl(var(--bg-card))',
+                    color: 'inherit',
+                    borderRadius: '8px',
+                    padding: '8px 10px',
+                    textAlign: 'left',
+                    font: 'inherit',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <div style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getContextLabel(ref)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>Click to remove</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '14px', borderTop: '1px solid hsl(var(--border-dim))', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-secondary" onClick={() => setContextSelection(contextPickerTarget, [])} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                Clear
+              </button>
+              <button type="button" className="btn-primary" onClick={closeContextPicker} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                Attach
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderMainTab = () => {
     if (activeTab === 'Discussions') {
       const getAlignment = (role: string, idx: number) => {
@@ -2472,17 +2893,6 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       const discussionFiles = (projectData?.discussions || [])
         .filter(file => file.toLowerCase().endsWith('.md'))
         .sort((a, b) => b.localeCompare(a));
-      const contextOptions = [
-        { ref: 'workspace:overview', label: 'Workspace Overview' },
-        { ref: 'workspace:structure', label: 'Workspace Structure' },
-        ...discussionFiles.slice(0, 6).map(file => ({ ref: `discussion:${file}`, label: `Chat Ref: ${file}` })),
-        ...(projectData?.documents || []).slice(0, 12).map(file => ({ ref: `document:${file}`, label: `Doc: ${file}` })),
-        ...(projectData?.tasks || []).slice(0, 8).map(file => ({ ref: `task:${file}`, label: `Task: ${file}` })),
-        ...workspaceFiles
-          .filter(file => !file.path.startsWith('.room/'))
-          .slice(0, 16)
-          .map(file => ({ ref: `file:${file.path}`, label: `File: ${file.path}` }))
-      ];
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -2574,39 +2984,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             })}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', background: 'hsl(var(--bg-sidebar))', borderRadius: '12px', border: '1px solid hsl(var(--border-dim))', marginTop: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase' }}>
-                Context Picker
-              </span>
-              <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
-                {selectedDiscussionContextRefs.length} selected
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '92px', overflowY: 'auto' }}>
-              {contextOptions.map(option => {
-                const selected = selectedDiscussionContextRefs.includes(option.ref);
-                return (
-                  <label
-                    key={option.ref}
-                    className={`skill-checkbox-chip ${selected ? 'selected' : ''}`}
-                    title={option.label}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '14px', maxWidth: '260px' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      disabled={loading}
-                      onChange={() => toggleDiscussionContextRef(option.ref)}
-                    />
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {selected ? '✓ ' : '+ '}
-                      {option.label}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
+          <div style={{ marginTop: '24px' }}>
+            {renderContextControl('discussion', 'Context Picker')}
           </div>
 
           {/* Dynamic Agent Selector */}
@@ -2779,20 +3158,6 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
     if (activeTab === 'Task Run') {
       const agents = projectData?.agents || [];
-      const taskFiles = (projectData?.tasks || [])
-        .filter(file => file.toLowerCase().endsWith('.md'))
-        .sort((a, b) => b.localeCompare(a));
-      const contextOptions = [
-        { ref: 'workspace:overview', label: 'Workspace Overview' },
-        { ref: 'workspace:structure', label: 'Workspace Structure' },
-        ...(projectData?.documents || []).slice(0, 10).map(file => ({ ref: `document:${file}`, label: `Doc: ${file}` })),
-        ...taskFiles.slice(0, 8).map(file => ({ ref: `task:${file}`, label: `Task: ${file}` })),
-        ...(projectData?.discussions || []).slice(0, 6).map(file => ({ ref: `discussion:${file}`, label: `Chat Ref: ${file}` })),
-        ...workspaceFiles
-          .filter(file => !file.path.startsWith('.room/'))
-          .slice(0, 20)
-          .map(file => ({ ref: `file:${file.path}`, label: `File: ${file.path}` }))
-      ];
 
       return (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) 1fr', gap: '24px', height: '100%', minHeight: '620px' }}>
@@ -2905,40 +3270,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </label>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>
-                  Task Context
-                </span>
-                <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
-                  {selectedCodingTaskContextRefs.length} selected
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '136px', overflowY: 'auto' }}>
-                {contextOptions.map(option => {
-                  const selected = selectedCodingTaskContextRefs.includes(option.ref);
-                  return (
-                    <label
-                      key={option.ref}
-                      className={`skill-checkbox-chip ${selected ? 'selected' : ''}`}
-                      title={option.label}
-                      style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '14px', maxWidth: '260px' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={loading}
-                        onChange={() => toggleCodingTaskContextRef(option.ref)}
-                      />
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selected ? '✓ ' : '+ '}
-                        {option.label}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
+            {renderContextControl('task', 'Task Context')}
 
             <button
               className="btn-primary"
@@ -3581,6 +3913,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         setNewAgentPermissionMode('safe');
                         setNewAgentModelCustom(false);
                         setNewAgentModel('');
+                        setSkillPreview(null);
                       } else {
                         setNewAgentProvider(val as any);
                         setNewAgentPreset('none');
@@ -3588,6 +3921,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         const defaults = getModelOptions(val);
                         setNewAgentModelCustom(false);
                         setNewAgentModel(defaults[0]?.value || '');
+                        setSkillPreview(null);
                       }
                     }}
                     style={{
@@ -3718,7 +4052,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                           <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Stdin Format</label>
                           <select 
                             value={newAgentStdinFormat}
-                            onChange={(e) => setNewAgentStdinFormat(e.target.value as any)}
+                            onChange={(e) => {
+                              setNewAgentStdinFormat(e.target.value as any);
+                              setSkillPreview(null);
+                            }}
                             style={{
                               backgroundColor: 'hsl(var(--bg-input))',
                               border: '1px solid hsl(var(--border-dim))',
@@ -3795,32 +4132,188 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
               {/* Right Column: Skills */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Assign Skills</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Assign Skills</label>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={loading || newAgentSkills.length === 0}
+                    onClick={handlePreviewAgentSkills}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', height: 'auto' }}
+                  >
+                    Check Skills
+                  </button>
+                </div>
                 {availableSkills.length === 0 ? (
                   <span style={{ fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>No skills found. Create a custom skill below or save an agent without skills.</span>
                 ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
                     {availableSkills.map((skill) => {
                       const isSelected = newAgentSkills.includes(skill);
                       return (
-                        <label 
-                          key={skill} 
-                          className={`skill-checkbox-chip ${isSelected ? 'selected' : ''}`}
+                        <div
+                          key={skill}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(0, 1fr) auto',
+                            gap: '8px',
+                            alignItems: 'center',
+                            background: editingSkillFile === skill ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-input))',
+                            border: editingSkillFile === skill ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
+                            borderRadius: '8px',
+                            padding: '8px 10px'
+                          }}
                         >
-                          <input 
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {
-                              setNewAgentSkills(prev => 
-                                prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
-                              );
-                            }}
-                          />
-                          {isSelected ? '✓ ' : '+ '}
-                          {skill.replace('.md', '').replace(/-/g, ' ')}
-                        </label>
+                          <label
+                            className={`skill-checkbox-chip ${isSelected ? 'selected' : ''}`}
+                            style={{ minWidth: 0, width: '100%', justifyContent: 'flex-start' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSkillPreview(null);
+                                setNewAgentSkills(prev =>
+                                  prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+                                );
+                              }}
+                            />
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {isSelected ? '✓ ' : '+ '}
+                              {skill.replace('.md', '').replace(/-/g, ' ')}
+                            </span>
+                          </label>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading}
+                            onClick={() => loadRoomFilePreview('skills', skill)}
+                            style={{ fontSize: '0.72rem', padding: '5px 9px', height: 'auto' }}
+                          >
+                            Edit
+                          </button>
+                        </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {skillPreview && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    background: skillPreview.readableCount === skillPreview.totalCount ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                    border: skillPreview.readableCount === skillPreview.totalCount ? '1px solid rgba(16, 185, 129, 0.28)' : '1px solid rgba(239, 68, 68, 0.28)',
+                    borderRadius: '8px',
+                    padding: '10px 12px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'hsl(var(--text-secondary))' }}>
+                        {skillPreview.readableCount}/{skillPreview.totalCount} skills readable
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: skillPreview.readableCount === skillPreview.totalCount ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                        {skillPreview.readableCount === skillPreview.totalCount ? 'READY' : 'CHECK NEEDED'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', lineHeight: 1.45 }}>
+                      {skillPreview.delivery}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {skillPreview.items.map(item => (
+                        <div
+                          key={item.filename}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '18px minmax(0, 1fr)',
+                            gap: '8px',
+                            alignItems: 'start',
+                            fontSize: '0.72rem',
+                            color: item.readable ? 'hsl(var(--text-secondary))' : '#ef4444'
+                          }}
+                        >
+                          <span>{item.readable ? '✓' : '!'}</span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {item.filename}{item.source ? ` · .room/${item.source}` : ''}
+                            </span>
+                            <span style={{ display: 'block', color: 'hsl(var(--text-muted))', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {item.readable ? `${item.heading || 'No heading'} · ${formatFileSize(item.bytes || 0)}` : item.error}
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {editingSkillFile && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    background: 'hsl(var(--bg-input))',
+                    border: '1px solid hsl(var(--border-dim))',
+                    borderRadius: '8px',
+                    padding: '12px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
+                          Edit Skill
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {editingSkillFile}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={loading}
+                        onClick={() => {
+                          setEditingSkillFile('');
+                          setEditingSkillContent('');
+                          setEditingSkillSource('skills');
+                        }}
+                        style={{ fontSize: '0.72rem', padding: '5px 9px', height: 'auto' }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <textarea
+                      value={editingSkillContent}
+                      onChange={(e) => setEditingSkillContent(e.target.value)}
+                      rows={10}
+                      disabled={loading}
+                      style={{
+                        width: '100%',
+                        resize: 'vertical',
+                        minHeight: '180px',
+                        backgroundColor: 'hsl(var(--bg-card))',
+                        border: '1px solid hsl(var(--border-dim))',
+                        borderRadius: '8px',
+                        padding: '10px 12px',
+                        color: 'white',
+                        fontFamily: 'monospace',
+                        fontSize: '0.78rem',
+                        lineHeight: 1.5,
+                        outline: 'none'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
+                        Saved edits are written to .room/{editingSkillSource} and can be assigned immediately.
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={loading}
+                        onClick={handleSaveEditingSkill}
+                        style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
+                      >
+                        Save Skill
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -4747,6 +5240,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       <div className="titlebar-drag">
         ROOM — AI-Native Project Workspace
       </div>
+      {renderContextPickerPanel()}
 
       {projectPath === null ? (
         <div className="welcome-container" style={{ maxWidth: '640px', margin: '0 auto' }}>

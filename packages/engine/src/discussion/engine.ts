@@ -289,8 +289,8 @@ export class DiscussionEngine {
     }
 
     const dirs = [
-      path.resolve(this.dirPath, '.room', 'roles'),
-      path.resolve(this.dirPath, '.room', 'skills')
+      path.resolve(this.dirPath, '.room', 'skills'),
+      path.resolve(this.dirPath, '.room', 'roles')
     ];
 
     for (const skillsDir of dirs) {
