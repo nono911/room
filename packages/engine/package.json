@@ -2,6 +2,7 @@
   "name": "@room/engine",
   "version": "1.0.0",
   "description": "ROOM core engine and CLI",
+  "license": "Apache-2.0",
   "main": "dist/src/index.js",
   "type": "module",
   "types": "dist/src/index.d.ts",

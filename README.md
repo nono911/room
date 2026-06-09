@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="packages/desktop/renderer/public/room-icon.png" alt="ROOM app icon" width="120" />
+</p>
+
 # ROOM
 
 Every project deserves its own room and its own AI team.
@@ -13,6 +17,22 @@ ROOM is intended to be open-source and open-design.
 That means the code, workspace structure, role model, AI member behavior, and product direction should be understandable, inspectable, and shaped in public. The goal is not just to publish source code, but to make the design of human-AI collaboration itself open for critique, adaptation, and reuse.
 
 ROOM should be easy to fork for different domains: software, film, research, education, business planning, writing, or any project that benefits from shared context and a purpose-built AI team.
+
+## Project Status
+
+ROOM is in early active development. The core desktop workflow works, but APIs, workspace file formats, packaged builds, and role templates may still change as the product matures.
+
+Use it today if you are comfortable with local-first tools and occasional rough edges. Treat `.room/` as workspace data that should be reviewed before committing to another repository.
+
+## Who ROOM Is For
+
+ROOM is useful when a project needs shared context and multiple perspectives over time:
+
+- Solo builders who want a repeatable AI team for planning, implementation, and review.
+- Software teams that want local context, task runs, and reviewer-style agents around a codebase.
+- Writers, filmmakers, and creative teams that need story, production, editorial, and research roles.
+- Researchers and operators who want durable discussion logs, summaries, and decision artifacts.
+- Anyone experimenting with human-AI collaboration patterns that should be inspectable and forkable.
 
 ## Features
 
@@ -40,7 +60,6 @@ packages/
   desktop/                 Electron main process + React renderer
     main/                  IPC handlers, scan/discussion orchestration
     renderer/              Vite React UI
-    build/icon.icns        macOS app icon used by electron-builder
   engine/                  Core ROOM engine and CLI
     src/providers/         API and local CLI providers
     src/discussion/        Multi-agent discussion/review loop
@@ -182,6 +201,16 @@ Local CLI AI members run in safe mode by default. Dangerous mode is gated by wor
 
 For Local CLI AI members, `Model Name` can be left on `Default CLI Model`. ROOM will then omit the model override and let the selected CLI use its own configured default. Choose a listed model or `Custom Model...` only when you want ROOM to pass an explicit model name.
 
+## Security Notes
+
+ROOM is local-first, but it can still run powerful tools:
+
+- Local CLI agents may execute commands, inspect files, or modify a workspace depending on the selected CLI and permission mode.
+- Custom Local CLI commands are treated as dangerous because they are arbitrary command execution.
+- MCP servers are local processes configured by the workspace and should be reviewed before use.
+- Do not store API keys, credentials, or private machine-specific secrets in committed `.room/` files.
+- Review `.room/config.json`, `.room/mcp.json`, and `.room/members/` before sharing a workspace.
+
 ## CLI Usage
 
 Build the engine first:
@@ -303,26 +332,6 @@ Important files:
 }
 ```
 
-## App Icon
-
-The macOS app icon is configured in `packages/desktop/package.json`:
-
-```json
-"icon": "build/icon.icns"
-```
-
-Renderer branding uses:
-
-```text
-packages/desktop/renderer/public/room-icon.png
-```
-
-After replacing either icon file, run:
-
-```bash
-npm run package:desktop
-```
-
 ## Development Notes
 
 - Build engine changes with `npm run build:engine`.
@@ -330,3 +339,29 @@ npm run package:desktop
 - Package the desktop app with `npm run package:desktop`.
 - Keep generated desktop artifacts such as `packages/desktop/dist/` and `packages/desktop/dist-packaged/` out of review context unless packaging is the task.
 - For agent review flows, prefer reviewer agents that clearly report `OPEN_FINDINGS`, `RESOLVED_FINDINGS`, `REQUIRED_CHANGES`, and `APPROVAL_STATUS`.
+
+## Contributing
+
+Contributions are welcome while the project shape is still forming.
+
+Before opening a pull request:
+
+1. Keep changes focused and explain the workflow or bug they improve.
+2. Run the relevant build command:
+   - `npm run build:engine` for engine or CLI changes.
+   - `npm run build:desktop` for Electron, renderer, or desktop workflow changes.
+3. Include screenshots or recordings for UI changes when possible.
+4. Call out changes that affect `.room/` file formats, Local CLI execution, MCP behavior, or dangerous permissions.
+
+## Roadmap
+
+- Better first-run onboarding and example workspaces.
+- More durable tests around provider execution, discussion loops, task runs, and workspace file handling.
+- Stronger markdown/document rendering for saved discussions, summaries, and task artifacts.
+- Improved Local CLI model detection and provider-specific execution policies.
+- Cross-platform packaging and release automation.
+- Clearer plugin, skill, and MCP extension patterns.
+
+## License
+
+ROOM is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

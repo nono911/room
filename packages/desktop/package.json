@@ -2,6 +2,7 @@
   "name": "@room/desktop",
   "version": "1.0.0",
   "description": "ROOM Electron Desktop UI",
+  "license": "Apache-2.0",
   "main": "dist/main/main.js",
   "type": "module",
   "scripts": {
