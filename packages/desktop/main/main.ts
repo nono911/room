@@ -985,6 +985,9 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
       resolveWithinProject(roomDir, 'context', 'structure.md'),
       resolveWithinProject(roomDir, 'architecture', 'current.md')
     ]);
+    const hasScanData = await fs.stat(resolveWithinProject(roomDir, 'context', 'project-map.json'))
+      .then(stat => stat.isFile())
+      .catch(() => false);
 
     const tasksDir = resolveWithinProject(roomDir, 'tasks');
     const decisionsDir = resolveWithinProject(roomDir, 'decisions');
@@ -1008,6 +1011,7 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
       success: true,
       projectMd,
       archMd,
+      hasScanData,
       tasks,
       decisions,
       reviews,

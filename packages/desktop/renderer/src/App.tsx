@@ -6,6 +6,7 @@ import { parseShellArgs } from '@room/engine/shellArgs';
 interface ProjectData {
   projectMd: string;
   archMd: string;
+  hasScanData?: boolean;
   tasks: string[];
   decisions: string[];
   reviews: string[];
@@ -71,6 +72,7 @@ declare global {
         success: boolean;
         projectMd: string;
         archMd: string;
+        hasScanData?: boolean;
         tasks: string[];
         decisions: string[];
         reviews: string[];
@@ -986,6 +988,11 @@ export default function App() {
   const [detectedClis, setDetectedClis] = useState<DetectedAgent[]>([]);
   const [showContextPanel, setShowContextPanel] = useState<boolean>(false);
   const [editingAgent, setEditingAgent] = useState<any | null>(null);
+  const [showOnboardingTour, setShowOnboardingTour] = useState<boolean>(false);
+  const [onboardingStep, setOnboardingStep] = useState<number>(0);
+  const [dismissedOnboarding, setDismissedOnboarding] = useState<boolean>(false);
+  const [onboardingSessionDismissed, setOnboardingSessionDismissed] = useState<boolean>(false);
+  const [hasCompletedScan, setHasCompletedScan] = useState<boolean>(false);
 
   // Custom workspace control states
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
@@ -1093,6 +1100,17 @@ export default function App() {
     };
   }, [projectPath, contextPickerTarget, contextPickerQuery]);
 
+  useEffect(() => {
+    if (!projectPath || !isRoomProject || !projectData || onboardingSessionDismissed) return;
+    const key = `room_onboarding_seen:${projectPath}`;
+    const seen = localStorage.getItem(key) === 'true';
+    setDismissedOnboarding(seen);
+    if (!seen) {
+      setOnboardingStep(0);
+      setShowOnboardingTour(true);
+    }
+  }, [projectPath, isRoomProject, projectData, onboardingSessionDismissed]);
+
   // Fetch dynamic models when Main Workspace Agent changes in settings
   useEffect(() => {
     if (projectConfig.mainAgent && projectConfig.mainAgent !== 'none' && !dynamicCliModels[projectConfig.mainAgent]) {
@@ -1187,6 +1205,32 @@ export default function App() {
   const [discussionMessages, setDiscussionMessages] = useState<UIMessage[]>([]);
   const [newWorkspaceName, setNewWorkspaceName] = useState<string>('');
 
+  const clearWorkspaceDerivedState = () => {
+    setProjectData(null);
+    setContextOverviewDraft('');
+    setContextStructureDraft('');
+    setWorkspaceFiles([]);
+    setWorkspaceFilesTruncated(false);
+    setSelectedWorkspaceFile('');
+    setSelectedWorkspaceFileContent('');
+    setWorkspaceFileSearch('');
+    setDiscussionMessages([]);
+    setCodingTaskMessages([]);
+    setActiveDiscussionId(null);
+    setLastDiscussionLog(null);
+    setLastDiscussionTopic('');
+    setLastCodingTaskResult(null);
+    setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
+    setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
+    setContextPickerTarget(null);
+    setContextPickerItems([]);
+    setShowOnboardingTour(false);
+    setDismissedOnboarding(false);
+    setOnboardingSessionDismissed(false);
+    setHasCompletedScan(false);
+    setActiveTab('Discussions');
+  };
+
   const addRecentProject = (pathStr: string) => {
     setRecentProjects(prev => {
       const filtered = prev.filter(p => p !== pathStr);
@@ -1202,6 +1246,7 @@ export default function App() {
       const result = await window.electronAPI.selectProjectDir();
       if (!result) return;
 
+      clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
 
@@ -1232,6 +1277,7 @@ export default function App() {
         return;
       }
 
+      clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(true);
       setNewWorkspaceName('');
@@ -1253,6 +1299,7 @@ export default function App() {
         throw new Error('Project directory could not be accessed.');
       }
 
+      clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
 
@@ -1281,8 +1328,10 @@ export default function App() {
     try {
       const res = await window.electronAPI.roomInit(projectPath);
       if (res.success) {
+        clearWorkspaceDerivedState();
         setIsRoomProject(true);
         addRecentProject(projectPath);
+        setProjectPath(projectPath);
         await loadProjectData(projectPath);
       } else {
         setErrorMsg(res.error || 'Failed to initialize .room.');
@@ -1297,13 +1346,7 @@ export default function App() {
   const handleCloseProjectWorkspace = () => {
     setProjectPath(null);
     setIsRoomProject(false);
-    setProjectData(null);
-    setWorkspaceFiles([]);
-    setWorkspaceFilesTruncated(false);
-    setSelectedWorkspaceFile('');
-    setSelectedWorkspaceFileContent('');
-    setContextOverviewDraft('');
-    setContextStructureDraft('');
+    clearWorkspaceDerivedState();
   };
 
   const handleRoleChange = (roleValue: string) => {
@@ -1523,9 +1566,11 @@ export default function App() {
     try {
       const data = await window.electronAPI.getProjectData(pathStr);
       if (data.success) {
+        setHasCompletedScan(!!localStorage.getItem(`room_scan_completed:${pathStr}`) || !!data.hasScanData);
         setProjectData({
           projectMd: data.projectMd,
           archMd: data.archMd,
+          hasScanData: data.hasScanData,
           tasks: data.tasks,
           decisions: data.decisions,
           reviews: data.reviews || [],
@@ -1736,6 +1781,8 @@ export default function App() {
         setErrorMsg(res.error || 'Scan failed.');
         return;
       }
+      localStorage.setItem(`room_scan_completed:${projectPath}`, new Date().toISOString());
+      setHasCompletedScan(true);
       await loadProjectData(projectPath);
     } catch (err: any) {
       setErrorMsg(err.message || 'Scan failed.');
@@ -2881,6 +2928,258 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     );
   };
 
+  const onboardingSteps = [
+    {
+      title: 'ROOM starts with shared project memory',
+      body: 'Scan the repository and keep the workspace overview current so agents have a compact baseline before any discussion or task run.',
+      action: 'Open Context',
+      run: () => setActiveTab('Context')
+    },
+    {
+      title: 'AI Members are reusable teammates',
+      body: 'Create role-based agents from templates, choose a provider, assign skills, and check that the selected skills can be delivered.',
+      action: 'Open AI Members',
+      run: () => setActiveTab('AI Members')
+    },
+    {
+      title: 'Skills are reusable instructions',
+      body: 'Skills are Markdown files. You can edit them, assign them to agents, and use Check Skills to confirm they will be sent at runtime.',
+      action: 'Create Agent',
+      run: () => {
+        resetAgentForm();
+        setActiveTab('Agent:New');
+      }
+    },
+    {
+      title: 'Context Picker keeps large repos manageable',
+      body: 'Use Add Context in Discussions or Task Run to search tasks, docs, and files instead of scrolling through the entire workspace.',
+      action: 'Open Discussions',
+      run: () => setActiveTab('Discussions')
+    },
+    {
+      title: 'Task Run adds a review loop',
+      body: 'Give one agent the work, choose reviewers, attach relevant context, and let ROOM iterate until the result is approved or needs changes.',
+      action: 'Open Task Run',
+      run: () => setActiveTab('Task Run')
+    }
+  ];
+
+  const markOnboardingSeen = () => {
+    if (projectPath) {
+      localStorage.setItem(`room_onboarding_seen:${projectPath}`, 'true');
+    }
+    setDismissedOnboarding(true);
+    setOnboardingSessionDismissed(true);
+    setShowOnboardingTour(false);
+  };
+
+  const isPlaceholderContext = (content?: string) => {
+    const normalized = (content || '').trim();
+    if (!normalized) return true;
+    return normalized.includes('Describe what this workspace is for.') ||
+      normalized.includes('Describe the important parts of this workspace and how they relate to each other.');
+  };
+
+  const hasScannedContext = (hasCompletedScan || !!projectData?.hasScanData) && !!projectData && (
+    !isPlaceholderContext(projectData.projectMd) ||
+    !isPlaceholderContext(projectData.archMd)
+  );
+
+  const setupItems = [
+    {
+      label: 'Scan project context',
+      done: hasScannedContext,
+      action: 'Scan',
+      run: triggerScan
+    },
+    {
+      label: 'Create AI member',
+      done: (projectData?.agents || []).length > 0,
+      action: 'Open',
+      run: () => setActiveTab('AI Members')
+    },
+    {
+      label: 'Add or edit skills',
+      done: (projectData?.skills || []).length > 0,
+      action: 'Edit',
+      run: () => {
+        resetAgentForm();
+        setActiveTab('Agent:New');
+      }
+    },
+    {
+      label: 'Attach useful context',
+      done: selectedDiscussionContextRefs.length > 2 || selectedCodingTaskContextRefs.length > 2,
+      action: 'Pick',
+      run: () => openContextPicker(activeTab === 'Task Run' ? 'task' : 'discussion')
+    },
+    {
+      label: 'Run a discussion or task',
+      done: discussionMessages.length > 0 || codingTaskMessages.length > 0 || (projectData?.discussions || []).length > 0 || (projectData?.tasks || []).length > 0,
+      action: 'Start',
+      run: () => setActiveTab('Discussions')
+    }
+  ];
+
+  const renderSetupChecklist = () => {
+    if (dismissedOnboarding) return null;
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) auto',
+        gap: '16px',
+        alignItems: 'start',
+        background: 'hsl(var(--bg-card))',
+        border: '1px solid hsl(var(--border-dim))',
+        borderRadius: '8px',
+        padding: '14px 16px',
+        marginBottom: '20px'
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'white' }}>Workspace setup</div>
+          <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
+            Use this as a quick path from empty workspace to useful agent runs.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '12px' }}>
+            {setupItems.map(item => (
+              <button
+                key={item.label}
+                type="button"
+                disabled={loading}
+                onClick={item.run}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '18px minmax(0, 1fr) auto',
+                  gap: '8px',
+                  alignItems: 'center',
+                  background: item.done ? 'rgba(16, 185, 129, 0.08)' : 'hsl(var(--bg-input))',
+                  border: item.done ? '1px solid rgba(16, 185, 129, 0.28)' : '1px solid hsl(var(--border-dim))',
+                  color: 'inherit',
+                  borderRadius: '8px',
+                  padding: '8px 10px',
+                  textAlign: 'left',
+                  font: 'inherit',
+                  cursor: loading ? 'default' : 'pointer'
+                }}
+              >
+                <span style={{ color: item.done ? '#10b981' : 'hsl(var(--text-muted))' }}>{item.done ? '✓' : '○'}</span>
+                <span style={{ fontSize: '0.76rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                <span style={{ fontSize: '0.68rem', color: 'hsl(var(--accent-purple))', fontWeight: 700 }}>{item.action}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button type="button" className="btn-secondary" onClick={() => { setOnboardingStep(0); setShowOnboardingTour(true); }} style={{ padding: '7px 11px', fontSize: '0.76rem' }}>
+            Tour
+          </button>
+          <button type="button" className="btn-secondary" onClick={markOnboardingSeen} style={{ padding: '7px 11px', fontSize: '0.76rem' }}>
+            Hide
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOnboardingTour = () => {
+    if (!showOnboardingTour) return null;
+    const step = onboardingSteps[onboardingStep] || onboardingSteps[0];
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 90,
+          background: 'rgba(6, 8, 16, 0.72)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '28px'
+        }}
+      >
+        <div style={{
+          width: 'min(560px, 100%)',
+          background: 'hsl(var(--bg-main))',
+          border: '1px solid hsl(var(--border-dim))',
+          borderRadius: '8px',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.42)',
+          padding: '22px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '18px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 800 }}>
+                Quick tour {onboardingStep + 1}/{onboardingSteps.length}
+              </div>
+              <h3 style={{ margin: '6px 0 0', fontSize: '1.15rem', color: 'white' }}>{step.title}</h3>
+            </div>
+            <button type="button" className="btn-secondary" onClick={markOnboardingSeen} style={{ padding: '6px 10px', fontSize: '0.74rem' }}>
+              Skip
+            </button>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.9rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.55 }}>
+            {step.body}
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {onboardingSteps.map((_, index) => (
+              <span
+                key={index}
+                style={{
+                  height: '4px',
+                  flex: 1,
+                  borderRadius: '999px',
+                  background: index <= onboardingStep ? 'hsl(var(--accent-purple))' : 'hsl(var(--border-dim))'
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={onboardingStep === 0}
+              onClick={() => setOnboardingStep(stepIndex => Math.max(0, stepIndex - 1))}
+              style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+            >
+              Back
+            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  markOnboardingSeen();
+                  step.run();
+                }}
+                style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+              >
+                {step.action}
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  if (onboardingStep >= onboardingSteps.length - 1) {
+                    markOnboardingSeen();
+                  } else {
+                    setOnboardingStep(stepIndex => stepIndex + 1);
+                  }
+                }}
+                style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+              >
+                {onboardingStep >= onboardingSteps.length - 1 ? 'Done' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderMainTab = () => {
     if (activeTab === 'Discussions') {
       const getAlignment = (role: string, idx: number) => {
@@ -2952,7 +3251,17 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             </div>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {discussionMessages.map((msg, idx) => {
+            {discussionMessages.length === 0 ? (
+              <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
+                <div style={{ color: 'white', fontWeight: 700 }}>Start with a question, plan, or review request.</div>
+                <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
+                  Add context when the answer depends on docs, tasks, or specific files, then choose the AI members who should discuss it.
+                </div>
+                <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('discussion')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                  Add Context
+                </button>
+              </div>
+            ) : discussionMessages.map((msg, idx) => {
               const alignment = getAlignment(msg.role, idx);
               return (
                 <div
@@ -3359,8 +3668,14 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px', paddingRight: '6px' }}>
               {codingTaskMessages.length === 0 ? (
-                <div className="markdown-preview" style={{ maxHeight: 'none', height: '100%', minHeight: '420px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>
-                  No task run yet.
+                <div className="markdown-preview" style={{ maxHeight: 'none', height: '100%', minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
+                  <div style={{ color: 'white', fontWeight: 700 }}>No task run yet.</div>
+                  <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
+                    Describe the work, select a doer and reviewers, then attach the docs or files the agents should use.
+                  </div>
+                  <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('task')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                    Add Task Context
+                  </button>
                 </div>
               ) : (
                 codingTaskMessages.map((msg, idx) => (
@@ -5241,6 +5556,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         ROOM — AI-Native Project Workspace
       </div>
       {renderContextPickerPanel()}
+      {renderOnboardingTour()}
 
       {projectPath === null ? (
         <div className="welcome-container" style={{ maxWidth: '640px', margin: '0 auto' }}>
@@ -5497,6 +5813,25 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        setOnboardingStep(0);
+                        setShowOnboardingTour(true);
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: '0.85rem',
+                        height: '36px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      ?
+                      Tour
+                    </button>
                     <button 
                       className="btn-secondary" 
                       onClick={() => setShowContextPanel(!showContextPanel)} 
@@ -5525,6 +5860,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 </header>
 
                 <div style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
+                  {renderSetupChecklist()}
                   {renderMainTab()}
                 </div>
               </>
