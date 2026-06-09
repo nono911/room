@@ -4,7 +4,7 @@ import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, type AgentConfig } from '@room/engine';
+import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, normalizeLocalCliModelName, assertLocalCliExecutionAllowed, type AgentConfig } from '@room/engine';
 
 const execFileP = promisify(execFile);
 
@@ -89,10 +89,6 @@ const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'co
 const ALLOWED_PROJECT_MAIN_AGENTS = ['none', ...SUPPORTED_LOCAL_CLI_PRESETS] as const;
 const SUPPORTED_LOCAL_CLI_PRESETS_SET = new Set<string>(SUPPORTED_LOCAL_CLI_PRESETS);
 const ALLOWED_PROJECT_MAIN_AGENT_SET = new Set<string>(ALLOWED_PROJECT_MAIN_AGENTS);
-const ALLOWED_PROVIDER_NAMES = ['Gemini', 'Claude', 'Codex', 'Local CLI'] as const;
-const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
-const ALLOWED_PERMISSION_MODES = ['safe', 'dangerous'] as const;
-const ALLOWED_STDIN_FORMATS = ['text', 'json'] as const;
 const ALLOWED_PROJECT_CONFIG_KEYS = ['mainAgent', 'modelName', 'allowDangerousCli'] as const;
 const ALLOWED_MCP_CONFIG_KEYS = ['mcpServers'] as const;
 const ALLOWED_ROOM_FILE_SECTIONS = ['documents', 'tasks', 'discussions', 'decisions', 'reviews'] as const;
@@ -427,17 +423,6 @@ function sanitizeAgentFileName(name: string): string {
   return normalized.replace(/[^a-z0-9_-]/g, '-');
 }
 
-function sanitizeSkillFileName(skill: string): string | null {
-  if (typeof skill !== 'string') return null;
-  const trimmed = skill.trim();
-  if (!trimmed || /[\\/]/.test(trimmed)) return null;
-
-  const safeName = path.basename(trimmed);
-  if (!safeName || safeName === '.' || safeName === '..') return null;
-  if (!safeName.toLowerCase().endsWith('.md')) return null;
-  return safeName;
-}
-
 function isObjectWithAllowedKeys(value: unknown, allowedKeys: readonly string[]): boolean {
   if (!isPlainObject(value)) return false;
   return Object.keys(value).every((key) => allowedKeys.includes(key));
@@ -461,7 +446,7 @@ function validateProjectConfig(rawConfig: unknown): { success: true; config: Pro
   if (rawConfig.modelName !== undefined && rawConfig.modelName !== null && typeof rawConfig.modelName !== 'string') {
     return { success: false, error: 'Invalid model name format.' };
   }
-  const modelName = typeof rawConfig.modelName === 'string' ? rawConfig.modelName.trim() || undefined : undefined;
+  const modelName = typeof rawConfig.modelName === 'string' ? normalizeLocalCliModelName(rawConfig.modelName) : undefined;
 
   if (rawConfig.allowDangerousCli !== undefined && typeof rawConfig.allowDangerousCli !== 'boolean') {
     return { success: false, error: 'Invalid dangerous permission flag.' };
@@ -629,82 +614,7 @@ function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentCo
   if (!engineValidated.success) {
     return engineValidated;
   }
-
-  if (!isPlainObject(rawAgent)) {
-    return { success: false, error: 'Invalid agent payload.' };
-  }
-
-  const name = typeof rawAgent.name === 'string' ? rawAgent.name.trim() : '';
-  const role = typeof rawAgent.role === 'string' ? rawAgent.role.trim() : '';
-  const provider = typeof rawAgent.provider === 'string' ? rawAgent.provider.trim() : '';
-  const systemPrompt = typeof rawAgent.systemPrompt === 'string' ? rawAgent.systemPrompt.trim() : '';
-  const modelName = typeof rawAgent.modelName === 'string' ? rawAgent.modelName.trim() : '';
-
-  if (!name || !role || !systemPrompt) {
-    return { success: false, error: 'Agent name, role and system prompt are required.' };
-  }
-
-  if (!isAllowed(provider, ALLOWED_PROVIDER_NAMES)) {
-    return { success: false, error: 'Invalid provider.' };
-  }
-
-  let cliPreset: AgentConfig['cliPreset'] = 'none';
-  let stdinFormat: AgentConfig['stdinFormat'];
-  let permissionMode: AgentConfig['permissionMode'];
-  let command: string | undefined;
-
-  if (provider === 'Local CLI') {
-    const rawPreset = typeof rawAgent.cliPreset === 'string' ? rawAgent.cliPreset.trim() : 'none';
-    if (!isAllowed(rawPreset, ALLOWED_CLI_PRESETS)) {
-      return { success: false, error: 'Invalid Local CLI preset.' };
-    }
-    cliPreset = rawPreset as AgentConfig['cliPreset'];
-
-    const rawPermission = typeof rawAgent.permissionMode === 'string' ? rawAgent.permissionMode.trim() : 'safe';
-    if (!isAllowed(rawPermission, ALLOWED_PERMISSION_MODES)) {
-      return { success: false, error: 'Invalid Local CLI permission mode.' };
-    }
-    permissionMode = rawPermission as AgentConfig['permissionMode'];
-
-    if (cliPreset === 'none') {
-      const rawCommand = typeof rawAgent.command === 'string' ? rawAgent.command.trim() : '';
-      if (!rawCommand) {
-        return { success: false, error: 'Local CLI custom command is required when preset is none.' };
-      }
-      command = rawCommand;
-    }
-
-    if (rawAgent.stdinFormat === undefined) {
-      stdinFormat = 'text';
-    } else if (typeof rawAgent.stdinFormat === 'string' && isAllowed(rawAgent.stdinFormat, ALLOWED_STDIN_FORMATS)) {
-      stdinFormat = rawAgent.stdinFormat as AgentConfig['stdinFormat'];
-    } else {
-      return { success: false, error: 'Invalid stdin format.' };
-    }
-  }
-
-  const skillsRaw = rawAgent.skills;
-  const skills = Array.isArray(skillsRaw)
-    ? skillsRaw
-        .map((skill) => sanitizeSkillFileName(typeof skill === 'string' ? skill : ''))
-        .filter((skill): skill is string => typeof skill === 'string')
-    : [];
-
-    return {
-      success: true,
-      agent: {
-        name,
-        role,
-        provider: provider as AgentConfig['provider'],
-        modelName: modelName || undefined,
-        systemPrompt,
-        skills,
-        command,
-      cliPreset: provider === 'Local CLI' ? cliPreset : undefined,
-      stdinFormat: provider === 'Local CLI' ? stdinFormat : undefined,
-      permissionMode: provider === 'Local CLI' ? permissionMode : undefined
-    }
-  };
+  return engineValidated;
 }
 
 // IPC Main Handlers
@@ -946,7 +856,7 @@ ipcMain.handle('run-scan', async (event, { dirPath, mainAgent, modelName, allowD
       const provider = new LocalCliProvider({
         cliPreset: safeMainAgent as any,
         cwd: projectRoot,
-        modelName: modelName || '',
+        modelName: normalizeLocalCliModelName(modelName),
         permissionMode: dangerModeAllowed ? 'dangerous' : 'safe'
       });
 
@@ -1217,13 +1127,11 @@ ipcMain.handle('save-agent', async (event, { dirPath, agent }: { dirPath: string
       return { success: false, error: validated.error };
     }
 
-    if (validated.agent.provider === 'Local CLI' && validated.agent.permissionMode === 'dangerous') {
-      const isAllowed = await isDangerousAgentAllowed(projectRoot);
-      if (!isAllowed) {
-        return {
-          success: false,
-          error: 'Dangerous Local CLI agent config requires workspace dangerous mode to be enabled in project settings.'
-        };
+    if (validated.agent.provider === 'Local CLI') {
+      try {
+        assertLocalCliExecutionAllowed(validated.agent, await isDangerousAgentAllowed(projectRoot));
+      } catch (error: any) {
+        return { success: false, error: error.message };
       }
     }
 

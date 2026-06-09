@@ -1334,10 +1334,12 @@ export default function App() {
       const modelToSave = newAgentProvider === 'Local CLI'
         ? newAgentModel.trim() || undefined
         : newAgentModel.trim() || defaultModel;
-      const permissionMode = newAgentProvider === 'Local CLI' ? newAgentPermissionMode : undefined;
+      const permissionMode = newAgentProvider === 'Local CLI'
+        ? (newAgentPreset === 'none' ? 'dangerous' : newAgentPermissionMode)
+        : undefined;
       if (newAgentProvider === 'Local CLI') {
         if (newAgentPreset === 'none') {
-          const confirmed = window.confirm('ROOM will execute this custom command from the workspace directory. Safe mode does not sandbox custom commands; it only avoids elevated flags for known CLI presets. Continue?');
+          const confirmed = window.confirm('ROOM will execute this custom command from the workspace directory. Custom Local CLI agents require workspace dangerous mode. Continue?');
           if (!confirmed) return;
         } else if (permissionMode === 'dangerous') {
           const confirmed = window.confirm('Warning: This Local CLI preset will run with dangerous permissions enabled. Continue?');

@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { loadAgents, AgentConfig } from '../agents/registry.js';
+import { assertLocalCliExecutionAllowed } from '../agents/localCliPolicy.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import { ClaudeProvider } from '../providers/claude.js';
 import { CodexProvider } from '../providers/codex.js';
@@ -262,11 +263,8 @@ export class DiscussionEngine {
   }
 
   private async assertAgentExecutionAllowed(agent: AgentConfig): Promise<void> {
-    if (agent.provider === 'Local CLI' && agent.permissionMode === 'dangerous') {
-      const allowed = await this.isDangerousLocalCliAllowed();
-      if (!allowed) {
-        throw new Error(`Dangerous Local CLI agent "${agent.name}" requires workspace dangerous mode to be enabled in .room/config.json.`);
-      }
+    if (agent.provider === 'Local CLI') {
+      assertLocalCliExecutionAllowed(agent, await this.isDangerousLocalCliAllowed());
     }
   }
 

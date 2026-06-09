@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
 import { resolveOnPath, resolvePathDirs } from '../agents/detection.js';
+import { normalizeLocalCliModelName } from '../agents/localCliPolicy.js';
 import { parseShellArgs } from '../shellArgs.js';
 
 type LocalCliPermissionMode = 'safe' | 'dangerous';
@@ -35,7 +36,7 @@ export class LocalCliProvider implements Provider {
     this.cliPreset = config.cliPreset || 'none';
     this.stdinFormat = config.stdinFormat || 'text';
     this.cwd = config.cwd || process.cwd();
-    this.modelName = config.modelName || '';
+    this.modelName = normalizeLocalCliModelName(config.modelName) || '';
     this.permissionMode = config.permissionMode || 'safe';
     this.timeoutMs = config.timeoutMs || DEFAULT_LOCAL_CLI_TIMEOUT_MS;
   }
@@ -373,11 +374,14 @@ export class LocalCliProvider implements Provider {
         console.log(`[Local CLI Provider] Process exited with code ${code}`);
         await cleanup();
         if (code !== 0 && code !== null) {
-          // If we have stdoutData but it exited with non-zero, it might still have partial output
-          if (!stdoutData && stderrData) {
-            reject(new Error(`Local CLI exited with code ${code}. Error: ${stderrData.trim()}`));
-            return;
-          }
+          const stderr = stderrData.trim();
+          const stdout = stdoutData.trim();
+          const details = [
+            stderr ? `Error: ${stderr}` : '',
+            stdout ? `Stdout: ${stdout}` : ''
+          ].filter(Boolean).join('\n');
+          reject(new Error(`Local CLI exited with code ${code}.${details ? `\n${details}` : ''}`));
+          return;
         }
 
         // Process outputs

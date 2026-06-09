@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { normalizeLocalCliModelName } from './localCliPolicy.js';
 
 const LANGUAGE_INSTRUCTION = `Language policy:
 - Respond in the same natural language the user uses in the current request or discussion.
@@ -216,6 +217,7 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
         return { success: false, error: 'Local CLI custom command is required when preset is none.' };
       }
       command = rawCommand;
+      permissionMode = 'dangerous';
     }
 
     if (rawAgent.stdinFormat === undefined) {
@@ -239,7 +241,7 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
       name,
       role,
       provider,
-      modelName: modelName || undefined,
+      modelName: provider === 'Local CLI' ? normalizeLocalCliModelName(modelName) : modelName || undefined,
       systemPrompt,
       skills,
       command,
