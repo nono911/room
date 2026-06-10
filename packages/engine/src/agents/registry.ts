@@ -2,11 +2,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { normalizeLocalCliModelName } from './localCliPolicy.js';
 import { PERSONA_TEMPLATES, DEFAULT_MEMBER_NAMES } from './personaTemplates.js';
+import { normalizeProviderId, isValidProviderId } from '../providers/registry.js';
 
 export interface AgentConfig {
   name: string;
   role: string;
-  provider: 'Gemini' | 'Claude' | 'Codex' | 'Local CLI';
+  provider: string;
   modelName?: string;
   systemPrompt: string;
   skills?: string[];
@@ -16,7 +17,6 @@ export interface AgentConfig {
   permissionMode?: 'safe' | 'dangerous';
 }
 
-const ALLOWED_PROVIDER_NAMES = ['Gemini', 'Claude', 'Codex', 'Local CLI'] as const;
 const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
 const ALLOWED_PERMISSION_MODES = ['safe', 'dangerous'] as const;
 const ALLOWED_STDIN_FORMATS = ['text', 'json'] as const;
@@ -54,7 +54,8 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
     return { success: false, error: 'Agent name, role and system prompt are required.' };
   }
 
-  if (!isAllowed(provider, ALLOWED_PROVIDER_NAMES)) {
+  const normalizedProvider = provider === 'Local CLI' ? provider : normalizeProviderId(provider);
+  if (normalizedProvider !== 'Local CLI' && !isValidProviderId(normalizedProvider)) {
     return { success: false, error: 'Invalid provider.' };
   }
 
@@ -63,7 +64,7 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   let permissionMode: AgentConfig['permissionMode'];
   let command: string | undefined;
 
-  if (provider === 'Local CLI') {
+  if (normalizedProvider === 'Local CLI') {
     const rawPreset = typeof rawAgent.cliPreset === 'string' ? rawAgent.cliPreset.trim() : 'none';
     if (!isAllowed(rawPreset, ALLOWED_CLI_PRESETS)) {
       return { success: false, error: 'Invalid Local CLI preset.' };
@@ -105,8 +106,8 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
     agent: {
       name,
       role,
-      provider,
-      modelName: provider === 'Local CLI' ? normalizeLocalCliModelName(modelName) : modelName || undefined,
+      provider: normalizedProvider,
+      modelName: normalizedProvider === 'Local CLI' ? normalizeLocalCliModelName(modelName) : modelName || undefined,
       systemPrompt,
       skills,
       command,
