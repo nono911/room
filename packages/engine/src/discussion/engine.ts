@@ -31,6 +31,7 @@ export interface DiscussionMessage {
   type?: 'user' | 'agent';
   agentName: string;
   providerName: string;
+  modelName?: string;
   content: string;
   timestamp: string;
   round?: number;
@@ -65,6 +66,7 @@ export type DiscussionEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       role: string;
       round: number;
       timestamp: string;
@@ -74,6 +76,7 @@ export type DiscussionEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       round: number;
       chunk: string;
     }
@@ -88,6 +91,7 @@ export type DiscussionEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       round: number;
       error: string;
     }
@@ -271,6 +275,7 @@ function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ..
 function renderDiscussionMarkdown(log: DiscussionLog): string {
   const messages = log.messages.map((message, index) => {
     const messageIdLine = message.id ? `Message ID: ${message.id}\n\n` : '';
+    const providerLabel = message.modelName || message.providerName;
     if (message.type === 'user') {
       return `## ${index + 1}. ${message.agentName}
 
@@ -288,7 +293,7 @@ ${messageIdLine}${message.content.trim()}
       ? `\n### References used\n${references.map(ref => `- ${ref.message ? `Message ${ref.message}: ` : ''}${ref.author || ref.messageId || 'Unknown'}${ref.messageId ? ` [${ref.messageId}]` : ''}${ref.reason ? ` — ${ref.reason}` : ''}`).join('\n')}\n`
       : '';
 
-    return `## ${index + 1}. ${message.agentName} (${message.providerName})
+    return `## ${index + 1}. ${message.agentName} (${providerLabel})
 
 ${messageIdLine}### Context received
 ${contextSummary}
@@ -314,9 +319,10 @@ ${messages || 'No messages yet.'}
 
 function renderCodingTaskMarkdown(result: CodingTaskResult): string {
   const messages = result.messages.map((message, index) => {
+    const providerLabel = message.modelName || message.providerName;
     const label = message.type === 'user'
       ? message.agentName
-      : `${message.agentName} (${message.providerName})`;
+      : `${message.agentName} (${providerLabel})`;
     const messageIdLine = message.id ? `Message ID: ${message.id}\n\n` : '';
     return `## ${index + 1}. ${label}
 
@@ -1092,6 +1098,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
           discussionId,
           agentName: agent.name,
           providerName: agent.provider,
+          ...(agent.modelName ? { modelName: agent.modelName } : {}),
           role: agent.role,
           round,
           timestamp: new Date().toLocaleTimeString()
@@ -1146,6 +1153,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
                 discussionId,
                 agentName: agent.name,
                 providerName: agent.provider,
+                ...(agent.modelName ? { modelName: agent.modelName } : {}),
                 round,
                 chunk: cleanAgentStreamChunk(chunk)
               });
@@ -1173,6 +1181,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
             discussionId,
             agentName: agent.name,
             providerName: agent.provider,
+            ...(agent.modelName ? { modelName: agent.modelName } : {}),
             round,
             error: err.message
           });
@@ -1184,6 +1193,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
           type: 'agent',
           agentName: agent.name,
           providerName: agent.provider,
+          ...(agent.modelName ? { modelName: agent.modelName } : {}),
           content: response,
           timestamp: new Date().toLocaleTimeString(),
           contextMessages,
@@ -1352,6 +1362,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
         discussionId: taskId,
         agentName: developer.name,
         providerName: developer.provider,
+        ...(developer.modelName ? { modelName: developer.modelName } : {}),
         role: developer.role,
         round: cycle,
         timestamp: new Date().toLocaleTimeString()
@@ -1404,6 +1415,7 @@ ${doerWorkInstructions}
               discussionId: taskId,
               agentName: developer.name,
               providerName: developer.provider,
+              ...(developer.modelName ? { modelName: developer.modelName } : {}),
               round: cycle,
               chunk: cleanAgentStreamChunk(chunk)
             });
@@ -1424,6 +1436,7 @@ ${doerWorkInstructions}
           discussionId: taskId,
           agentName: developer.name,
           providerName: developer.provider,
+          ...(developer.modelName ? { modelName: developer.modelName } : {}),
           round: cycle,
           error: err.message
         });
@@ -1435,6 +1448,7 @@ ${doerWorkInstructions}
         type: 'agent',
         agentName: developer.name,
         providerName: developer.provider,
+        ...(developer.modelName ? { modelName: developer.modelName } : {}),
         content: developerOutput,
         timestamp: new Date().toLocaleTimeString(),
         round: cycle,
@@ -1457,6 +1471,7 @@ ${doerWorkInstructions}
           discussionId: taskId,
           agentName: reviewer.name,
           providerName: reviewer.provider,
+          ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
           role: reviewer.role,
           round: cycle,
           timestamp: new Date().toLocaleTimeString()
@@ -1517,6 +1532,7 @@ Output format:
                 discussionId: taskId,
                 agentName: reviewer.name,
                 providerName: reviewer.provider,
+                ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
                 round: cycle,
                 chunk: cleanAgentStreamChunk(chunk)
               });
@@ -1537,6 +1553,7 @@ Output format:
             discussionId: taskId,
             agentName: reviewer.name,
             providerName: reviewer.provider,
+            ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
             round: cycle,
             error: err.message
           });
@@ -1549,6 +1566,7 @@ Output format:
           type: 'agent',
           agentName: reviewer.name,
           providerName: reviewer.provider,
+          ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
           content: reviewOutput,
           timestamp: new Date().toLocaleTimeString(),
           round: cycle,

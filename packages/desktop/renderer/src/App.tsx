@@ -30,6 +30,7 @@ interface WorkspaceFileEntry {
   name: string;
   size: number;
   modifiedAt: string;
+  kind?: 'file' | 'directory';
 }
 
 interface ContextPickerItem {
@@ -106,6 +107,7 @@ declare global {
             type?: 'user' | 'agent';
             agentName: string;
             providerName: string;
+            modelName?: string;
             content: string;
             timestamp: string;
             contextMessages?: {
@@ -136,6 +138,7 @@ declare global {
             type?: 'user' | 'agent';
             agentName: string;
             providerName: string;
+            modelName?: string;
             content: string;
             timestamp: string;
             contextMessages?: {
@@ -161,7 +164,7 @@ declare global {
       saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
       saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
       deleteAgent: (dirPath: string, agentName: string) => Promise<{ success: boolean; error?: string }>;
-      saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<{ success: boolean; error?: string }>;
+      saveSkill: (dirPath: string, name: string, content: string) => Promise<{ success: boolean; error?: string }>;
       previewAgentSkills: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string } & Partial<SkillPreviewResult>>;
       detectLocalAgents: () => Promise<{ success: boolean; agents?: DetectedAgent[]; error?: string }>;
       loadApiKeys: () => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
@@ -211,6 +214,7 @@ type DiscussionIpcEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       role: string;
       round: number;
       timestamp: string;
@@ -220,6 +224,7 @@ type DiscussionIpcEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       round: number;
       chunk: string;
     }
@@ -230,6 +235,7 @@ type DiscussionIpcEvent =
       message: {
         agentName: string;
         providerName: string;
+        modelName?: string;
         content: string;
         timestamp: string;
         contextMessages?: {
@@ -244,6 +250,7 @@ type DiscussionIpcEvent =
       discussionId: string;
       agentName: string;
       providerName: string;
+      modelName?: string;
       round: number;
       error: string;
     }
@@ -905,6 +912,9 @@ export default function App() {
   const [selectedWorkspaceFile, setSelectedWorkspaceFile] = useState<string>('');
   const [selectedWorkspaceFileContent, setSelectedWorkspaceFileContent] = useState<string>('');
   const [workspaceFileSearch, setWorkspaceFileSearch] = useState<string>('');
+  const [highlightedDiscussionMessage, setHighlightedDiscussionMessage] = useState<number | null>(null);
+  const [aiMembersSidebarExpanded, setAiMembersSidebarExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_members_sidebar_expanded') === 'true');
+  const [aiMemberDetailsExpanded, setAiMemberDetailsExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_member_details_expanded') !== 'false');
 
   useEffect(() => {
     if (!projectPath || !contextPickerTarget) return;
@@ -1924,6 +1934,13 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     return match?.[1]?.trim() || null;
   };
 
+  const formatAgentDisplayName = (agentName: string, providerName: string, modelName?: string): string => {
+    const cleanModel = modelName?.trim();
+    return cleanModel
+      ? `${agentName} (${cleanModel})`
+      : `${agentName} (${providerName})`;
+  };
+
   const openDocumentFromBubble = async (filename: string) => {
     await loadRoomFilePreview('documents', filename);
     setActiveTab('Documents');
@@ -1960,7 +1977,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
       const contextCount = Array.isArray(message.contextMessages) ? message.contextMessages.length : 0;
       return {
-        author: `${message.agentName} (${message.providerName})`,
+        author: formatAgentDisplayName(message.agentName, message.providerName, message.modelName),
         role: String(message.agentName || 'agent').toLowerCase(),
         time: message.timestamp || '',
         text: message.content || '',
@@ -2018,9 +2035,223 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       .trim();
   };
 
+  const scrollToDiscussionMessage = (messageNumber: number) => {
+    const element = document.getElementById(`discussion-message-${messageNumber}`);
+    if (!element) return;
+    setHighlightedDiscussionMessage(messageNumber);
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => {
+      setHighlightedDiscussionMessage(current => current === messageNumber ? null : current);
+    }, 1800);
+  };
+
+  const formatMathForDisplay = (value: string) => {
+    let output = value
+      .replace(/\\text\{([^{}]*)\}/g, '$1')
+      .replace(/\\times/g, 'x')
+      .replace(/\\%/g, '%')
+      .replace(/\\left|\\right/g, '')
+      .replace(/\\,/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let previous = '';
+    while (previous !== output) {
+      previous = output;
+      output = output.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1) / ($2)');
+    }
+
+    return output.replace(/[{}]/g, '').trim() || value.trim();
+  };
+
+  const renderMathInline = (value: string, key: string) => (
+    <code
+      key={key}
+      style={{
+        padding: '1px 5px',
+        borderRadius: '6px',
+        border: '1px solid hsl(var(--border-dim))',
+        background: 'hsl(var(--bg-input))',
+        color: 'hsl(var(--text-primary))',
+        fontSize: '0.95em',
+        whiteSpace: 'normal'
+      }}
+    >
+      {formatMathForDisplay(value)}
+    </code>
+  );
+
+  const renderMathBlock = (value: string, key: string) => (
+    <pre
+      key={key}
+      style={{
+        margin: '0 0 0.75em 0',
+        padding: '10px 12px',
+        borderRadius: '8px',
+        border: '1px solid hsl(var(--border-dim))',
+        background: 'hsl(var(--bg-input))',
+        color: 'hsl(var(--text-primary))',
+        overflowX: 'auto',
+        whiteSpace: 'pre-wrap',
+        lineHeight: 1.55
+      }}
+    >
+      <code>{formatMathForDisplay(value)}</code>
+    </pre>
+  );
+
+  const splitMarkdownTableRow = (line: string) => {
+    const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    return trimmed.split('|').map(cell => cell.trim());
+  };
+
+  const isMarkdownTableSeparator = (line: string) => {
+    const cells = splitMarkdownTableRow(line);
+    return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+  };
+
+  const looksLikeMarkdownTableRow = (line: string) => {
+    return line.includes('|') && splitMarkdownTableRow(line).length > 1;
+  };
+
+  const renderMarkdownTable = (tableLines: string[], key: string) => {
+    const header = splitMarkdownTableRow(tableLines[0] || '');
+    const rows = tableLines.slice(2)
+      .map(splitMarkdownTableRow)
+      .filter(row => row.some(cell => cell.length > 0));
+
+    return (
+      <div key={key} style={{ margin: '0 0 0.8em 0', overflowX: 'auto' }}>
+        <table style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          border: '1px solid hsl(var(--border-dim))',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          fontSize: '0.92em'
+        }}>
+          <thead>
+            <tr>
+              {header.map((cell, index) => (
+                <th
+                  key={`th-${index}`}
+                  style={{
+                    padding: '8px 10px',
+                    borderBottom: '1px solid hsl(var(--border-dim))',
+                    background: 'hsl(var(--bg-input))',
+                    color: 'hsl(var(--text-primary))',
+                    textAlign: 'left',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {renderInlineMarkdown(cell)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`tr-${rowIndex}`}>
+                {header.map((_, cellIndex) => (
+                  <td
+                    key={`td-${rowIndex}-${cellIndex}`}
+                    style={{
+                      padding: '8px 10px',
+                      borderTop: rowIndex === 0 ? 0 : '1px solid hsl(var(--border-dim) / 0.65)',
+                      color: 'hsl(var(--text-secondary))',
+                      verticalAlign: 'top'
+                    }}
+                  >
+                    {renderInlineMarkdown(row[cellIndex] || '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const cleanGraphNodeLabel = (value: string) => {
+    const withoutEdgeLabel = value.replace(/\|[^|]*\|/g, '').trim();
+    const labelMatch = withoutEdgeLabel.match(/(?:\["?([^"\]]+)"?\]|\("?(.*?)"?\)|\{"?([^"}]+)"?\})/);
+    if (labelMatch) return (labelMatch[1] || labelMatch[2] || labelMatch[3] || '').trim();
+    return withoutEdgeLabel
+      .replace(/^[A-Za-z0-9_.:-]+\s*/, '')
+      .replace(/[";]/g, '')
+      .trim() || withoutEdgeLabel.replace(/[";]/g, '').trim();
+  };
+
+  const parseGraphEdges = (value: string) => {
+    return value.split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('%%') && !/^(graph|flowchart|sequenceDiagram|stateDiagram|mindmap|timeline|gantt|pie)\b/i.test(line))
+      .map(line => {
+        const match = line.match(/^(.+?)\s*(-->|---|->|=>|--)\s*(.+)$/);
+        if (!match) return null;
+        return {
+          from: cleanGraphNodeLabel(match[1]),
+          arrow: match[2],
+          to: cleanGraphNodeLabel(match[3])
+        };
+      })
+      .filter((edge): edge is { from: string; arrow: string; to: string } => Boolean(edge));
+  };
+
+  const isGraphCodeBlock = (language: string, value: string) => {
+    const normalizedLanguage = language.trim().toLowerCase();
+    return ['mermaid', 'graph', 'flowchart', 'dot'].includes(normalizedLanguage)
+      || /^(graph|flowchart|sequenceDiagram|stateDiagram|mindmap|timeline|gantt|pie)\b/i.test(value.trim());
+  };
+
+  const renderGraphBlock = (value: string, key: string) => {
+    const edges = parseGraphEdges(value);
+    return (
+      <div
+        key={key}
+        style={{
+          margin: '0 0 0.8em 0',
+          padding: '10px 12px',
+          borderRadius: '8px',
+          border: '1px solid hsl(var(--border-dim))',
+          background: 'hsl(var(--bg-input))',
+          overflowX: 'auto'
+        }}
+      >
+        <div style={{ marginBottom: '8px', color: 'hsl(var(--text-primary))', fontWeight: 700, fontSize: '0.9em' }}>
+          Graph
+        </div>
+        {edges.length > 0 ? (
+          <div style={{ display: 'grid', gap: '7px', minWidth: '260px' }}>
+            {edges.map((edge, index) => (
+              <div
+                key={`${edge.from}-${edge.to}-${index}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(80px, max-content) max-content minmax(80px, max-content)',
+                  gap: '8px',
+                  alignItems: 'center',
+                  color: 'hsl(var(--text-secondary))'
+                }}
+              >
+                <span style={{ padding: '5px 8px', borderRadius: '7px', border: '1px solid hsl(var(--border-dim))', background: 'hsl(var(--bg-panel))' }}>{edge.from}</span>
+                <span style={{ color: 'hsl(var(--text-muted))' }}>{edge.arrow.includes('>') ? '->' : '--'}</span>
+                <span style={{ padding: '5px 8px', borderRadius: '7px', border: '1px solid hsl(var(--border-dim))', background: 'hsl(var(--bg-panel))' }}>{edge.to}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'hsl(var(--text-secondary))' }}>{value}</pre>
+        )}
+      </div>
+    );
+  };
+
   const renderInlineMarkdown = (value: string) => {
     const nodes: React.ReactNode[] = [];
-    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    const pattern = /(\[([^\]]+)\]\(([^)]+)\)|`[^`]+`|\$(?!\$)[^$\n]+\$|\*\*[^*]+\*\*|\*[^*]+\*)/g;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -2029,8 +2260,36 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         nodes.push(value.slice(lastIndex, match.index));
       }
       const token = match[0];
-      if (token.startsWith('`')) {
+      if (token.startsWith('[')) {
+        const label = match[2];
+        const href = match[3];
+        const messageMatch = label.match(/^Message\s+(\d+)$/i);
+        if (messageMatch) {
+          const messageNumber = Number(messageMatch[1]);
+          nodes.push(
+            <button
+              key={`inline-message-ref-${nodes.length}`}
+              type="button"
+              onClick={() => scrollToDiscussionMessage(messageNumber)}
+              style={{ padding: 0, border: 0, background: 'none', color: 'hsl(var(--accent-blue))', cursor: 'pointer', font: 'inherit', fontWeight: 650, textDecoration: 'underline', textUnderlineOffset: '2px' }}
+              title={`Jump to ${label}`}
+            >
+              {label}
+            </button>
+          );
+        } else if (href.startsWith('file://')) {
+          nodes.push(<span key={`inline-file-link-${nodes.length}`} style={{ color: 'hsl(var(--accent-blue))', fontWeight: 650 }}>{label}</span>);
+        } else {
+          nodes.push(
+            <a key={`inline-link-${nodes.length}`} href={href} target="_blank" rel="noreferrer">
+              {label}
+            </a>
+          );
+        }
+      } else if (token.startsWith('`')) {
         nodes.push(<code key={`inline-code-${nodes.length}`}>{token.slice(1, -1)}</code>);
+      } else if (token.startsWith('$')) {
+        nodes.push(renderMathInline(token.slice(1, -1), `inline-math-${nodes.length}`));
       } else if (token.startsWith('**')) {
         nodes.push(<strong key={`inline-strong-${nodes.length}`}>{token.slice(2, -2)}</strong>);
       } else {
@@ -2052,8 +2311,13 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     let paragraph: string[] = [];
     let listItems: string[] = [];
     let codeLines: string[] = [];
+    let mathLines: string[] = [];
     let inCode = false;
+    let inMath = false;
+    let codeLanguage = '';
     let codeIndex = 0;
+    let mathIndex = 0;
+    let tableIndex = 0;
 
     const flushParagraph = () => {
       if (paragraph.length === 0) return;
@@ -2079,36 +2343,105 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     };
 
     const flushCode = () => {
-      blocks.push(
-        <pre key={`code-${codeIndex++}`} style={{
-          margin: '0 0 0.75em 0',
-          padding: '10px 12px',
-          borderRadius: '8px',
-          border: '1px solid hsl(var(--border-dim))',
-          background: 'hsl(var(--bg-input))',
-          overflowX: 'auto',
-          whiteSpace: 'pre-wrap'
-        }}>
-          <code>{codeLines.join('\n')}</code>
-        </pre>
-      );
+      const value = codeLines.join('\n');
+      if (isGraphCodeBlock(codeLanguage, value)) {
+        blocks.push(renderGraphBlock(value, `graph-${codeIndex++}`));
+      } else {
+        blocks.push(
+          <pre key={`code-${codeIndex++}`} style={{
+            margin: '0 0 0.75em 0',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid hsl(var(--border-dim))',
+            background: 'hsl(var(--bg-input))',
+            overflowX: 'auto',
+            whiteSpace: 'pre-wrap'
+          }}>
+            <code>{value}</code>
+          </pre>
+        );
+      }
       codeLines = [];
+      codeLanguage = '';
     };
 
-    lines.forEach((line) => {
+    const flushMath = () => {
+      if (mathLines.length === 0) return;
+      blocks.push(renderMathBlock(mathLines.join('\n'), `math-${mathIndex++}`));
+      mathLines = [];
+    };
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
       if (line.trim().startsWith('```')) {
         flushParagraph();
         flushList();
         if (inCode) {
           flushCode();
+        } else {
+          codeLanguage = line.trim().slice(3).trim().split(/\s+/)[0] || '';
         }
         inCode = !inCode;
-        return;
+        continue;
       }
 
       if (inCode) {
         codeLines.push(line);
-        return;
+        continue;
+      }
+
+      if (inMath) {
+        const closeIndex = line.indexOf('$$');
+        if (closeIndex >= 0) {
+          const beforeClose = line.slice(0, closeIndex).trim();
+          if (beforeClose) mathLines.push(beforeClose);
+          flushMath();
+          inMath = false;
+          const remainder = line.slice(closeIndex + 2).trim();
+          if (remainder) paragraph.push(remainder);
+        } else {
+          mathLines.push(line);
+        }
+        continue;
+      }
+
+      const mathStart = line.trim();
+      if (mathStart.startsWith('$$')) {
+        flushParagraph();
+        flushList();
+        const afterOpen = mathStart.slice(2);
+        const closeIndex = afterOpen.indexOf('$$');
+        if (closeIndex >= 0) {
+          const inlineMath = afterOpen.slice(0, closeIndex).trim();
+          if (inlineMath) {
+            mathLines.push(inlineMath);
+            flushMath();
+          }
+          const remainder = afterOpen.slice(closeIndex + 2).trim();
+          if (remainder) paragraph.push(remainder);
+        } else {
+          const initialMath = afterOpen.trim();
+          if (initialMath) mathLines.push(initialMath);
+          inMath = true;
+        }
+        continue;
+      }
+
+      if (
+        looksLikeMarkdownTableRow(line)
+        && index + 1 < lines.length
+        && isMarkdownTableSeparator(lines[index + 1])
+      ) {
+        flushParagraph();
+        flushList();
+        const tableLines = [line, lines[index + 1]];
+        index += 1;
+        while (index + 1 < lines.length && looksLikeMarkdownTableRow(lines[index + 1])) {
+          tableLines.push(lines[index + 1]);
+          index += 1;
+        }
+        blocks.push(renderMarkdownTable(tableLines, `table-${tableIndex++}`));
+        continue;
       }
 
       const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
@@ -2126,27 +2459,28 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             {renderInlineMarkdown(headingMatch[2])}
           </div>
         );
-        return;
+        continue;
       }
 
       const bulletMatch = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
       if (bulletMatch) {
         flushParagraph();
         listItems.push(bulletMatch[1]);
-        return;
+        continue;
       }
 
       if (!line.trim()) {
         flushParagraph();
         flushList();
-        return;
+        continue;
       }
 
       flushList();
       paragraph.push(line);
-    });
+    }
 
     if (inCode || codeLines.length > 0) flushCode();
+    if (inMath || mathLines.length > 0) flushMath();
     flushParagraph();
     flushList();
 
@@ -2337,7 +2671,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           ...prev,
           {
             id,
-            author: `${event.agentName} (${event.providerName})`,
+            author: formatAgentDisplayName(event.agentName, event.providerName, event.modelName),
             role: event.agentName.toLowerCase(),
             time: event.timestamp,
             text: getAgentProgressMessage(0),
@@ -2364,7 +2698,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             ...updated,
             {
               id,
-              author: `${event.agentName} (${event.providerName})`,
+              author: formatAgentDisplayName(event.agentName, event.providerName, event.modelName),
               role: event.agentName.toLowerCase(),
               time: new Date().toLocaleTimeString(),
               text: getAgentProgressMessage(0),
@@ -2400,7 +2734,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             ...updated,
             {
               id,
-              author: `${event.message.agentName} (${event.message.providerName})`,
+              author: formatAgentDisplayName(event.message.agentName, event.message.providerName, event.message.modelName),
               role: event.message.agentName.toLowerCase(),
               time: event.message.timestamp,
               text: event.message.content,
@@ -2585,7 +2919,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           ...prev,
           {
             id,
-            author: `${event.agentName} (${event.providerName})`,
+            author: formatAgentDisplayName(event.agentName, event.providerName, event.modelName),
             role: event.agentName.toLowerCase(),
             time: event.timestamp,
             text: getAgentProgressMessage(0),
@@ -2614,7 +2948,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             ...updated,
             {
               id,
-              author: `${event.agentName} (${event.providerName})`,
+              author: formatAgentDisplayName(event.agentName, event.providerName, event.modelName),
               role: event.agentName.toLowerCase(),
               time: new Date().toLocaleTimeString(),
               text: getAgentProgressMessage(0),
@@ -2653,7 +2987,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             ...updated,
             {
               id,
-              author: `${event.message.agentName} (${event.message.providerName})`,
+              author: formatAgentDisplayName(event.message.agentName, event.message.providerName, event.message.modelName),
               role: event.message.agentName.toLowerCase(),
               time: event.message.timestamp,
               text: event.message.content,
@@ -2765,7 +3099,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await window.electronAPI.saveSkill(projectPath, editingSkillFile, editingSkillContent, editingSkillSource);
+      const res = await window.electronAPI.saveSkill(projectPath, editingSkillFile, editingSkillContent);
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to save skill.');
         return;
@@ -3104,7 +3438,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
   const onboardingSteps = [
     {
       title: 'ROOM starts with shared project memory',
-      body: 'Scan the repository and keep the workspace overview current so every discussion, task, and decision starts from the same compact baseline.',
+      body: 'Keep a short workspace overview and attach the files, notes, or documents that should guide discussions, tasks, and decisions.',
       action: 'Open Context',
       run: () => setActiveTab('Context')
     },
@@ -3153,17 +3487,17 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       normalized.includes('Describe the important parts of this workspace and how they relate to each other.');
   };
 
-  const hasScannedContext = (hasCompletedScan || !!projectData?.hasScanData) && !!projectData && (
+  const hasUsefulContext = (hasCompletedScan || !!projectData?.hasScanData) && !!projectData && (
     !isPlaceholderContext(projectData.projectMd) ||
     !isPlaceholderContext(projectData.archMd)
   );
 
   const setupItems = [
     {
-      label: 'Scan project context',
-      done: hasScannedContext,
-      action: 'Scan',
-      run: triggerScan
+      label: 'Review workspace context',
+      done: hasUsefulContext,
+      action: 'Open',
+      run: () => setActiveTab('Context')
     },
     {
       label: 'Create AI member',
@@ -3466,12 +3800,19 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               return (
                 <div
                   key={idx}
+                  id={`discussion-message-${idx + 1}`}
                   className={`chat-bubble ${msg.role}`}
                   style={{
                     alignSelf: alignment,
                     borderStyle: msg.role === 'system' ? 'dashed' : 'solid',
-                    borderColor: msg.role === 'system' ? 'hsl(var(--accent-orange) / 0.5)' : undefined,
-                    maxWidth: msg.role === 'system' ? '90%' : '80%'
+                    borderColor: highlightedDiscussionMessage === idx + 1
+                      ? 'hsl(var(--accent-blue))'
+                      : msg.role === 'system'
+                        ? 'hsl(var(--accent-orange) / 0.5)'
+                        : undefined,
+                    boxShadow: highlightedDiscussionMessage === idx + 1 ? '0 0 0 2px hsl(var(--accent-blue) / 0.24)' : undefined,
+                    maxWidth: msg.role === 'system' ? '90%' : '80%',
+                    scrollMarginBlock: '80px'
                   }}
                 >
 	                  <div className="bubble-meta">
@@ -4201,19 +4542,37 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 Create role-based personas from templates or custom instructions. Saved AI members live in <code>.room/members/</code>.
               </p>
             </div>
-            <button 
-              onClick={() => {
-                resetAgentForm();
-                setActiveTab('Agent:New');
-              }} 
-              className="btn-primary" 
-              style={{ padding: '10px 20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-            >
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Register AI Member
-            </button>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setAiMemberDetailsExpanded(current => {
+                    localStorage.setItem('room_ai_member_details_expanded', String(!current));
+                    return !current;
+                  });
+                }}
+                style={{ padding: '10px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d={aiMemberDetailsExpanded ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                </svg>
+                {aiMemberDetailsExpanded ? 'Compact Members' : 'Expand Members'}
+              </button>
+              <button
+                onClick={() => {
+                  resetAgentForm();
+                  setActiveTab('Agent:New');
+                }}
+                className="btn-primary"
+                style={{ padding: '10px 20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Register AI Member
+              </button>
+            </div>
           </div>
 
           <div style={{
@@ -4302,7 +4661,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               <span>No AI members registered in this workspace. Add a recommended team or register one manually.</span>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: aiMemberDetailsExpanded ? 'repeat(auto-fill, minmax(320px, 1fr))' : 'repeat(auto-fill, minmax(260px, 1fr))', gap: aiMemberDetailsExpanded ? '20px' : '10px' }}>
               {agents.map((agent: any, idx: number) => {
                 const providerClass = agent.provider.toLowerCase();
                 return (
@@ -4315,10 +4674,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                       providerClass === 'codex' ? 'hsl(var(--accent-orange))' : 'hsl(var(--accent-green))'
                     }`,
                     borderRadius: '12px',
-                    padding: '16px 20px',
+                    padding: aiMemberDetailsExpanded ? '16px 20px' : '12px 14px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '12px',
+                    gap: aiMemberDetailsExpanded ? '12px' : '8px',
                     position: 'relative'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -4420,22 +4779,24 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                       )}
                     </div>
 
-                    <div style={{
-                      fontSize: '0.8rem',
-                      color: 'hsl(var(--text-secondary))',
-                      lineHeight: '1.5',
-                      background: 'hsl(var(--bg-input))',
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      border: '1px solid hsl(var(--border-dim))',
-                      maxHeight: '60px',
-                      overflowY: 'auto',
-                      whiteSpace: 'pre-wrap'
-                    }}>
-                      {agent.systemPrompt}
-                    </div>
+                    {aiMemberDetailsExpanded && (
+                      <div style={{
+                        fontSize: '0.8rem',
+                        color: 'hsl(var(--text-secondary))',
+                        lineHeight: '1.5',
+                        background: 'hsl(var(--bg-input))',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid hsl(var(--border-dim))',
+                        maxHeight: '60px',
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap'
+                      }}>
+                        {agent.systemPrompt}
+                      </div>
+                    )}
 
-                    {agent.skills && agent.skills.length > 0 && (
+                    {aiMemberDetailsExpanded && agent.skills && agent.skills.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 'auto', paddingTop: '8px' }}>
                         {agent.skills.map((skill: string) => (
                           <span key={skill} style={{
@@ -5100,7 +5461,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
-                        Saved edits are written to .room/{editingSkillSource} and can be assigned immediately.
+                        {editingSkillSource === 'roles'
+                          ? 'Loaded from legacy .room/roles. Saving migrates this skill to .room/skills.'
+                          : 'Saved edits are written to .room/skills and can be assigned immediately.'}
                       </span>
                       <button
                         type="button"
@@ -5426,6 +5789,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       const visibleFiles = query
         ? workspaceFiles.filter(file => file.path.toLowerCase().includes(query))
         : workspaceFiles;
+      const visibleFolderCount = visibleFiles.filter(file => file.kind === 'directory').length;
+      const visibleFileCount = visibleFiles.length - visibleFolderCount;
 
       return (
         <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px', minHeight: '560px' }}>
@@ -5435,7 +5800,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 type="search"
                 value={workspaceFileSearch}
                 onChange={(e) => setWorkspaceFileSearch(e.target.value)}
-                placeholder="Search workspace files..."
+                placeholder="Search workspace files and folders..."
                 style={{
                   backgroundColor: 'hsl(var(--bg-input))',
                   border: '1px solid hsl(var(--border-dim))',
@@ -5447,7 +5812,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 }}
               />
               <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.78rem' }}>
-                {visibleFiles.length} files{workspaceFilesTruncated ? ' shown. Large folders are limited to the first 500 files.' : ''}
+                {visibleFolderCount} folders, {visibleFileCount} files{workspaceFilesTruncated ? ' shown. Large workspaces are limited to the first 500 items.' : ''}
               </div>
             </div>
 
@@ -5460,10 +5825,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               paddingRight: '4px'
             }}>
               {visibleFiles.length === 0 ? (
-                <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No workspace files found.</div>
+                <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No workspace files or folders found.</div>
               ) : (
                 visibleFiles.map((file) => {
                   const selected = selectedWorkspaceFile === file.path;
+                  const isDirectory = file.kind === 'directory';
                   return (
                     <button
                       key={file.path}
@@ -5481,11 +5847,16 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         minWidth: 0
                       }}
                     >
-                      <div style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {file.path}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        <span style={{ color: isDirectory ? 'hsl(var(--accent-blue))' : 'hsl(var(--text-muted))', fontSize: '0.78rem', fontWeight: 750 }}>
+                          {isDirectory ? '[dir]' : '[file]'}
+                        </span>
+                        <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {file.path}
+                        </span>
                       </div>
                       <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.72rem', marginTop: '4px' }}>
-                        {formatFileSize(file.size)}
+                        {isDirectory ? 'Folder' : formatFileSize(file.size)}
                       </div>
                     </button>
                   );
@@ -5496,7 +5867,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
           <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.85rem', minHeight: '20px', wordBreak: 'break-all' }}>
-              {selectedWorkspaceFile || 'Select a file to preview.'}
+              {selectedWorkspaceFile || 'Select a file or folder to preview.'}
             </div>
             <pre className="markdown-preview" style={{
               maxHeight: 'none',
@@ -5506,7 +5877,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               wordBreak: 'break-word',
               margin: 0
             }}>
-              {selectedWorkspaceFileContent || '# Select a workspace file to preview.'}
+              {selectedWorkspaceFileContent || '# Select a workspace file or folder to preview.'}
             </pre>
           </div>
         </div>
@@ -6263,8 +6634,39 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         {item.icon}
                       </span>
                       <span className="sidebar-nav-label">{itemLabel}</span>
+                      {isAgents && sidebarExpanded && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAiMembersSidebarExpanded(current => {
+                              localStorage.setItem('room_ai_members_sidebar_expanded', String(!current));
+                              return !current;
+                            });
+                          }}
+                          title={aiMembersSidebarExpanded ? 'Collapse AI Members' : 'Expand AI Members'}
+                          style={{
+                            marginLeft: 'auto',
+                            width: '22px',
+                            height: '22px',
+                            border: 0,
+                            borderRadius: '6px',
+                            background: 'transparent',
+                            color: 'hsl(var(--text-muted))',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d={aiMembersSidebarExpanded ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                          </svg>
+                        </button>
+                      )}
                     </li>
-                    {isAgents && sidebarExpanded && (
+                    {isAgents && sidebarExpanded && aiMembersSidebarExpanded && (
                       <ul className="sidebar-submenu">
                         {(projectData?.agents || []).map((agent: any) => {
                           const isFocused = activeTab === `Agent:${agent.name}`;
@@ -6404,9 +6806,6 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
                       </svg>
                       {showContextPanel ? 'Hide Context' : 'Show Context'}
-                    </button>
-                    <button className="btn-primary" onClick={triggerScan} disabled={loading} style={{ padding: '8px 16px', fontSize: '0.85rem', height: '36px', display: 'flex', alignItems: 'center' }}>
-                      {loading ? 'Scanning...' : 'Scan Repository'}
                     </button>
                   </div>
                 </header>

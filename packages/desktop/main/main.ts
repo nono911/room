@@ -227,7 +227,7 @@ function isSearchableRoomContextFile(relPath: string): boolean {
 
 async function listWorkspaceFiles(projectRoot: string) {
   const root = resolveProjectPath(projectRoot);
-  const files: { path: string; name: string; size: number; modifiedAt: string }[] = [];
+  const files: { path: string; name: string; size: number; modifiedAt: string; kind: 'file' | 'directory' }[] = [];
 
   async function walk(currentDir: string) {
     if (files.length >= WORKSPACE_FILE_LIMIT) return;
@@ -244,14 +244,22 @@ async function listWorkspaceFiles(projectRoot: string) {
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
 
       const fullPath = resolveWithinProject(root, path.relative(root, path.join(currentDir, entry.name)));
+      const relPath = path.relative(root, fullPath).split(path.sep).join('/');
       if (entry.isDirectory()) {
+        const stat = await fs.stat(fullPath);
+        files.push({
+          path: relPath,
+          name: entry.name,
+          size: 0,
+          modifiedAt: stat.mtime.toISOString(),
+          kind: 'directory'
+        });
         await walk(fullPath);
         continue;
       }
       if (!entry.isFile()) continue;
 
       const stat = await fs.stat(fullPath);
-      const relPath = path.relative(root, fullPath).split(path.sep).join('/');
       if (isRoomManagedWorkspaceFile(relPath)) {
         continue;
       }
@@ -259,7 +267,8 @@ async function listWorkspaceFiles(projectRoot: string) {
         path: relPath,
         name: entry.name,
         size: stat.size,
-        modifiedAt: stat.mtime.toISOString()
+        modifiedAt: stat.mtime.toISOString(),
+        kind: 'file'
       });
     }
   }
@@ -374,7 +383,7 @@ async function readSkillPreview(projectRoot: string, filename: string): Promise<
     } catch {}
   }
 
-  return { filename: safeFilename, readable: false, error: 'Skill file was not found in .room/skills or .room/roles.' };
+  return { filename: safeFilename, readable: false, error: 'Skill file was not found in .room/skills or legacy .room/roles.' };
 }
 
 function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat?: string): string {
@@ -679,7 +688,6 @@ async function initializeRoomWorkspace(projectRoot: string): Promise<void> {
     'tasks',
     'discussions',
     'documents',
-    'roles',
     'skills',
     'members',
     'context'
@@ -1055,7 +1063,7 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
     const discussions = (await safeReadDir(discussionsDir))
       .filter(file => file.toLowerCase().endsWith('.md'));
     const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
-    const skills = await readMergedDirs([rolesDir, skillsDir]);
+    const skills = await readMergedDirs([skillsDir, rolesDir]);
     const agents = await loadAgents(projectRoot);
 
     return {
@@ -1138,10 +1146,24 @@ ipcMain.handle('search-context-items', async (event, { dirPath, query }: { dirPa
 ipcMain.handle('read-workspace-file', async (event, { dirPath, filePath }: { dirPath: string; filePath: string }) => {
   try {
     const projectRoot = requireBoundProjectRoot(dirPath);
-    const safeFilePath = sanitizeWorkspaceRelativePath(filePath);
-    const resolvedPath = resolveWithinProject(projectRoot, safeFilePath);
+    const safeFilePath = typeof filePath === 'string' && filePath.trim()
+      ? sanitizeWorkspaceRelativePath(filePath)
+      : '';
+    const resolvedPath = safeFilePath ? resolveWithinProject(projectRoot, safeFilePath) : projectRoot;
     const stat = await fs.stat(resolvedPath);
     if (!stat.isFile()) {
+      if (stat.isDirectory()) {
+        const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+        const preview = entries
+          .filter(entry => !entry.name.startsWith('.') || entry.name === ROOM_DIR)
+          .slice(0, 200)
+          .map(entry => `${entry.isDirectory() ? '[dir]' : '[file]'} ${entry.name}`)
+          .join('\n');
+        return {
+          success: true,
+          content: `# ${safeFilePath || path.basename(projectRoot)}\n\n${preview || 'Directory is empty.'}`
+        };
+      }
       return { success: false, error: 'Selected item is not a file.' };
     }
     if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) {
@@ -1435,11 +1457,10 @@ ipcMain.handle('save-context-file', async (event, { dirPath, filename, content }
   }
 });
 
-ipcMain.handle('save-skill', async (event, { dirPath, name, content, source }: { dirPath: string; name: string; content: string; source?: string }) => {
+ipcMain.handle('save-skill', async (event, { dirPath, name, content }: { dirPath: string; name: string; content: string }) => {
   try {
     const projectRoot = requireBoundProjectRoot(dirPath);
-    const targetSection = source === 'roles' ? 'roles' : 'skills';
-    const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, targetSection);
+    const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'skills');
     await fs.mkdir(skillsDir, { recursive: true });
     const filename = sanitizeFileName(name || 'untitled', 'untitled');
     const fileNameWithExt = filename.endsWith('.md') ? filename : `${filename}.md`;

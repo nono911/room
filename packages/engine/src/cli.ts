@@ -31,7 +31,6 @@ program
         'tasks',
         'discussions',
         'documents',
-        'roles',
         'skills',
         'members'
       ];
