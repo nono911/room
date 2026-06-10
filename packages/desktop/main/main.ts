@@ -1907,9 +1907,19 @@ ipcMain.handle('detect-api-models', async (_, payload: { providerId: string }) =
     const result = await fetchProviderModels(entry);
     if (result.ok && result.models.length > 0) return { success: true, models: result.models };
     if (result.ok) return { success: true, models: [] };
-    return { success: false, error: result.error };
+
+    const fallbackKey = ({ gemini: 'Gemini', anthropic: 'Claude', openai: 'Codex' } as Record<string, string>)[id];
+    if (fallbackKey) {
+      return { success: true, models: getFallbackModels(fallbackKey) };
+    }
+    return { success: true, models: [] };
   } catch (error: any) {
-    return { success: false, error: error.message };
+    const id = normalizeProviderId(typeof payload?.providerId === 'string' ? payload.providerId : '');
+    const fallbackKey = ({ gemini: 'Gemini', anthropic: 'Claude', openai: 'Codex' } as Record<string, string>)[id];
+    if (fallbackKey) {
+      return { success: true, models: getFallbackModels(fallbackKey) };
+    }
+    return { success: true, models: [] };
   }
 });
 

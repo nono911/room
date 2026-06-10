@@ -1740,6 +1740,17 @@ export default function App() {
     }
   };
 
+  const handleClearProviderKey = async (providerId: string) => {
+    if (!window.confirm('Remove the stored API key for this provider?')) return;
+    const res = await window.electronAPI.saveProvider({ id: providerId, apiKey: null });
+    if (res.success && res.providers) {
+      setProviders(res.providers);
+      setProviderKeyDrafts(prev => ({ ...prev, [providerId]: '' }));
+    } else if (res.error) {
+      alert(res.error);
+    }
+  };
+
   const handleAddProvider = async () => {
     const id = addProviderDraft.id.trim().toLowerCase();
     const res = await window.electronAPI.saveProvider({
@@ -6167,6 +6178,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                     <button type="button" className="btn-primary" onClick={() => handleSaveProviderKey(provider.id)} disabled={loading || !(providerKeyDrafts[provider.id] || '').trim()} style={{ height: '34px', padding: '0 14px', fontSize: '0.76rem' }}>
                       Save Key
                     </button>
+                    {provider.hasKey && (
+                      <button type="button" className="btn-secondary" onClick={() => handleClearProviderKey(provider.id)} disabled={loading} style={{ height: '34px', padding: '0 12px', fontSize: '0.76rem' }}>
+                        Clear Key
+                      </button>
+                    )}
                   </div>
                   {providerTestResults[provider.id] && (
                     <span style={{ fontSize: '0.72rem', color: providerTestResults[provider.id].ok ? '#10b981' : '#f87171' }}>
