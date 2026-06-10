@@ -9,6 +9,7 @@ export * from './gemini.js';
 export * from './claude.js';
 export * from './codex.js';
 export * from './openaiCompatible.js';
+export * from './registry.js';
 export * from './localCli.js';
 
 export function detectProviders(): Provider[] {
