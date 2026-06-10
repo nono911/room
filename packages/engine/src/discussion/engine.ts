@@ -2,11 +2,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { loadAgents, AgentConfig } from '../agents/registry.js';
 import { assertLocalCliExecutionAllowed } from '../agents/localCliPolicy.js';
-import { GeminiProvider } from '../providers/gemini.js';
-import { ClaudeProvider } from '../providers/claude.js';
-import { CodexProvider } from '../providers/codex.js';
 import { LocalCliProvider } from '../providers/localCli.js';
 import { Provider } from '../providers/provider.js';
+import { resolveApiProvider, ProviderEntry } from '../providers/index.js';
 import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, ActionExecutionResult } from './actionExecutor.js';
 import { TaskCard } from './taskBoard.js';
@@ -418,11 +416,17 @@ export function stripExternalFileLinks(markdown: string, workspaceRoot: string):
     });
 }
 
+export interface DiscussionEngineOptions {
+  providerRegistry?: ProviderEntry[];
+}
+
 export class DiscussionEngine {
   private dirPath: string;
+  private providerRegistry?: ProviderEntry[];
 
-  constructor(dirPath: string) {
+  constructor(dirPath: string, options: DiscussionEngineOptions = {}) {
     this.dirPath = dirPath;
+    this.providerRegistry = options.providerRegistry;
   }
 
   private async appendEvent(input: NewRoomEvent): Promise<void> {
@@ -497,25 +501,17 @@ export class DiscussionEngine {
   }
 
   private getProvider(agent: AgentConfig): Provider {
-    switch (agent.provider) {
-      case 'Claude':
-        return new ClaudeProvider({ modelName: agent.modelName });
-      case 'Gemini':
-        return new GeminiProvider({ modelName: agent.modelName });
-      case 'Codex':
-        return new CodexProvider({ modelName: agent.modelName });
-      case 'Local CLI':
-        return new LocalCliProvider({
-          command: agent.command,
-          cliPreset: agent.cliPreset,
-          stdinFormat: agent.stdinFormat,
-          cwd: this.dirPath,
-          modelName: agent.modelName,
-          permissionMode: agent.permissionMode || 'safe'
-        });
-      default:
-      return new GeminiProvider({ modelName: agent.modelName });
+    if (agent.provider === 'Local CLI') {
+      return new LocalCliProvider({
+        command: agent.command,
+        cliPreset: agent.cliPreset,
+        stdinFormat: agent.stdinFormat,
+        cwd: this.dirPath,
+        modelName: agent.modelName,
+        permissionMode: agent.permissionMode || 'safe'
+      });
     }
+    return resolveApiProvider(this.providerRegistry, agent.provider, agent.modelName);
   }
 
   private async isDangerousLocalCliAllowed(): Promise<boolean> {
