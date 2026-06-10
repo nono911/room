@@ -21,6 +21,11 @@
       "types": "./dist/src/shellArgs.d.ts",
       "import": "./dist/src/shellArgs.js",
       "default": "./dist/src/shellArgs.js"
+    },
+    "./agents/personaTemplates": {
+      "types": "./dist/src/agents/personaTemplates.d.ts",
+      "import": "./dist/src/agents/personaTemplates.js",
+      "default": "./dist/src/agents/personaTemplates.js"
     }
   },
   "bin": {

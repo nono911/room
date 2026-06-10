@@ -515,6 +515,61 @@ async function readMergedDirs(dirs: string[]): Promise<string[]> {
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
+function dedupeDiscussionSummaryFiles(files: string[]): string[] {
+  const summaryByDiscussion = new Map<string, string>();
+  const result: string[] = [];
+
+  for (const file of files) {
+    const match = file.match(/^(.*)-((?:discussion)-\d+)-summary\.md$/);
+    if (!match) {
+      result.push(file);
+      continue;
+    }
+
+    const discussionId = match[2];
+    const current = summaryByDiscussion.get(discussionId);
+    if (!current) {
+      summaryByDiscussion.set(discussionId, file);
+      result.push(file);
+      continue;
+    }
+
+    const preferred = preferDiscussionSummaryFilename(current, file);
+    summaryByDiscussion.set(discussionId, preferred);
+    const currentIndex = result.indexOf(current);
+    if (currentIndex >= 0) {
+      result[currentIndex] = preferred;
+    }
+  }
+
+  return Array.from(new Set(result)).sort((a, b) => a.localeCompare(b));
+}
+
+function preferDiscussionSummaryFilename(a: string, b: string): string {
+  const score = (file: string): number => {
+    const basename = file.replace(/-discussion-\d+-summary\.md$/, '');
+    const nonAscii = [...basename].filter(ch => ch.charCodeAt(0) > 127).length;
+    const hyphens = (basename.match(/-/g) || []).length;
+    return (nonAscii * 3) - hyphens;
+  };
+  return score(b) >= score(a) ? b : a;
+}
+
+async function removeSupersededDiscussionSummaries(documentsDir: string, keepFilename: string): Promise<void> {
+  const match = keepFilename.match(/-discussion-\d+-summary\.md$/);
+  if (!match) return;
+
+  const suffix = match[0];
+  try {
+    const files = await safeReadDir(documentsDir);
+    await Promise.all(files
+      .filter(file => file.endsWith(suffix) && file !== keepFilename)
+      .map(file => fs.rm(resolveWithinProject(documentsDir, file), { force: true })));
+  } catch {
+    // Best-effort cleanup; saving the requested file should still proceed.
+  }
+}
+
 async function readTextFileWithLimit(filePath: string, maxBytes: number): Promise<string> {
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) {
@@ -904,20 +959,7 @@ ipcMain.handle('select-project-dir', async () => {
 });
 
 ipcMain.handle('open-project-dir', async (event, dirPath: string) => {
-  if (!mainWindow) return null;
   const projectRoot = resolveProjectPath(dirPath);
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    buttons: ['Open Workspace', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    message: 'Open this ROOM workspace?',
-    detail: projectRoot
-  });
-
-  if (result.response !== 0) {
-    return null;
-  }
 
   bindCurrentProjectRoot(projectRoot);
   const roomPath = resolveWithinProject(projectRoot, ROOM_DIR);
@@ -1012,7 +1054,7 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
     const reviews = await safeReadDir(reviewsDir);
     const discussions = (await safeReadDir(discussionsDir))
       .filter(file => file.toLowerCase().endsWith('.md'));
-    const documents = await readMergedDirs([documentsDir, reviewsDir, decisionsDir]);
+    const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
     const skills = await readMergedDirs([rolesDir, skillsDir]);
     const agents = await loadAgents(projectRoot);
 
@@ -1155,7 +1197,7 @@ ipcMain.handle('run-scan', async (event, { dirPath, mainAgent, modelName, allowD
   }
 });
 
-ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, qualityGateCycles, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; qualityGateCycles?: number; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
+ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
   const safeRequestedDiscussionId = typeof requestedDiscussionId === 'string' && /^discussion-\d+$/.test(requestedDiscussionId)
     ? requestedDiscussionId
     : '';
@@ -1185,37 +1227,11 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
     const moderatorActions: Array<{ type: 'task' | 'adr'; id?: string; title?: string; filename?: string }> = [];
 
     if (qualityGate) {
-      const cycleLimit = Number.isFinite(qualityGateCycles)
-        ? Math.max(1, Math.min(3, Math.floor(qualityGateCycles || 1)))
-        : 1;
-
-      for (let cycle = 1; cycle <= cycleLimit; cycle++) {
-        const verdict = await engine.evaluateDiscussion(discussionId, moderatorName);
-        if (verdict.executed) {
-          moderatorActions.push(
-            ...verdict.executed.createdTaskCards.map(card => ({ type: 'task' as const, id: card.id, title: card.title })),
-            ...verdict.executed.createdAdrs.map(adr => ({ type: 'adr' as const, id: adr.id, filename: adr.filename }))
-          );
-        }
-        if (verdict.status === 'PASS') {
-          break;
-        }
-        if (cycle >= cycleLimit) {
-          break;
-        }
-
-        log = await engine.runDiscussion(
-          discussionId,
-          `Discussion: ${topic.slice(0, 30)}...`,
-          `Quality Gate requested another focused discussion round.\n\n${verdict.nextRoundInstructions}`,
-          agentNames && agentNames.length > 0 ? agentNames : [],
-          1,
-          {
-            onEvent: sendDiscussionEvent,
-            reviewMode: !!reviewMode,
-            additionalContext,
-            userLabel: 'Quality Gate'
-          }
+      const verdict = await engine.evaluateDiscussion(discussionId, moderatorName);
+      if (verdict.executed) {
+        moderatorActions.push(
+          ...verdict.executed.createdTaskCards.map(card => ({ type: 'task' as const, id: card.id, title: card.title })),
+          ...verdict.executed.createdAdrs.map(adr => ({ type: 'adr' as const, id: adr.id, filename: adr.filename }))
         );
       }
 
@@ -1388,6 +1404,9 @@ ipcMain.handle('save-room-file', async (event, { dirPath, section, filename, con
     const fileNameWithExt = safeFilename.endsWith('.md') ? safeFilename : `${safeFilename}.md`;
     const sectionDir = resolveWithinProject(projectRoot, ROOM_DIR, section);
     await fs.mkdir(sectionDir, { recursive: true });
+    if (section === 'documents') {
+      await removeSupersededDiscussionSummaries(sectionDir, fileNameWithExt);
+    }
     const filePath = resolveWithinProject(sectionDir, fileNameWithExt);
     await fs.writeFile(filePath, content, 'utf-8');
     return { success: true, filename: fileNameWithExt };

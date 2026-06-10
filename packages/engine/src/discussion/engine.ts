@@ -142,7 +142,8 @@ const DISCUSSION_PROTOCOL = `=== Discussion Protocol ===
 This is a collaborative chat, not a set of isolated answers.
 When there is prior chat history, explicitly reference at least one concrete point from the previous user or AI messages.
 State whether you are building on, refining, challenging, or resolving that point before adding your own contribution.
-Avoid restarting from scratch unless the user asks for a new direction.`;
+Avoid restarting from scratch unless the user asks for a new direction.
+Treat any "structured deliverable" sections in your persona as a flexible guide, not a rigid template: in open discussion, prioritize a natural, conversational reply that advances the topic, and reach for those sections only when they genuinely add clarity.`;
 
 const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
 At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
@@ -156,6 +157,13 @@ Return only the useful answer for the user in clean Markdown.
 Do not dump raw JSON events, HTML, CSS, bundled JavaScript, source maps, lockfile content, or generated build artifacts.
 When you need to mention source code or files, summarize the relevant behavior and cite concise file paths or tiny snippets only.
 Ignore generated directories and artifacts such as dist, dist-packaged, build, coverage, .next, node_modules, minified assets, and source maps unless the user explicitly asks to inspect them.`;
+
+const WORKSPACE_BOUNDARY_POLICY = `=== Workspace Boundary Policy ===
+The active workspace root is the only durable project workspace.
+Do not create, save, update, or link files in provider-specific memory folders, CLI brain folders, home-directory agent stores, or temporary scratch workspaces.
+If you create or mention durable files, they must be inside the active workspace root, preferably under .room/ for ROOM artifacts.
+Do not return file:// links outside the active workspace.
+For summaries and discussion replies, return Markdown content only; ROOM will save artifacts into the workspace when appropriate.`;
 
 const LOCAL_CLI_OUTPUT_POLICY = `=== Local CLI Agent Policy ===
 Use only the prompt, discussion history, selected context, active skills, and project context provided here.
@@ -254,6 +262,7 @@ function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ..
     basePrompt,
     LANGUAGE_POLICY,
     USER_FACING_OUTPUT_POLICY,
+    WORKSPACE_BOUNDARY_POLICY,
     localCliAgent ? LOCAL_CLI_OUTPUT_POLICY : '',
     ...sections.filter(section => section.trim())
   ].join('\n\n');
@@ -368,6 +377,39 @@ ${result.statusSummary || 'No status summary available.'}
 ## Deliverable
 ${source}
 `;
+}
+
+export function safeDocumentSlug(input: string): string {
+  const slug = (input || 'discussion')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug || 'discussion';
+}
+
+export function stripExternalFileLinks(markdown: string, workspaceRoot: string): string {
+  const normalizedRoot = path.resolve(workspaceRoot);
+  const isInsideWorkspace = (fileUrl: string): boolean => {
+    try {
+      const url = new URL(fileUrl);
+      if (url.protocol !== 'file:') return true;
+      const filePath = decodeURIComponent(url.pathname);
+      const resolved = path.resolve(filePath);
+      return resolved === normalizedRoot || resolved.startsWith(`${normalizedRoot}${path.sep}`);
+    } catch {
+      return true;
+    }
+  };
+
+  return markdown
+    .replace(/\[([^\]]+)\]\((file:\/\/[^)\s]+)\)/g, (_match, label: string, fileUrl: string) => {
+      return isInsideWorkspace(fileUrl) ? _match : label;
+    })
+    .replace(/\bfile:\/\/[^\s)]+/g, (fileUrl: string) => {
+      return isInsideWorkspace(fileUrl) ? fileUrl : '[external file path removed]';
+    });
 }
 
 export class DiscussionEngine {
@@ -605,6 +647,7 @@ Respond with these sections:
 - OPEN_FINDINGS: unresolved blocker/major/minor findings, each with concrete rationale.
 - RESOLVED_FINDINGS: findings from prior rounds that are now closed.
 - REQUIRED_CHANGES: specific changes needed before approval.
+- TEST_REQUIREMENTS: tests or checks that must pass before approval.
 - APPROVAL_STATUS: NEEDS_REVISION or APPROVED.
 
 Only output APPROVAL_STATUS: APPROVED when OPEN_FINDINGS is empty and the result is complete, actionable, and verifiable. If any meaningful gap remains, output APPROVAL_STATUS: NEEDS_REVISION.`;
@@ -617,13 +660,7 @@ If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address eac
   }
 
   private safeDocumentSlug(input: string): string {
-    const slug = (input || 'discussion')
-      .normalize('NFC')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80);
-    return slug || 'discussion';
+    return safeDocumentSlug(input);
   }
 
   private isDeveloperAgent(agent: AgentConfig): boolean {
@@ -754,9 +791,11 @@ ${transcript}`;
 
 ${LANGUAGE_POLICY}
 
+${WORKSPACE_BOUNDARY_POLICY}
+
 You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.`;
 
-    const content = await provider.execute(prompt, systemPrompt);
+    const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), this.dirPath);
     const { actions, errors: actionErrors } = parseModeratorActions(content);
     const executed = await executeModeratorActions(this.dirPath, actions, discussionId);
     await this.appendActionEvents(discussionId, executed);
@@ -841,6 +880,9 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
 Focus on the useful state that should survive after the raw chat becomes too long.
 Do not merely restate every message.
 Preserve important disagreements, decisions, open questions, options, and next steps.
+Return the Markdown content only. Do not create, save, update, or link to any file yourself.
+Do not mention provider memory, CLI brain folders, or local files outside this workspace.
+ROOM will save your returned Markdown to .room/documents after you respond.
 
 Output clean Markdown with these sections:
 - Summary
@@ -858,9 +900,11 @@ ${transcript}`;
 
 ${LANGUAGE_POLICY}
 
+${WORKSPACE_BOUNDARY_POLICY}
+
 You are summarizing a collaborative ROOM chat into a compact memory artifact. Use the same natural language as the chat unless the user explicitly asked otherwise.`;
 
-    const summary = await provider.execute(prompt, systemPrompt);
+    const summary = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), this.dirPath);
     const titleSource = discussionLog.topic || discussionLog.title || discussionId;
     const filename = `${this.safeDocumentSlug(titleSource)}-${discussionId}-summary.md`;
     const content = summary.trim().startsWith('#')
@@ -868,6 +912,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
       : `# Chat Summary: ${titleSource}\n\n${summary.trim()}`;
     const documentsDir = path.join(this.dirPath, '.room', 'documents');
     await fs.mkdir(documentsDir, { recursive: true });
+    await this.removeSupersededDiscussionSummaries(documentsDir, discussionId, filename);
     await fs.writeFile(path.join(documentsDir, filename), `${content}\n`, 'utf-8');
     await this.appendEvent({
       type: 'artifact.created',
@@ -881,6 +926,18 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     });
 
     return { filename, content };
+  }
+
+  private async removeSupersededDiscussionSummaries(documentsDir: string, discussionId: string, keepFilename: string): Promise<void> {
+    const suffix = `-${discussionId}-summary.md`;
+    try {
+      const files = await fs.readdir(documentsDir);
+      await Promise.all(files
+        .filter(file => file.endsWith(suffix) && file !== keepFilename)
+        .map(file => fs.rm(path.join(documentsDir, file), { force: true })));
+    } catch {
+      // Summary cleanup is best-effort; failing it should not block saving the new artifact.
+    }
   }
 
   async generateTasksFromDiscussion(
@@ -920,9 +977,11 @@ ${transcript}`;
 
 ${LANGUAGE_POLICY}
 
+${WORKSPACE_BOUNDARY_POLICY}
+
 You convert finished ROOM chats into actionable task plans for the project task board.`;
 
-    const content = await provider.execute(prompt, systemPrompt);
+    const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), this.dirPath);
     const { actions, errors } = parseModeratorActions(content);
     const taskActions = actions.filter(action => action.action === 'create_task');
     if (taskActions.length === 0) {
@@ -1061,11 +1120,15 @@ You convert finished ROOM chats into actionable task plans for the project task 
         const contextMessages = compiledContext.includedMessages;
         const priorMessageInstruction = compiledContext.priorMessageInstruction;
         const reviewProtocol = options.reviewMode ? this.buildReviewProtocol(agent) : '';
+        // Only ask for reference tracing when there is prior history worth citing.
+        // On the very first turn of a fresh discussion the only included message is
+        // the current user prompt, so the room-refs block would always be empty.
+        const hasReferableHistory = contextMessages.length > 1;
         const systemPrompt = composeAgentSystemPrompt(
           agent.systemPrompt,
           agent.provider === 'Local CLI',
           DISCUSSION_PROTOCOL,
-          REFERENCE_TRACING_PROTOCOL,
+          hasReferableHistory ? REFERENCE_TRACING_PROTOCOL : '',
           skillsContext,
           reviewProtocol,
           compiledContext.projectContextBlock
@@ -1088,7 +1151,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
               });
             }
           });
-          response = cleanAgentUserContent(response);
+          response = cleanAgentUserContent(stripExternalFileLinks(response, this.dirPath));
           const parsedRefs = parseMessageReferences(response, contextMessages);
           messageReferences = parsedRefs.references;
           if (parsedRefs.cleaned) {
@@ -1346,7 +1409,7 @@ ${doerWorkInstructions}
             });
           }
         });
-        developerOutput = cleanAgentUserContent(developerOutput);
+        developerOutput = cleanAgentUserContent(stripExternalFileLinks(developerOutput, this.dirPath));
         const parsedDeveloperRefs = parseMessageReferences(developerOutput, developerContext.includedMessages);
         developerReferences = parsedDeveloperRefs.references;
         if (parsedDeveloperRefs.cleaned) {
@@ -1459,7 +1522,7 @@ Output format:
               });
             }
           });
-          reviewOutput = cleanAgentUserContent(reviewOutput);
+          reviewOutput = cleanAgentUserContent(stripExternalFileLinks(reviewOutput, this.dirPath));
           const parsedReviewerRefs = parseMessageReferences(reviewOutput, reviewerContext.includedMessages);
           reviewerReferences = parsedReviewerRefs.references;
           if (parsedReviewerRefs.cleaned) {

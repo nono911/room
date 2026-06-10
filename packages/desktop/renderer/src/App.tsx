@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getFallbackModels, type ModelOption } from '@room/engine/modelCatalog';
 import { parseShellArgs } from '@room/engine/shellArgs';
+import { PERSONA_TEMPLATES, type PersonaTemplateName } from '@room/engine/agents/personaTemplates';
 
 // Type definitions for Electron IPC API
 interface ProjectData {
@@ -91,7 +92,7 @@ declare global {
         dirPath: string,
         topic: string,
         agentNames?: string[],
-        options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; qualityGateCycles?: number; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
+        options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
       ) => Promise<{
         success: boolean;
         summary?: { filename: string; content: string };
@@ -280,12 +281,6 @@ const taskTypeOptions = [
   { value: 'business', label: 'Business' },
   { value: 'design', label: 'Design' }
 ];
-
-const agentLanguageInstruction = `Language policy:
-- Respond in the same natural language the user uses in the current request or discussion.
-- If the user mixes languages, preserve that mix when it helps clarity.
-- Do not force Thai, English, or any other default language unless the user explicitly asks for it.
-- Keep code identifiers, file paths, commands, API names, and quoted source text in their original language.`;
 
 const roleTemplateSkills = {
   Product: [
@@ -552,7 +547,7 @@ const roleTemplateSkills = {
 - Turn each important edge case into a concrete expected behavior.`
     }
   ],
-  Moderator: [
+  'Room Moderator': [
     {
       filename: 'quality-gate.md',
       title: 'Quality Gate',
@@ -574,7 +569,7 @@ const roleTemplateSkills = {
 - Preserve decisions and open questions clearly for future work.`
     }
   ],
-  Reporter: [
+  'Room Reporter': [
     {
       filename: 'chat-summary.md',
       title: 'Chat Summary',
@@ -730,471 +725,15 @@ const roleTemplateSkills = {
   ]
 } satisfies Record<string, readonly TemplateSkill[]>;
 
-const agentPersonaTemplates = [
-  {
-    name: 'Product',
-    role: 'Product Analyst',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Product,
-    prompt: `You are the Product Analyst for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to turn user requests into clear product requirements before technical design starts.
-Focus on user goals, business rules, acceptance criteria, workflow boundaries, edge cases, and unresolved product decisions.
-
-Do not design implementation details unless needed to clarify product behavior.
-If requirements are ambiguous, make the ambiguity explicit and ask concrete decision questions.
-
-Output format:
-- User Goal
-- Scope
-- User Flows
-- Business Rules
-- Acceptance Criteria
-- Edge Cases
-- Open Product Questions`
-  },
-  {
-    name: 'UX',
-    role: 'UX/UI Designer',
-    provider: 'Claude',
-    skills: roleTemplateSkills.UX,
-    prompt: `You are the UX/UI Designer for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to turn product requirements into practical user experience decisions and interface behavior.
-Focus on screens, states, navigation, form behavior, feedback, empty states, error states, accessibility, and responsive layout.
-
-Prefer UI patterns that match the existing app. Avoid decorative ideas that do not improve the user workflow.
-Call out places where the current UI could confuse users or hide important decisions.
-
-Output format:
-- UX Summary
-- Screens and States
-- User Flow
-- Interaction Details
-- Accessibility Notes
-- Copy and Labels
-- UX Risks and Questions`
-  },
-  {
-    name: 'Screenwriter',
-    role: 'Screenwriter',
-    provider: 'Claude',
-    skills: roleTemplateSkills.Screenwriter,
-    prompt: `You are the Screenwriter for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to shape ideas into scenes, dialogue, character arcs, emotional beats, and story structure.
-Focus on dramatic intent, pacing, conflict, subtext, scene transitions, and whether each moment earns its place.
-
-Do not treat the workspace as a software project unless the user explicitly asks for software work.
-When story details are missing, propose concrete options instead of forcing one answer.
-
-Output format:
-- Story Intent
-- Character and Conflict
-- Scene or Sequence Proposal
-- Dialogue and Tone Notes
-- Pacing Risks
-- Open Story Questions`
-  },
-  {
-    name: 'Story Editor',
-    role: 'Story Editor',
-    provider: 'Claude',
-    skills: roleTemplateSkills['Story Editor'],
-    prompt: `You are the Story Editor for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to critique narrative material and make it clearer, tighter, and more emotionally coherent.
-Focus on structure, continuity, character motivation, theme, audience comprehension, and weak or repetitive scenes.
-
-Do not treat the workspace as a software project unless the user explicitly asks for software work.
-Be direct about story problems, but always give actionable revision paths.
-
-Output format:
-- Editorial Summary
-- What Works
-- Story Problems
-- Revision Recommendations
-- Continuity Risks
-- Questions for the Writer`
-  },
-  {
-    name: 'Producer',
-    role: 'Creative Producer',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Producer,
-    prompt: `You are the Creative Producer for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to evaluate creative ideas from a production, audience, schedule, and decision-making perspective.
-Focus on constraints, priorities, market fit, scope, production risks, and what needs to be decided next.
-
-Do not over-optimize for technical implementation unless the user asks for it.
-
-Output format:
-- Producer Summary
-- Audience and Positioning
-- Scope and Constraints
-- Production Risks
-- Decision Points
-- Recommended Next Steps`
-  },
-  {
-    name: 'Researcher',
-    role: 'Research Analyst',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Researcher,
-    prompt: `You are the Research Analyst for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to organize uncertain topics, identify evidence needs, compare options, and separate facts from assumptions.
-Focus on source quality, missing context, useful questions, and practical research paths.
-
-If you are not given sources, label claims as assumptions and propose what should be verified.
-
-Output format:
-- Research Summary
-- Known Facts
-- Assumptions
-- Evidence Needed
-- Options or Comparisons
-- Next Research Steps`
-  },
-  {
-    name: 'Architect',
-    role: 'System Architect',
-    provider: 'Claude',
-    skills: roleTemplateSkills.Architect,
-    prompt: `You are the System Architect for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to turn feature requests into implementable technical plans.
-Focus on architecture, module boundaries, data flow, dependencies, API contracts, migration impact, and ADR-worthy decisions.
-
-When reviewing a feature request:
-1. Identify affected modules and files.
-2. Propose the implementation approach.
-3. List required data model, API, or configuration changes.
-4. Call out risks, trade-offs, and open questions.
-5. Do not approve the plan if requirements are ambiguous or technically incomplete.
-
-Output format:
-- Summary
-- Proposed Architecture
-- Affected Areas
-- Implementation Steps
-- Risks and Trade-offs
-- Open Questions
-- Handoff Notes for Reviewer`
-  },
-  {
-    name: 'Implementer',
-    role: 'Implementation Planner',
-    provider: 'Codex',
-    skills: roleTemplateSkills.Implementer,
-    prompt: `You are the Implementation Planner for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to convert an approved technical direction into a concrete coding plan.
-Focus on exact files, change sequence, data/API changes, tests, validation commands, and rollback risks.
-
-You must address all OPEN_FINDINGS and REQUIRED_CHANGES from reviewers before proposing new scope.
-Do not write vague implementation steps. Prefer concrete file paths, module names, and verification commands.
-
-Output format:
-- Implementation Plan
-- Files to Change
-- Data/API Changes
-- Tests to Add or Update
-- Validation Commands
-- Remaining Risks`
-  },
-  {
-    name: 'Developer',
-    role: 'Software Developer',
-    provider: 'Codex',
-    skills: roleTemplateSkills.Developer,
-    prompt: `You are the Software Developer for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to execute coding tasks inside the active workspace, using the existing codebase patterns and keeping changes narrowly scoped.
-When you have local tool access, read the relevant files, edit the workspace files, and run the most relevant validation commands.
-
-Never write files outside the active workspace.
-If you cannot edit files directly, provide an exact patch-level plan and make the limitation explicit.
-When reviewer feedback exists, address every required change before adding new work.
-
-Output format:
-- Work Completed
-- Changed Files
-- Review Feedback Addressed
-- Validation
-- Blockers or Remaining Risks`
-  },
-  {
-    name: 'Reviewer',
-    role: 'Senior Code Reviewer',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Reviewer,
-    prompt: `You are the Senior Technical Reviewer for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to challenge technical plans until they are implementable, testable, and low-risk.
-Focus on correctness, missing edge cases, security, maintainability, runtime behavior, and test coverage.
-
-Review every previous agent message. Track findings across rounds.
-Do not mark the plan approved while meaningful gaps remain.
-
-Output format:
-- OPEN_FINDINGS
-- RESOLVED_FINDINGS
-- REQUIRED_CHANGES
-- TEST_REQUIREMENTS
-- APPROVAL_STATUS
-
-Only output APPROVAL_STATUS: APPROVED when OPEN_FINDINGS is empty and REQUIRED_CHANGES is empty.`
-  },
-  {
-    name: 'Security',
-    role: 'Security Reviewer',
-    provider: 'Codex',
-    skills: roleTemplateSkills.Security,
-    prompt: `You are the Security Reviewer for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to identify security, privacy, permission, data exposure, injection, authentication, authorization, and unsafe local-tool risks in proposed plans.
-
-Focus on practical exploit paths, trust boundaries, secret handling, filesystem access, network access, and user-controlled inputs.
-Do not block on theoretical issues unless they create concrete implementation risk.
-
-Output format:
-- Security Summary
-- Threats and Abuse Cases
-- Required Safeguards
-- Files or Modules to Inspect
-- Security Test Requirements
-- Approval Risks`
-  },
-  {
-    name: 'QA',
-    role: 'QA Reviewer',
-    provider: 'Codex',
-    skills: roleTemplateSkills.QA,
-    prompt: `You are the QA Reviewer for this repository.
-
-${agentLanguageInstruction}
-
-Your job is to convert plans into verifiable behavior and catch missing test coverage before implementation starts.
-Focus on acceptance criteria, edge cases, regression risk, integration flows, local CLI failure modes, and UI states.
-
-Output format:
-- Test Strategy
-- Acceptance Criteria
-- Edge Cases
-- Regression Areas
-- Manual Verification Steps
-- Automation Candidates`
-  },
-  {
-    name: 'Room Moderator',
-    role: 'Room Moderator',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Moderator,
-    prompt: `You are the Room Moderator for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to evaluate whether a collaborative discussion has produced a coherent and usable result.
-You are not a normal contributor. Do not add new ideas unless needed to explain a gap.
-Focus on whether the user goal was answered, whether agents built on each other, what remains vague, and what the next round must resolve.
-
-Output format:
-STATUS: PASS | NEEDS_MORE_DISCUSSION
-SUMMARY:
-GAPS:
-NEXT_ROUND_INSTRUCTIONS:`
-  },
-  {
-    name: 'Room Reporter',
-    role: 'Room Reporter',
-    provider: 'Gemini',
-    skills: roleTemplateSkills.Reporter,
-    prompt: `You are the Room Reporter for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to convert discussion transcripts into durable workspace memory documents.
-Do not contribute new ideas. Capture what was discussed, what was decided, what remains open, and what future chats should know.
-Focus on clarity, compactness, and usefulness as context for later work.
-
-Output format:
-# Chat Summary
-
-## Executive Summary
-## Key Ideas
-## Decisions
-## Open Questions
-## Options Discussed
-## Risks or Weak Points
-## Next Steps
-## Useful Context for Future Chats`
-  },
-  {
-    name: 'Macro Strategist',
-    role: 'Macro Strategist',
-    provider: 'Gemini',
-    skills: roleTemplateSkills['Macro Strategist'],
-    prompt: `You are the Macro Strategist for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to frame the economic and liquidity backdrop before any asset-level discussion.
-Focus on interest rates, inflation, growth, central bank policy (Fed, BOT, and others relevant to the topic), USD direction, and how these flow into equities, crypto, gold, and FX.
-
-Present scenarios with rough probabilities instead of single-point predictions, and always state what would invalidate your view.
-This is decision-support analysis, not personalized financial advice; make assumptions and uncertainty explicit.
-
-Output format:
-- Macro Summary
-- Current Regime (rates, inflation, liquidity)
-- Key Drivers and Upcoming Events
-- Cross-Asset Implications
-- Scenarios and Invalidation Points
-- Open Questions`
-  },
-  {
-    name: 'Equity Analyst',
-    role: 'Equity Analyst (Thai and Global)',
-    provider: 'Claude',
-    skills: roleTemplateSkills['Equity Analyst'],
-    prompt: `You are the Equity Analyst for this workspace, covering both Thai (SET) and international stock markets.
-
-${agentLanguageInstruction}
-
-Your job is to evaluate stocks and sectors on fundamentals: earnings, growth drivers, valuation, balance sheet, and competitive position.
-For Thai equities, account for foreign fund flows, THB direction, dividend culture, and SET sector structure. For global equities, account for index context, currency exposure, and practical access for Thai investors.
-
-Distinguish facts from estimates, cite the basis for every valuation claim, and never present a price target as a certainty.
-This is decision-support analysis, not personalized financial advice.
-
-Output format:
-- Equity Summary
-- Thesis and Key Drivers
-- Valuation Context
-- Thai vs Global Considerations
-- Risks to the Thesis
-- What Would Change the View`
-  },
-  {
-    name: 'Crypto Analyst',
-    role: 'Crypto / Digital Asset Analyst',
-    provider: 'Gemini',
-    skills: roleTemplateSkills['Crypto Analyst'],
-    prompt: `You are the Crypto Analyst for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to evaluate digital assets through tokenomics, real usage, on-chain data, market structure, and narrative sustainability.
-Focus on supply schedules and unlocks, fee revenue versus marketing claims, funding and positioning data, liquidity depth, and regulatory exposure (including the Thai regulatory context when relevant).
-
-Be explicit about the extreme volatility and drawdown risk of this asset class. Label hype-driven moves as such.
-This is decision-support analysis, not personalized financial advice.
-
-Output format:
-- Crypto Summary
-- Fundamentals and Tokenomics
-- On-Chain and Positioning Signals
-- Narrative and Catalyst Assessment
-- Key Risks (volatility, liquidity, regulatory)
-- What Would Change the View`
-  },
-  {
-    name: 'FX & Commodities Analyst',
-    role: 'FX and Commodities Analyst',
-    provider: 'Codex',
-    skills: roleTemplateSkills['FX & Commodities Analyst'],
-    prompt: `You are the FX and Commodities Analyst for this workspace, covering forex pairs, gold, and related commodities.
-
-${agentLanguageInstruction}
-
-Your job is to analyze currency and commodity moves through interest-rate differentials, USD direction, capital flows, and real yields.
-For gold, separate global XAU/USD drivers from THB-quoted (baht gold) effects. For forex, anchor on central bank paths and state the events that could flip the view.
-
-Mark intervention risk and event-driven spikes separately from trend drivers. Present levels and scenarios, not guaranteed forecasts.
-This is decision-support analysis, not personalized financial advice.
-
-Output format:
-- FX/Commodities Summary
-- Key Drivers (rates, USD, flows)
-- Gold Context (global and baht gold)
-- Levels and Scenarios
-- Upcoming Events and Risks
-- What Would Change the View`
-  },
-  {
-    name: 'Technical Analyst',
-    role: 'Technical Analyst / Trader',
-    provider: 'Codex',
-    skills: roleTemplateSkills['Technical Analyst'],
-    prompt: `You are the Technical Analyst for this workspace, covering stocks, crypto, gold, and forex charts.
-
-${agentLanguageInstruction}
-
-Your job is to read price action and turn views into concrete trade plans: trend, structure, key levels, entries, stops, and targets.
-Always start from the higher timeframe, define the invalidation level before the target, and require a reward-to-risk ratio that justifies the setup.
-
-Never propose a trade without a stop loss. Never suggest averaging down to repair a losing position.
-This is decision-support analysis, not personalized financial advice.
-
-Output format:
-- Technical Summary
-- Trend and Market Structure (by timeframe)
-- Key Levels (support, resistance, invalidation)
-- Trade Setup (entry, stop, targets, R:R)
-- Conditions That Expire the Plan
-- Open Questions`
-  },
-  {
-    name: 'Risk Manager',
-    role: 'Portfolio Risk Manager',
-    provider: 'Claude',
-    skills: roleTemplateSkills['Risk Manager'],
-    prompt: `You are the Portfolio Risk Manager for this workspace.
-
-${agentLanguageInstruction}
-
-Your job is to challenge every proposed position and portfolio from a survival-first perspective.
-Focus on position sizing from stop distance, exposure caps per asset class and correlated theme, leverage and gap risk, currency mismatch, liquidity needs, and drawdown tolerance.
-
-You are not a cheerleader. If sizing, stops, or concentration are missing from a proposal, block it and demand them.
-Challenge other analysts when their views ignore correlation or downside scenarios.
-This is decision-support analysis, not personalized financial advice.
-
-Output format:
-- Risk Summary
-- Position Sizing Check
-- Concentration and Correlation Risks
-- Stress Scenarios (rates, THB, crypto drawdown)
-- Required Changes Before Acting
-- Approval Status`
-  }
-] as const;
-
-type TemplateRoleName = typeof agentPersonaTemplates[number]['name'];
+const agentPersonaTemplates = PERSONA_TEMPLATES.map(template => ({
+  name: template.name,
+  role: template.role,
+  provider: template.provider,
+  prompt: template.prompt,
+  skills: roleTemplateSkills[template.name as keyof typeof roleTemplateSkills] ?? []
+}));
+
+type TemplateRoleName = PersonaTemplateName;
 
 const teamPresets: {
   name: string;
@@ -1331,7 +870,6 @@ export default function App() {
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
   const [discussionQualityGate, setDiscussionQualityGate] = useState<boolean>(false);
-  const [discussionQualityGateCycles, setDiscussionQualityGateCycles] = useState<number>(1);
   const [discussionModeratorName, setDiscussionModeratorName] = useState<string>('');
   const [discussionAutoSummary, setDiscussionAutoSummary] = useState<boolean>(false);
   const [discussionSummaryAgentName, setDiscussionSummaryAgentName] = useState<string>('__project__');
@@ -1344,6 +882,7 @@ export default function App() {
   const [codingTaskMaxCycles, setCodingTaskMaxCycles] = useState<number>(2);
   const [selectedCodingTaskContextRefs, setSelectedCodingTaskContextRefs] = useState<string[]>(['workspace:overview', 'workspace:structure']);
   const [lastCodingTaskResult, setLastCodingTaskResult] = useState<any | null>(null);
+  const [taskRunView, setTaskRunView] = useState<'setup' | 'timeline' | 'artifact' | 'trace'>('setup');
   const [openRounds, setOpenRounds] = useState<Record<number, boolean>>({});
   const [expandedMsgKeys, setExpandedMsgKeys] = useState<Record<string, boolean>>({});
   const [lastMaxRound, setLastMaxRound] = useState<number>(-1);
@@ -2370,6 +1909,26 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 `;
   };
 
+  const safeDocumentSlug = (input: string): string => {
+    const slug = (input || 'discussion')
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    return slug || 'discussion';
+  };
+
+  const getSavedDocumentFilename = (text: string): string | null => {
+    const match = text.match(/saved to Documents:\s*([^\n]+?\.md)\s*$/i);
+    return match?.[1]?.trim() || null;
+  };
+
+  const openDocumentFromBubble = async (filename: string) => {
+    await loadRoomFilePreview('documents', filename);
+    setActiveTab('Documents');
+  };
+
   const getDiscussionIdFromFile = (filename: string) => filename.replace(/\.(md|json)$/i, '');
 
   const formatDiscussionLogMessages = (log: any): UIMessage[] => {
@@ -2641,8 +2200,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
   const saveDiscussionOutput = async (section: 'documents' | 'tasks') => {
     if (!projectPath || !lastDiscussionLog) return;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const discussionId = lastDiscussionLog.id || activeDiscussionId;
+    const titleSource = lastDiscussionLog.topic || lastDiscussionLog.title || lastDiscussionTopic || discussionId || 'discussion';
     const filename = section === 'documents'
-      ? `discussion-${timestamp}-summary.md`
+      ? discussionId
+        ? `${safeDocumentSlug(titleSource)}-${discussionId}-summary.md`
+        : `discussion-${timestamp}-summary.md`
       : `discussion-${timestamp}-tasks.md`;
     const content = section === 'documents'
       ? buildDiscussionSummaryMarkdown()
@@ -3116,11 +2679,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     try {
       const res = await window.electronAPI.runDiscussion(projectPath, userTopic, validSelectedAgents, {
         reviewMode: discussionReviewMode,
-        maxRounds: discussionReviewMode ? discussionMaxRounds : 2,
+        maxRounds: discussionReviewMode ? discussionMaxRounds : 1,
         contextRefs,
         discussionId: activeDiscussionId || undefined,
         qualityGate: discussionQualityGate,
-        qualityGateCycles: discussionQualityGateCycles,
         moderatorName: discussionModeratorName || undefined,
         autoSummary: discussionAutoSummary,
         summaryAgentName: discussionSummaryAgentName !== '__project__' ? discussionSummaryAgentName : undefined,
@@ -3277,7 +2839,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     { name: 'Documents', icon: (
       <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
     )},
-    { name: 'Tasks', icon: (
+    { name: 'Tasks', label: 'Task Archive', icon: (
       <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
     )},
     { name: 'Context', icon: (
@@ -3542,7 +3104,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
   const onboardingSteps = [
     {
       title: 'ROOM starts with shared project memory',
-      body: 'Scan the repository and keep the workspace overview current so agents have a compact baseline before any discussion or task run.',
+      body: 'Scan the repository and keep the workspace overview current so every discussion, task, and decision starts from the same compact baseline.',
       action: 'Open Context',
       run: () => setActiveTab('Context')
     },
@@ -3563,13 +3125,13 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     },
     {
       title: 'Context Picker keeps large repos manageable',
-      body: 'Use Add Context in Discussions or Task Run to search tasks, docs, and files instead of scrolling through the entire workspace.',
+      body: 'Use Add Context in Discussions or Task Run to attach the docs, tasks, and files that should become the evidence trail for the run.',
       action: 'Open Discussions',
       run: () => setActiveTab('Discussions')
     },
     {
-      title: 'Task Run adds a review loop',
-      body: 'Give one agent the work, choose reviewers, attach relevant context, and let ROOM iterate until the result is approved or needs changes.',
+      title: 'Runs leave a traceable trail',
+      body: 'Give one agent the work, choose reviewers, and let ROOM keep the message references, created tasks, ADRs, and artifacts connected.',
       action: 'Open Task Run',
       run: () => setActiveTab('Task Run')
     }
@@ -3625,7 +3187,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       run: () => openContextPicker(activeTab === 'Task Run' ? 'task' : 'discussion')
     },
     {
-      label: 'Run a discussion or task',
+      label: 'Create a traceable run',
       done: discussionMessages.length > 0 || codingTaskMessages.length > 0 || (projectData?.discussions || []).length > 0 || (projectData?.tasks || []).length > 0,
       action: 'Start',
       run: () => setActiveTab('Discussions')
@@ -3649,7 +3211,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'white' }}>Workspace setup</div>
           <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
-            Use this as a quick path from empty workspace to useful agent runs.
+            Use this as a quick path from empty workspace to useful runs with source context and references preserved.
           </div>
           {scanStatus && (
             <div style={{
@@ -3892,7 +3454,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
                 <div style={{ color: 'white', fontWeight: 700 }}>Start with a question, plan, or review request.</div>
                 <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
-                  Add context when the answer depends on docs, tasks, or specific files, then choose the AI members who should discuss it.
+                  Add context when the answer depends on docs, tasks, or specific files. ROOM will preserve the discussion transcript, message references, and moderator-created tasks or ADRs.
                 </div>
                 <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('discussion')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
                   Add Context
@@ -3900,6 +3462,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </div>
             ) : discussionMessages.map((msg, idx) => {
               const alignment = getAlignment(msg.role, idx);
+              const savedDocumentFilename = msg.role === 'system' ? getSavedDocumentFilename(msg.text) : null;
               return (
                 <div
                   key={idx}
@@ -3911,11 +3474,24 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                     maxWidth: msg.role === 'system' ? '90%' : '80%'
                   }}
                 >
-                  <div className="bubble-meta">
-                    <span className="bubble-author">{msg.author}</span>
-                    <span>{msg.streaming ? 'Working...' : msg.time}</span>
-                  </div>
-                  {renderMarkdownContent(msg.text, msg.streaming)}
+	                  <div className="bubble-meta">
+	                    <span className="bubble-author">{msg.author}</span>
+	                    <span>{msg.streaming ? 'Working...' : msg.time}</span>
+	                  </div>
+	                  {renderMarkdownContent(msg.text, msg.streaming)}
+                  {savedDocumentFilename && (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={loading}
+                        onClick={() => openDocumentFromBubble(savedDocumentFilename)}
+                        style={{ padding: '5px 10px', fontSize: '0.72rem', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+                      >
+                        Open Document
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -4005,20 +3581,6 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 <option value="">Auto-pick</option>
                 {(projectData?.agents || []).map((agent: any) => (
                   <option key={agent.name} value={agent.name}>{agent.name}</option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))' }}>
-              Gate cycles
-              <select
-                className="form-select"
-                value={discussionQualityGateCycles}
-                disabled={loading || !discussionQualityGate}
-                onChange={(e) => setDiscussionQualityGateCycles(Number(e.target.value))}
-                style={{ height: '30px', minWidth: '64px', fontSize: '0.78rem', padding: '0 8px' }}
-              >
-                {[1, 2, 3].map(cycles => (
-                  <option key={cycles} value={cycles}>{cycles}</option>
                 ))}
               </select>
             </label>
@@ -4138,13 +3700,42 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
     if (activeTab === 'Task Run') {
       const agents = projectData?.agents || [];
+      const savedTaskRuns = (projectData?.tasks || []).slice(0, 12);
+      const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
+      codingTaskMessages.forEach(msg => {
+        const r = msg.round ?? 0;
+        if (!taskRunMessagesByRound[r]) {
+          taskRunMessagesByRound[r] = [];
+        }
+        taskRunMessagesByRound[r].push(msg);
+      });
+      const taskRunRounds = Object.keys(taskRunMessagesByRound).map(Number).sort((a, b) => a - b);
+      const selectedDoer = agents.find((agent: any) => agent.name === codingTaskDeveloperName);
+      const selectedTaskTypeLabel = taskTypeOptions.find(option => option.value === taskRunType)?.label || 'Custom';
+      const currentRunTitle = codingTaskInput.trim() || 'Draft run';
+      const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0;
+      const taskRunTabs: Array<{ id: 'setup' | 'timeline' | 'artifact' | 'trace'; label: string; count?: number }> = [
+        { id: 'setup', label: 'Setup' },
+        { id: 'timeline', label: 'Timeline', count: codingTaskMessages.length || undefined },
+        { id: 'artifact', label: 'Artifact', count: lastCodingTaskResult?.artifactFilename ? 1 : undefined },
+        { id: 'trace', label: 'Trace' }
+      ];
 
-      return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) 1fr', gap: '24px', height: '100%', minHeight: '620px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
+      const runStatusText = loading ? 'running' : lastCodingTaskResult?.status || 'draft';
+      const runStatusColor = lastCodingTaskResult?.status === 'approved'
+        ? '#10b981'
+        : lastCodingTaskResult
+          ? 'hsl(var(--accent-orange))'
+          : loading
+            ? 'hsl(var(--accent-purple))'
+            : 'hsl(var(--text-muted))';
+
+      const setupPanel = (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(280px, 0.95fr)', gap: '18px', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
-                Task
+              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
+                Task Type
               </label>
               <select
                 className="form-select"
@@ -4157,15 +3748,21 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
+                Work Request
+              </label>
               <textarea
                 value={codingTaskInput}
                 onChange={(e) => setCodingTaskInput(e.target.value)}
                 disabled={loading}
                 placeholder="Describe the work you want the selected AI member to produce..."
-                rows={8}
+                rows={10}
                 style={{
                   width: '100%',
-                  minHeight: '160px',
+                  minHeight: '220px',
                   resize: 'vertical',
                   backgroundColor: 'hsl(var(--bg-input))',
                   border: '1px solid hsl(var(--border-dim))',
@@ -4176,12 +3773,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   outline: 'none',
                   lineHeight: 1.5
                 }}
-	                          />
-	                          <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', lineHeight: '1.4' }}>
-	                            Custom commands run exactly as entered from the workspace directory. Safe mode does not sandbox custom commands; it only avoids elevated flags for known CLI presets.
-	                          </span>
-	                        </div>
+              />
+            </div>
+          </div>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px 14px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
                 Doer
@@ -4194,7 +3790,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 >
                   <option value="">Select Doer</option>
                   {agents.map((agent: any) => (
-                    <option key={agent.name} value={agent.name}>{agent.name} — {agent.role}</option>
+                    <option key={agent.name} value={agent.name}>{agent.name} - {agent.role}</option>
                   ))}
                 </select>
               </label>
@@ -4203,7 +3799,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                 <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
                   Reviewers / Leads
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '100px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '112px', overflowY: 'auto' }}>
                   {agents.map((agent: any) => {
                     const selected = codingTaskReviewerNames.includes(agent.name);
                     const disabled = loading || agent.name === codingTaskDeveloperName;
@@ -4212,7 +3808,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         key={agent.name}
                         className={`skill-checkbox-chip ${selected ? 'selected' : ''}`}
                         style={{ fontSize: '0.74rem', padding: '4px 10px', borderRadius: '14px', opacity: disabled && !selected ? 0.55 : 1 }}
-                        title={`${agent.name} — ${agent.role}`}
+                        title={`${agent.name} - ${agent.role}`}
                       >
                         <input
                           type="checkbox"
@@ -4255,292 +3851,339 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             <button
               className="btn-primary"
               type="button"
-              onClick={handleRunCodingTask}
-              disabled={loading || !codingTaskInput.trim() || !codingTaskDeveloperName || codingTaskReviewerNames.length === 0}
+              onClick={() => {
+                setTaskRunView('timeline');
+                handleRunCodingTask();
+              }}
+              disabled={!canRunCodingTask}
               style={{ height: '42px', justifyContent: 'center' }}
             >
-              {loading ? 'Running Task...' : 'Run Doer → Review Loop'}
+              {loading ? 'Running Task...' : 'Run Doer -> Review Loop'}
             </button>
+          </div>
+        </div>
+      );
 
-            {lastCodingTaskResult?.markdownFilename && (
-              <div style={{ display: 'grid', gridTemplateColumns: lastCodingTaskResult.artifactFilename ? '1fr 1fr' : '1fr', gap: '8px' }}>
+      const timelinePanel = (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '6px' }}>
+          {codingTaskMessages.length === 0 ? (
+            <div className="markdown-preview" style={{ maxHeight: 'none', height: '100%', minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
+              <div style={{ color: 'white', fontWeight: 700 }}>No task run yet.</div>
+              <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
+                Create a run from Setup. The timeline keeps doer output, reviewer feedback, message references, and final status together.
+              </div>
+              <button type="button" className="btn-secondary" disabled={loading} onClick={() => setTaskRunView('setup')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                Open Setup
+              </button>
+            </div>
+          ) : (
+            taskRunRounds.map(r => {
+              const msgs = taskRunMessagesByRound[r];
+              const isOpen = openRounds[r] ?? false;
+              const roundTitle = r === 0 ? 'Setup & Requirements' : `Cycle ${r}`;
+              const roundSubtitle = r === 0
+                ? 'Initial prompt and system startup'
+                : (() => {
+                    const roundAgents = Array.from(new Set(msgs.filter(m => m.role !== 'system' && m.role !== 'user').map(m => m.author)));
+                    return roundAgents.length > 0 ? `Participants: ${roundAgents.join(', ')}` : 'Agent running...';
+                  })();
+
+              return (
+                <div
+                  key={r}
+                  style={{
+                    background: 'hsl(var(--bg-card) / 0.25)',
+                    border: '1px solid hsl(var(--border-dim))',
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: isOpen ? '0 4px 16px rgba(0, 0, 0, 0.2)' : 'none'
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenRounds(prev => ({ ...prev, [r]: !prev[r] }))}
+                    className="accordion-header"
+                    style={{
+                      padding: '12px 16px',
+                      background: isOpen ? 'hsl(var(--bg-sidebar))' : 'transparent',
+                      border: 0,
+                      borderBottom: isOpen ? '1px solid hsl(var(--border-dim))' : 'none',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      textAlign: 'left',
+                      color: 'inherit'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isOpen ? 'white' : 'hsl(var(--text-secondary))', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{roundTitle}</span>
+                        <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: 'hsl(var(--accent-purple) / 0.15)', color: 'hsl(var(--accent-purple))', fontWeight: 600 }}>
+                          {msgs.length} message{msgs.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {roundSubtitle}
+                      </div>
+                    </div>
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease', color: 'hsl(var(--text-muted))', flex: '0 0 auto' }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+
+                  {isOpen && (
+                    <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'hsl(var(--bg-app) / 0.2)' }}>
+                      {msgs.map((msg, idx) => {
+                        const msgKey = `${msg.id || msg.author}-${r}-${idx}`;
+                        const isLong = msg.text.length > 1200;
+                        const isMsgExpanded = expandedMsgKeys[msgKey] ?? false;
+                        let overlayBg = 'hsl(var(--bg-card))';
+                        if (msg.role === 'system') overlayBg = 'hsl(var(--bg-app))';
+                        else if (idx % 2 !== 0) overlayBg = 'hsl(var(--bg-card) / 0.7)';
+
+                        return (
+                          <div
+                            key={msgKey}
+                            className={`chat-bubble ${msg.role}`}
+                            style={{
+                              alignSelf: msg.role === 'system' ? 'center' : idx % 2 === 0 ? 'flex-start' : 'flex-end',
+                              borderStyle: msg.role === 'system' ? 'dashed' : 'solid',
+                              borderColor: msg.role === 'system' ? 'hsl(var(--accent-orange) / 0.5)' : undefined,
+                              maxWidth: msg.role === 'system' ? '92%' : '86%',
+                              display: 'flex',
+                              flexDirection: 'column'
+                            }}
+                          >
+                            <div className="bubble-meta">
+                              <span className="bubble-author">{msg.author}</span>
+                              <span>{msg.streaming ? 'Working...' : msg.time}</span>
+                            </div>
+                            <div style={{ position: 'relative', minWidth: 0 }}>
+                              <div style={{ maxHeight: isLong && !isMsgExpanded ? '320px' : 'none', overflow: 'hidden', position: 'relative', transition: 'max-height 0.25s ease' }}>
+                                {renderMarkdownContent(msg.text, msg.streaming)}
+                                {isLong && !isMsgExpanded && (
+                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '80px', background: `linear-gradient(to bottom, transparent, ${overlayBg})`, pointerEvents: 'none' }} />
+                                )}
+                              </div>
+                              {isLong && (
+                                <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+                                  <button type="button" className="btn-secondary" onClick={() => setExpandedMsgKeys(prev => ({ ...prev, [msgKey]: !isMsgExpanded }))} style={{ padding: '4px 10px', fontSize: '0.72rem', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    {isMsgExpanded ? 'Collapse message' : `Show full output (${Math.round(msg.text.length / 100) / 10} KB)`}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      );
+
+      const artifactPanel = (
+        <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '420px', display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px' }}>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Status</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{lastCodingTaskResult?.status || (loading ? 'running' : 'not started')}</div>
+            </div>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Cycles</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{lastCodingTaskResult?.cycles ?? taskRunRounds.filter(r => r > 0).length}</div>
+            </div>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Approved By</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {lastCodingTaskResult?.approvedBy?.length ? lastCodingTaskResult.approvedBy.join(', ') : 'Pending'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
+            <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Artifact</div>
+            <div style={{ color: 'white', fontWeight: 650, wordBreak: 'break-word' }}>
+              {lastCodingTaskResult?.artifactFilename || 'No artifact has been produced yet.'}
+            </div>
+            {lastCodingTaskResult?.statusSummary && (
+              <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.84rem', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                {lastCodingTaskResult.statusSummary}
+              </div>
+            )}
+          </div>
+
+          {lastCodingTaskResult?.markdownFilename && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  loadRoomFilePreview('tasks', lastCodingTaskResult.markdownFilename);
+                  setActiveTab('Tasks');
+                }}
+                style={{ height: '36px', justifyContent: 'center' }}
+              >
+                Open Transcript
+              </button>
+              {lastCodingTaskResult.artifactFilename && (
                 <button
                   className="btn-secondary"
                   type="button"
                   disabled={loading}
                   onClick={() => {
-                    loadRoomFilePreview('tasks', lastCodingTaskResult.markdownFilename);
-                    setActiveTab('Tasks');
+                    loadRoomFilePreview('documents', lastCodingTaskResult.artifactFilename);
+                    setActiveTab('Documents');
                   }}
-                  style={{ height: '38px', justifyContent: 'center' }}
+                  style={{ height: '36px', justifyContent: 'center' }}
                 >
-                  Open Transcript
+                  Open Artifact
                 </button>
-                {lastCodingTaskResult.artifactFilename && (
+              )}
+            </div>
+          )}
+        </div>
+      );
+
+      const tracePanel = (
+        <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '420px', display: 'grid', gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(280px, 1.2fr)', gap: '14px', alignItems: 'start', overflow: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Context</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{selectedCodingTaskContextRefs.length} selected</div>
+            </div>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Messages</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{codingTaskMessages.length}</div>
+            </div>
+            <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Output</div>
+              <div style={{ marginTop: '4px', color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {lastCodingTaskResult?.artifactFilename || lastCodingTaskResult?.markdownFilename || 'Pending'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', color: 'hsl(var(--text-secondary))', lineHeight: 1.5, fontSize: '0.86rem' }}>
+            <div style={{ color: 'white', fontWeight: 700 }}>Current Run Evidence</div>
+            <div>
+              This panel is scoped to the active run. It surfaces the selected context, run transcript, and final artifact links that the engine already records.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {selectedCodingTaskContextRefs.map(ref => (
+                <div key={ref} style={{ display: 'flex', gap: '8px', alignItems: 'center', minWidth: 0 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '999px', background: 'hsl(var(--accent-purple))', flex: '0 0 auto' }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref}</span>
+                </div>
+              ))}
+              {selectedCodingTaskContextRefs.length === 0 && (
+                <div style={{ color: 'hsl(var(--text-muted))' }}>No explicit context selected.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div style={{ height: '100%', minHeight: '620px', overflow: 'hidden' }}>
+          <section style={{ minWidth: 0, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', gap: '14px', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0, flex: '1 1 360px' }}>
+                <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>
+                  Task Run
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', minWidth: 0, flexWrap: 'wrap' }}>
+                  <span className="project-badge" style={{ borderColor: runStatusColor, color: runStatusColor }}>
+                    {runStatusText}
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: 'white', fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(520px, 70vw)' }}>
+                    {currentRunTitle}
+                  </span>
+                  <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-muted))' }}>
+                    {selectedTaskTypeLabel} · {selectedDoer?.name || 'No doer'} · {codingTaskMessages.length} msgs · {codingTaskReviewerNames.length} reviewers
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {savedTaskRuns.length > 0 && (
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setActiveTab('Tasks')}
+                    style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto' }}
+                  >
+                    Task Archive
+                  </button>
+                )}
+                {lastCodingTaskResult?.markdownFilename && (
                   <button
                     className="btn-secondary"
                     type="button"
                     disabled={loading}
                     onClick={() => {
-                      loadRoomFilePreview('documents', lastCodingTaskResult.artifactFilename);
-                      setActiveTab('Documents');
+                      loadRoomFilePreview('tasks', lastCodingTaskResult.markdownFilename);
+                      setActiveTab('Tasks');
                     }}
-                    style={{ height: '38px', justifyContent: 'center' }}
+                    style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto' }}
                   >
-                    Open Artifact
+                    Transcript
                   </button>
                 )}
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setTaskRunView('setup');
+                    setCodingTaskMessages([]);
+                    setLastCodingTaskResult(null);
+                    setOpenRounds({});
+                  }}
+                  style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto' }}
+                >
+                  New Run
+                </button>
               </div>
-            )}
-          </div>
-
-          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>
-                  Task Run
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))', marginTop: '4px' }}>
-                  The selected Doer produces the work first, then reviewers decide whether to approve or send it back.
-                </div>
-              </div>
-              {lastCodingTaskResult && (
-                <span className="project-badge" style={{ borderColor: lastCodingTaskResult.status === 'approved' ? '#10b981' : 'hsl(var(--accent-orange))', color: lastCodingTaskResult.status === 'approved' ? '#10b981' : 'hsl(var(--accent-orange))' }}>
-                  {lastCodingTaskResult.status}
-                </span>
-              )}
             </div>
 
-            {lastCodingTaskResult && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px' }}>
-                <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Cycles</div>
-                  <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{lastCodingTaskResult.cycles}</div>
-                </div>
-                <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Approved By</div>
-                  <div style={{ marginTop: '4px', color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {lastCodingTaskResult.approvedBy?.length ? lastCodingTaskResult.approvedBy.join(', ') : 'Not approved'}
-                  </div>
-                </div>
-                <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Artifact</div>
-                  <div style={{ marginTop: '4px', color: 'white', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {lastCodingTaskResult.artifactFilename || 'None'}
-                  </div>
-                </div>
-                {lastCodingTaskResult.statusSummary && (
-                  <div style={{ gridColumn: '1 / -1', padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', color: 'hsl(var(--text-secondary))', fontSize: '0.82rem', whiteSpace: 'pre-wrap' }}>
-                    {lastCodingTaskResult.statusSummary}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '6px' }}>
-              {codingTaskMessages.length === 0 ? (
-                <div className="markdown-preview" style={{ maxHeight: 'none', height: '100%', minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
-                  <div style={{ color: 'white', fontWeight: 700 }}>No task run yet.</div>
-                  <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
-                    Describe the work, select a doer and reviewers, then attach the docs or files the agents should use.
-                  </div>
-                  <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('task')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
-                    Add Task Context
-                  </button>
-                </div>
-              ) : (
-                (() => {
-                  const messagesByRound: Record<number, UIMessage[]> = {};
-                  codingTaskMessages.forEach(msg => {
-                    const r = msg.round ?? 0;
-                    if (!messagesByRound[r]) {
-                      messagesByRound[r] = [];
-                    }
-                    messagesByRound[r].push(msg);
-                  });
-
-                  const rounds = Object.keys(messagesByRound).map(Number).sort((a, b) => a - b);
-
-                  return rounds.map(r => {
-                    const msgs = messagesByRound[r];
-                    const isOpen = openRounds[r] ?? false;
-
-                    let roundTitle = `Cycle ${r}`;
-                    let roundSubtitle = '';
-                    if (r === 0) {
-                      roundTitle = 'Setup & Requirements';
-                      roundSubtitle = 'Initial prompt and system startup';
-                    } else {
-                      const agents = Array.from(new Set(msgs.filter(m => m.role !== 'system' && m.role !== 'user').map(m => m.author)));
-                      roundSubtitle = agents.length > 0 ? `Participants: ${agents.join(', ')}` : 'Agent running...';
-                    }
-
-                    return (
-                      <div
-                        key={r}
-                        style={{
-                          background: 'hsl(var(--bg-card) / 0.25)',
-                          border: '1px solid hsl(var(--border-dim))',
-                          borderRadius: '12px',
-                          overflow: 'hidden',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          transition: 'all 0.2s ease',
-                          boxShadow: isOpen ? '0 4px 16px rgba(0, 0, 0, 0.2)' : 'none'
-                        }}
-                      >
-                        <div
-                          onClick={() => setOpenRounds(prev => ({ ...prev, [r]: !prev[r] }))}
-                          style={{
-                            padding: '12px 16px',
-                            background: isOpen ? 'hsl(var(--bg-sidebar))' : 'transparent',
-                            borderBottom: isOpen ? '1px solid hsl(var(--border-dim))' : 'none',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            userSelect: 'none',
-                            transition: 'background-color 0.2s'
-                          }}
-                          className="accordion-header"
-                        >
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isOpen ? 'white' : 'hsl(var(--text-secondary))', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span>{roundTitle}</span>
-                              {r > 0 && (
-                                <span style={{
-                                  fontSize: '0.7rem',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  background: 'hsl(var(--accent-purple) / 0.15)',
-                                  color: 'hsl(var(--accent-purple))',
-                                  fontWeight: 600
-                                }}>
-                                  {msgs.length} message{msgs.length === 1 ? '' : 's'}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {roundSubtitle}
-                            </div>
-                          </div>
-                          
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <svg
-                              width="16"
-                              height="16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              viewBox="0 0 24 24"
-                              style={{
-                                transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-                                transition: 'transform 0.2s ease',
-                                color: 'hsl(var(--text-muted))'
-                              }}
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                            </svg>
-                          </div>
-                        </div>
-
-                        {isOpen && (
-                          <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'hsl(var(--bg-app) / 0.2)' }}>
-                            {msgs.map((msg, idx) => {
-                              const msgKey = `${msg.id || msg.author}-${r}-${idx}`;
-                              const isLong = msg.text.length > 1200;
-                              const isMsgExpanded = expandedMsgKeys[msgKey] ?? false;
-
-                              let overlayBg = 'hsl(var(--bg-card))';
-                              if (msg.role === 'system') overlayBg = 'hsl(var(--bg-app))';
-                              else if (idx % 2 !== 0) overlayBg = 'hsl(var(--bg-card) / 0.7)';
-
-                              return (
-                                <div
-                                  key={msgKey}
-                                  className={`chat-bubble ${msg.role}`}
-                                  style={{
-                                    alignSelf: msg.role === 'system' ? 'center' : idx % 2 === 0 ? 'flex-start' : 'flex-end',
-                                    borderStyle: msg.role === 'system' ? 'dashed' : 'solid',
-                                    borderColor: msg.role === 'system' ? 'hsl(var(--accent-orange) / 0.5)' : undefined,
-                                    maxWidth: msg.role === 'system' ? '92%' : '86%',
-                                    display: 'flex',
-                                    flexDirection: 'column'
-                                  }}
-                                >
-                                  <div className="bubble-meta">
-                                    <span className="bubble-author">{msg.author}</span>
-                                    <span>{msg.streaming ? 'Working...' : msg.time}</span>
-                                  </div>
-
-                                  <div style={{ position: 'relative', minWidth: 0 }}>
-                                    <div style={{
-                                      maxHeight: isLong && !isMsgExpanded ? '320px' : 'none',
-                                      overflow: 'hidden',
-                                      position: 'relative',
-                                      transition: 'max-height 0.25s ease'
-                                    }}>
-                                      {renderMarkdownContent(msg.text, msg.streaming)}
-                                      
-                                      {isLong && !isMsgExpanded && (
-                                        <div style={{
-                                          position: 'absolute',
-                                          bottom: 0,
-                                          left: 0,
-                                          right: 0,
-                                          height: '80px',
-                                          background: `linear-gradient(to bottom, transparent, ${overlayBg})`,
-                                          pointerEvents: 'none'
-                                        }} />
-                                      )}
-                                    </div>
-
-                                    {isLong && (
-                                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
-                                        <button
-                                          type="button"
-                                          className="btn-secondary"
-                                          onClick={() => setExpandedMsgKeys(prev => ({ ...prev, [msgKey]: !isMsgExpanded }))}
-                                          style={{
-                                            padding: '4px 10px',
-                                            fontSize: '0.72rem',
-                                            borderRadius: '6px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px'
-                                          }}
-                                        >
-                                          {isMsgExpanded ? (
-                                            <>
-                                              <span>Collapse message</span>
-                                              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                                              </svg>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <span>Show full output ({Math.round(msg.text.length / 100) / 10} KB)</span>
-                                              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                              </svg>
-                                            </>
-                                          )}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  });
-                })()
-              )}
+            <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid hsl(var(--border-dim))', flex: '0 0 auto' }}>
+              {taskRunTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setTaskRunView(tab.id)}
+                  style={{
+                    height: '36px',
+                    padding: '0 12px',
+                    border: 0,
+                    borderBottom: taskRunView === tab.id ? '2px solid hsl(var(--accent-purple))' : '2px solid transparent',
+                    background: 'transparent',
+                    color: taskRunView === tab.id ? 'white' : 'hsl(var(--text-muted))',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {tab.label}{tab.count ? ` ${tab.count}` : ''}
+                </button>
+              ))}
             </div>
-          </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
+              {taskRunView === 'setup' && setupPanel}
+              {taskRunView === 'timeline' && timelinePanel}
+              {taskRunView === 'artifact' && artifactPanel}
+              {taskRunView === 'trace' && tracePanel}
+            </div>
+          </section>
         </div>
       );
     }
@@ -5694,7 +5337,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </div>
             )}
             <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-              Workspace task notes logged under <code>.room/tasks/</code>.
+              Workspace task notes logged under <code>.room/tasks/</code>, with created task cards linked back to their source discussion when available.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {tasks.length === 0 ? (
@@ -5741,7 +5384,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', minHeight: '520px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-              Documents from <code>.room/documents/</code>. If empty, markdown discussion transcripts from <code>.room/discussions/</code> are shown.
+              Documents from <code>.room/documents/</code>. If empty, markdown discussion transcripts from <code>.room/discussions/</code> are shown, including stable message IDs and references.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {items.length === 0 ? (
@@ -6602,6 +6245,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               {menuItems.map((item) => {
                 const isAgents = item.name === 'AI Members';
                 const isItemActive = activeTab === item.name || (isAgents && activeTab.startsWith('Agent:'));
+                const itemLabel = item.label || item.name;
                 return (
                   <React.Fragment key={item.name}>
                     <li
@@ -6613,12 +6257,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                           setActiveTab(item.name);
                         }
                       }}
-                      title={sidebarExpanded ? undefined : item.name}
+                      title={sidebarExpanded ? undefined : itemLabel}
                     >
                       <span className="sidebar-nav-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {item.icon}
                       </span>
-                      <span className="sidebar-nav-label">{item.name}</span>
+                      <span className="sidebar-nav-label">{itemLabel}</span>
                     </li>
                     {isAgents && sidebarExpanded && (
                       <ul className="sidebar-submenu">
