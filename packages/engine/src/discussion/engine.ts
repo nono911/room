@@ -530,6 +530,18 @@ export class DiscussionEngine {
     }
   }
 
+  private async assertCodingTaskWriteAllowed(agent: AgentConfig, taskType: string): Promise<void> {
+    if (taskType !== 'coding' || agent.provider !== 'Local CLI') {
+      return;
+    }
+
+    if ((agent.permissionMode || 'safe') !== 'dangerous') {
+      throw new Error(`Coding tasks require workspace write access for Local CLI Developer "${agent.name}". Edit this AI member, enable dangerous permissions, then enable dangerous workspace CLI permissions in project settings.`);
+    }
+
+    await this.assertAgentExecutionAllowed(agent);
+  }
+
   private pickContextSummaryAgent(agents: AgentConfig[]): AgentConfig | undefined {
     const nonLocalAgents = agents.filter(agent => agent.provider !== 'Local CLI');
     return nonLocalAgents.find(agent => {
@@ -1269,6 +1281,9 @@ You convert finished ROOM chats into actionable task plans for the project task 
       throw new Error('No Reviewer or Lead AI member is available for this task.');
     }
 
+    const taskType = (options.taskType || 'general').trim().toLowerCase();
+    await this.assertCodingTaskWriteAllowed(developer, taskType);
+
     const tasksDir = path.join(this.dirPath, '.room', 'tasks');
     const documentsDir = path.join(this.dirPath, '.room', 'documents');
     await fs.mkdir(tasksDir, { recursive: true });
@@ -1280,7 +1295,6 @@ You convert finished ROOM chats into actionable task plans for the project task 
     const markdownPath = path.join(tasksDir, markdownFilename);
     const artifactPath = path.join(documentsDir, artifactFilename);
 
-    const taskType = (options.taskType || 'general').trim().toLowerCase();
     const isCodingTask = taskType === 'coding';
     const doerLabel = isCodingTask ? 'Developer' : 'Doer';
     const reviewerLabel = isCodingTask ? 'Senior Developer or Reviewer' : 'Reviewer or Lead';

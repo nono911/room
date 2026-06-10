@@ -193,7 +193,7 @@ export class LocalCliProvider implements Provider {
         bin = resolvedPath || this.cliPreset;
 
         if (this.cliPreset === 'claude') {
-          args = ['-p', '--output-format', 'stream-json'];
+          args = ['-p', '--output-format', 'stream-json', '--verbose'];
           if (this.permissionMode === 'dangerous') {
             args.push('--permission-mode', 'bypassPermissions');
           }
@@ -486,7 +486,10 @@ export class LocalCliProvider implements Provider {
         return this.formatJsonError(parsed.error);
       }
 
-      const assistantText = this.extractAssistantText(parsed);
+      const assistantText = this.extractAssistantText(parsed)
+        || (parsed.message && typeof parsed.message === 'object'
+          ? this.extractAssistantText(parsed.message as Record<string, unknown>)
+          : '');
       if (assistantText) {
         return assistantText;
       }
@@ -549,7 +552,11 @@ export class LocalCliProvider implements Provider {
       : parsed;
     const role = typeof item.role === 'string' ? item.role : typeof parsed.role === 'string' ? parsed.role : '';
     const type = typeof item.type === 'string' ? item.type : typeof parsed.type === 'string' ? parsed.type : '';
-    const isAssistantMessage = role === 'assistant' || type === 'assistant' || type === 'message' || type === 'message_delta';
+    const isAssistantMessage = role === 'assistant'
+      || type === 'assistant'
+      || type === 'message'
+      || type === 'message_delta'
+      || type === 'agent_message';
     if (!isAssistantMessage) return '';
 
     const content = item.content ?? parsed.content;

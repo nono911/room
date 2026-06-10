@@ -1124,8 +1124,10 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
     const rolesDir = resolveWithinProject(roomDir, 'roles');
     const skillsDir = resolveWithinProject(roomDir, 'skills');
 
-    const tasks = (await safeReadDir(tasksDir))
+    const taskFiles = (await safeReadDir(tasksDir))
       .filter(file => file.toLowerCase().endsWith('.md'));
+    const taskRuns = taskFiles.filter(file => /^task-\d+\.md$/i.test(file));
+    const tasks = taskFiles.filter(file => !/^task-\d+\.md$/i.test(file));
     const decisions = await safeReadDir(decisionsDir);
     const reviews = await safeReadDir(reviewsDir);
     const discussions = (await safeReadDir(discussionsDir))
@@ -1140,6 +1142,7 @@ ipcMain.handle('get-project-data', async (event, dirPath: string) => {
       archMd,
       hasScanData,
       tasks,
+      taskRuns,
       decisions,
       reviews,
       documents,

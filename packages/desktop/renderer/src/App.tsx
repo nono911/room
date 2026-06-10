@@ -9,6 +9,7 @@ interface ProjectData {
   archMd: string;
   hasScanData?: boolean;
   tasks: string[];
+  taskRuns?: string[];
   decisions: string[];
   reviews: string[];
   documents: string[];
@@ -94,6 +95,7 @@ declare global {
         archMd: string;
         hasScanData?: boolean;
         tasks: string[];
+        taskRuns?: string[];
         decisions: string[];
         reviews: string[];
         documents?: string[];
@@ -1470,6 +1472,7 @@ export default function App() {
           archMd: data.archMd,
           hasScanData: data.hasScanData,
           tasks: data.tasks,
+          taskRuns: data.taskRuns || [],
           decisions: data.decisions,
           reviews: data.reviews || [],
           documents: data.documents || [],
@@ -1725,6 +1728,38 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to save project settings:', err);
+    }
+  };
+
+  const enableTaskRunWriteAccess = async () => {
+    if (!projectPath || !codingTaskDeveloperName) return;
+    const developer = (projectData?.agents || []).find((agent: any) => agent.name === codingTaskDeveloperName);
+    if (!developer || developer.provider !== 'Local CLI') return;
+
+    const confirmed = window.confirm('Allow this Local CLI Developer to write in the workspace for coding tasks? This enables dangerous permissions for the selected AI member and dangerous workspace CLI permissions for this project.');
+    if (!confirmed) return;
+
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const nextProjectConfig = { ...projectConfig, allowDangerousCli: true };
+      setProjectConfig(nextProjectConfig);
+      await window.electronAPI.saveProjectConfig(projectPath, nextProjectConfig);
+
+      const res = await window.electronAPI.saveAgent(projectPath, {
+        ...developer,
+        permissionMode: 'dangerous'
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to enable write access for this Developer.');
+        return;
+      }
+
+      await loadProjectData(projectPath);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to enable write access for this Developer.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -4076,7 +4111,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
     if (activeTab === 'Task Run') {
       const agents = projectData?.agents || [];
-      const savedTaskRuns = (projectData?.tasks || []).slice(0, 12);
+      const savedTaskRuns = (projectData?.taskRuns || []).slice(0, 12);
       const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
       codingTaskMessages.forEach(msg => {
         const r = msg.round ?? 0;
@@ -4087,9 +4122,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       });
       const taskRunRounds = Object.keys(taskRunMessagesByRound).map(Number).sort((a, b) => a - b);
       const selectedDoer = agents.find((agent: any) => agent.name === codingTaskDeveloperName);
+      const selectedDoerNeedsWriteAccess = taskRunType === 'coding'
+        && selectedDoer?.provider === 'Local CLI'
+        && (selectedDoer.permissionMode !== 'dangerous' || !projectConfig.allowDangerousCli);
       const selectedTaskTypeLabel = taskTypeOptions.find(option => option.value === taskRunType)?.label || 'Custom';
       const currentRunTitle = codingTaskInput.trim() || 'Draft run';
-      const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0;
+      const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0 && !selectedDoerNeedsWriteAccess;
       const taskRunTabs: Array<{ id: 'setup' | 'timeline' | 'artifact' | 'trace'; label: string; count?: number }> = [
         { id: 'setup', label: 'Setup' },
         { id: 'timeline', label: 'Timeline', count: codingTaskMessages.length || undefined },
@@ -4170,6 +4208,22 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   ))}
                 </select>
               </label>
+              {selectedDoerNeedsWriteAccess && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', border: '1px solid hsl(var(--accent-orange) / 0.45)', borderRadius: '8px', background: 'hsl(var(--accent-orange) / 0.09)' }}>
+                  <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.4 }}>
+                    This Local CLI Developer needs workspace write access for coding tasks.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={loading}
+                    onClick={enableTaskRunWriteAccess}
+                    style={{ height: '30px', padding: '0 10px', fontSize: '0.72rem', flex: '0 0 auto' }}
+                  >
+                    Allow Write
+                  </button>
+                </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
@@ -4312,7 +4366,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   </button>
 
                   {isOpen && (
-                    <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'hsl(var(--bg-app) / 0.2)' }}>
+                    <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'hsl(var(--bg-app) / 0.2)', maxHeight: 'min(68vh, 760px)', overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable', paddingRight: '18px' }}>
                       {msgs.map((msg, idx) => {
                         const msgKey = `${msg.id || msg.author}-${r}-${idx}`;
                         const isLong = msg.text.length > 1200;
@@ -4341,10 +4395,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                             <div style={{ position: 'relative', minWidth: 0 }}>
                               <div style={{ maxHeight: isLong && !isMsgExpanded ? '320px' : 'none', overflow: 'hidden', position: 'relative', transition: 'max-height 0.25s ease' }}>
                                 {renderMarkdownContent(msg.text, msg.streaming)}
-                                {isLong && !isMsgExpanded && (
-                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '80px', background: `linear-gradient(to bottom, transparent, ${overlayBg})`, pointerEvents: 'none' }} />
-                                )}
                               </div>
+                              {isLong && !isMsgExpanded && (
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '80px', background: `linear-gradient(to bottom, transparent, ${overlayBg})`, pointerEvents: 'none' }} />
+                              )}
                               {isLong && (
                                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
                                   <button type="button" className="btn-secondary" onClick={() => setExpandedMsgKeys(prev => ({ ...prev, [msgKey]: !isMsgExpanded }))} style={{ padding: '4px 10px', fontSize: '0.72rem', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -5700,6 +5754,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
     if (activeTab === 'Tasks') {
       const tasks = projectData?.tasks || [];
+      const taskRuns = projectData?.taskRuns || [];
+      const hasTaskFiles = tasks.length > 0 || taskRuns.length > 0;
       return (
         <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', minHeight: '520px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -5735,34 +5791,68 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </div>
             )}
             <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-              Workspace task notes logged under <code>.room/tasks/</code>, with created task cards linked back to their source discussion when available.
+              Task notes and task run transcripts stored under <code>.room/tasks/</code>.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {tasks.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {!hasTaskFiles ? (
                 <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No task files found.</div>
               ) : (
-                tasks.map((task) => {
-                  const selected = selectedTaskFile === task;
-                  return (
-                    <button key={task} type="button" onClick={() => loadRoomFilePreview('tasks', task)} style={{
-                      background: 'hsl(var(--bg-card))',
-                      border: selected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
-                      borderRadius: '8px',
-                      padding: '14px 16px',
-                      cursor: 'pointer',
-                      color: 'inherit',
-                      textAlign: 'left',
-                      font: 'inherit'
-                    }}>
-                      {task}
-                    </button>
-                  );
-                })
+                <>
+                  {tasks.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))' }}>
+                        Task Notes
+                      </div>
+                      {tasks.map((task) => {
+                        const selected = selectedTaskFile === task;
+                        return (
+                          <button key={task} type="button" onClick={() => loadRoomFilePreview('tasks', task)} style={{
+                            background: 'hsl(var(--bg-card))',
+                            border: selected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
+                            borderRadius: '8px',
+                            padding: '14px 16px',
+                            cursor: 'pointer',
+                            color: 'inherit',
+                            textAlign: 'left',
+                            font: 'inherit'
+                          }}>
+                            {task}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {taskRuns.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))' }}>
+                        Run Transcripts
+                      </div>
+                      {taskRuns.map((taskRun) => {
+                        const selected = selectedTaskFile === taskRun;
+                        return (
+                          <button key={taskRun} type="button" onClick={() => loadRoomFilePreview('tasks', taskRun)} style={{
+                            background: 'hsl(var(--bg-sidebar))',
+                            border: selected ? '1px solid hsl(var(--accent-blue))' : '1px solid hsl(var(--border-dim))',
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            cursor: 'pointer',
+                            color: 'inherit',
+                            textAlign: 'left',
+                            font: 'inherit'
+                          }}>
+                            <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600 }}>{taskRun}</span>
+                            <span style={{ display: 'block', marginTop: '3px', fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>Task run transcript</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
           <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-            {renderMarkdownContent(selectedTaskContent || (tasks.length > 0 ? '# Select a task file to preview.' : '# No task files found.'), false, 'message-markdown')}
+            {renderMarkdownContent(selectedTaskContent || (hasTaskFiles ? '# Select a task file to preview.' : '# No task files found.'), false, 'message-markdown')}
           </div>
         </div>
       );
