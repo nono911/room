@@ -57,11 +57,25 @@ interface SkillPreviewResult {
   }[];
 }
 
-interface ApiKeyStatus {
-  gemini: boolean;
-  anthropic: boolean;
-  openai: boolean;
+interface MaskedProvider {
+  id: string;
+  label: string;
+  kind: 'gemini' | 'anthropic' | 'openai-compatible';
+  baseUrl?: string;
+  builtIn: boolean;
+  hasKey: boolean;
 }
+
+const PROVIDER_PRESETS: { id: string; label: string; baseUrl: string; keyless?: boolean }[] = [
+  { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
+  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
+  { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1' },
+  { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
+  { id: 'xai', label: 'xAI (Grok)', baseUrl: 'https://api.x.ai/v1' },
+  { id: 'together', label: 'Together AI', baseUrl: 'https://api.together.xyz/v1' },
+  { id: 'ollama', label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1', keyless: true },
+  { id: 'lmstudio', label: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1', keyless: true }
+];
 
 declare global {
   interface Window {
@@ -167,11 +181,12 @@ declare global {
       saveSkill: (dirPath: string, name: string, content: string) => Promise<{ success: boolean; error?: string }>;
       previewAgentSkills: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string } & Partial<SkillPreviewResult>>;
       detectLocalAgents: () => Promise<{ success: boolean; agents?: DetectedAgent[]; error?: string }>;
-      loadApiKeys: () => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
-      saveApiKeys: (keys: { geminiApiKey?: string; anthropicApiKey?: string; openaiApiKey?: string }) => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
-      clearApiKeys: () => Promise<{ success: boolean; status?: ApiKeyStatus; error?: string }>;
+      loadProviders: () => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
+      saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
+      deleteProvider: (providerId: string) => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
+      testProvider: (providerId: string) => Promise<{ success: boolean; message?: string; error?: string }>;
       detectCliModels: (cliId: string) => Promise<{ success: boolean; models?: { value: string; label: string }[]; error?: string }>;
-      detectApiModels: (provider: string, apiKey?: string) => Promise<{ success: boolean; models?: { value: string; label: string }[]; error?: string }>;
+      detectApiModels: (providerId: string) => Promise<{ success: boolean; models?: { value: string; label: string }[]; error?: string }>;
       loadMcpConfig: (dirPath: string) => Promise<{ success: boolean; config?: any; error?: string }>;
       saveMcpConfig: (dirPath: string, config: any) => Promise<{ success: boolean; error?: string }>;
       loadProjectConfig: (dirPath: string) => Promise<{ success: boolean; config?: any; error?: string }>;
@@ -864,12 +879,11 @@ export default function App() {
 
   // Main Workspace Agent & Visual Customizer State
   const [projectConfig, setProjectConfig] = useState<ProjectConfigState>({ mainAgent: 'none', allowDangerousCli: false });
-  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus>({ gemini: false, anthropic: false, openai: false });
-  const [apiKeyDrafts, setApiKeyDrafts] = useState<{ geminiApiKey: string; anthropicApiKey: string; openaiApiKey: string }>({
-    geminiApiKey: '',
-    anthropicApiKey: '',
-    openaiApiKey: ''
-  });
+  const [providers, setProviders] = useState<MaskedProvider[]>([]);
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [addProviderDraft, setAddProviderDraft] = useState<{ id: string; label: string; baseUrl: string; apiKey: string }>({ id: '', label: '', baseUrl: '', apiKey: '' });
   const [contentTheme, setContentTheme] = useState<string>(() => localStorage.getItem('room_theme') || 'default');
   const [contentFontFamily, setContentFontFamily] = useState<string>(() => localStorage.getItem('room_font_family') || 'system-ui');
   const [contentFontSize, setContentFontSize] = useState<string>(() => localStorage.getItem('room_font_size') || '16px');
@@ -1010,18 +1024,13 @@ export default function App() {
     scanClis();
   }, []);
 
+  const refreshProviders = async () => {
+    const res = await window.electronAPI.loadProviders();
+    if (res.success && res.providers) setProviders(res.providers);
+  };
+
   useEffect(() => {
-    const loadApiKeyStatus = async () => {
-      try {
-        const res = await window.electronAPI.loadApiKeys();
-        if (res.success && res.status) {
-          setApiKeyStatus(res.status);
-        }
-      } catch (err) {
-        console.error('Failed to load API key status:', err);
-      }
-    };
-    loadApiKeyStatus();
+    refreshProviders();
   }, []);
 
   // Fetch dynamic models when Local CLI preset changes
@@ -1710,47 +1719,53 @@ export default function App() {
     }
   };
 
-  const handleSaveApiKeys = async () => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const res = await window.electronAPI.saveApiKeys(apiKeyDrafts);
-      if (!res.success) {
-        setErrorMsg(res.error || 'Failed to save API keys.');
-        return;
-      }
-      if (res.status) {
-        setApiKeyStatus(res.status);
-      }
-      setApiKeyDrafts({ geminiApiKey: '', anthropicApiKey: '', openaiApiKey: '' });
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save API keys.');
-    } finally {
-      setLoading(false);
+  const handleSaveProviderKey = async (providerId: string) => {
+    const draft = (providerKeyDrafts[providerId] || '').trim();
+    if (!draft) return;
+    const res = await window.electronAPI.saveProvider({ id: providerId, apiKey: draft });
+    if (res.success && res.providers) {
+      setProviders(res.providers);
+      setProviderKeyDrafts(prev => ({ ...prev, [providerId]: '' }));
+    } else if (res.error) {
+      alert(res.error);
     }
   };
 
-  const handleClearApiKeys = async () => {
-    const confirmed = window.confirm('Clear all locally stored API keys for this machine?');
-    if (!confirmed) return;
-
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const res = await window.electronAPI.clearApiKeys();
-      if (!res.success) {
-        setErrorMsg(res.error || 'Failed to clear API keys.');
-        return;
-      }
-      if (res.status) {
-        setApiKeyStatus(res.status);
-      }
-      setApiKeyDrafts({ geminiApiKey: '', anthropicApiKey: '', openaiApiKey: '' });
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to clear API keys.');
-    } finally {
-      setLoading(false);
+  const handleAddProvider = async () => {
+    const id = addProviderDraft.id.trim().toLowerCase();
+    const res = await window.electronAPI.saveProvider({
+      id,
+      label: addProviderDraft.label.trim() || id,
+      baseUrl: addProviderDraft.baseUrl.trim(),
+      apiKey: addProviderDraft.apiKey.trim() || undefined
+    });
+    if (res.success && res.providers) {
+      setProviders(res.providers);
+      setAddProviderOpen(false);
+      setAddProviderDraft({ id: '', label: '', baseUrl: '', apiKey: '' });
+    } else if (res.error) {
+      alert(res.error);
     }
+  };
+
+  const handleDeleteProvider = async (providerId: string) => {
+    const usedBy = (projectData?.agents || []).filter((agent: any) => agent.provider === providerId).map((agent: any) => agent.name);
+    const detail = usedBy.length > 0
+      ? `\n\nUsed by: ${usedBy.join(', ')}. These members will fall back to Gemini until reassigned.`
+      : '';
+    if (!window.confirm(`Remove this provider?${detail}`)) return;
+    const res = await window.electronAPI.deleteProvider(providerId);
+    if (res.success && res.providers) setProviders(res.providers);
+    else if (res.error) alert(res.error);
+  };
+
+  const handleTestProvider = async (providerId: string) => {
+    setProviderTestResults(prev => ({ ...prev, [providerId]: { ok: true, message: 'Testing...' } }));
+    const res = await window.electronAPI.testProvider(providerId);
+    setProviderTestResults(prev => ({
+      ...prev,
+      [providerId]: res.success ? { ok: true, message: res.message || 'OK' } : { ok: false, message: res.error || 'Failed' }
+    }));
   };
 
   const loadRoomFilePreview = async (
@@ -6083,82 +6098,115 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
-          {/* Section 0: Local API Keys */}
+          {/* Section 0: AI Providers */}
           <div className="focus-editor-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--accent-green))', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H3v-4l6.257-6.257A6 6 0 1121 9z" />
-              </svg>
-              API Keys
-            </h4>
-            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5 }}>
-              Stored locally on this machine, outside <code>.room/</code>. Leave a field blank to keep the existing key.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--accent-green))', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H3v-4l6.257-6.257A6 6 0 1121 9z" />
+                </svg>
+                AI Providers
+              </h4>
+              <button type="button" className="btn-secondary" onClick={() => setAddProviderOpen(true)} disabled={loading} style={{ height: '32px', padding: '0 14px', fontSize: '0.78rem' }}>
+                + Add Provider
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-              {[
-                {
-                  id: 'geminiApiKey',
-                  label: 'Gemini API Key',
-                  configured: apiKeyStatus.gemini,
-                  placeholder: apiKeyStatus.gemini ? 'Configured. Enter a new key to replace.' : 'Paste Gemini API key'
-                },
-                {
-                  id: 'anthropicApiKey',
-                  label: 'Anthropic API Key',
-                  configured: apiKeyStatus.anthropic,
-                  placeholder: apiKeyStatus.anthropic ? 'Configured. Enter a new key to replace.' : 'Paste Anthropic API key'
-                },
-                {
-                  id: 'openaiApiKey',
-                  label: 'OpenAI API Key',
-                  configured: apiKeyStatus.openai,
-                  placeholder: apiKeyStatus.openai ? 'Configured. Enter a new key to replace.' : 'Paste OpenAI API key'
-                }
-              ].map(field => (
-                <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5 }}>
+              Keys are stored locally on this machine, outside <code>.room/</code>. Any OpenAI-compatible endpoint can be added. Leave a key field blank to keep the existing key.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {providers.map(provider => (
+                <div key={provider.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid hsl(var(--border-dim))', borderRadius: '10px', padding: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-secondary))' }}>{field.label}</label>
-                    <span style={{
-                      fontSize: '0.68rem',
-                      color: field.configured ? '#10b981' : 'hsl(var(--text-muted))',
-                      background: field.configured ? 'rgba(16, 185, 129, 0.1)' : 'hsl(var(--bg-input))',
-                      border: field.configured ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid hsl(var(--border-dim))',
-                      borderRadius: '10px',
-                      padding: '2px 7px',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {field.configured ? 'Configured' : 'Not set'}
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                      <label style={{ fontSize: '0.84rem', fontWeight: 600, color: 'hsl(var(--text-secondary))' }}>{provider.label}</label>
+                      {provider.baseUrl && (
+                        <span style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.baseUrl}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: '0.68rem',
+                        color: provider.hasKey ? '#10b981' : 'hsl(var(--text-muted))',
+                        background: provider.hasKey ? 'rgba(16, 185, 129, 0.1)' : 'hsl(var(--bg-input))',
+                        border: provider.hasKey ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid hsl(var(--border-dim))',
+                        borderRadius: '10px',
+                        padding: '2px 7px',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {provider.hasKey ? 'Configured' : 'No key'}
+                      </span>
+                      <button type="button" className="btn-secondary" onClick={() => handleTestProvider(provider.id)} disabled={loading} style={{ height: '28px', padding: '0 10px', fontSize: '0.72rem' }}>
+                        Test
+                      </button>
+                      {!provider.builtIn && (
+                        <button type="button" className="btn-secondary" onClick={() => handleDeleteProvider(provider.id)} disabled={loading} style={{ height: '28px', padding: '0 10px', fontSize: '0.72rem' }}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <input
-                    type="password"
-                    value={apiKeyDrafts[field.id as keyof typeof apiKeyDrafts]}
-                    disabled={loading}
-                    onChange={(e) => setApiKeyDrafts(prev => ({ ...prev, [field.id]: e.target.value }))}
-                    placeholder={field.placeholder}
-                    style={{
-                      backgroundColor: 'hsl(var(--bg-input))',
-                      border: '1px solid hsl(var(--border-dim))',
-                      borderRadius: '8px',
-                      padding: '10px 12px',
-                      color: 'white',
-                      fontFamily: 'inherit',
-                      fontSize: '0.86rem',
-                      outline: 'none',
-                      width: '100%'
-                    }}
-                  />
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="password"
+                      value={providerKeyDrafts[provider.id] || ''}
+                      disabled={loading}
+                      onChange={(e) => setProviderKeyDrafts(prev => ({ ...prev, [provider.id]: e.target.value }))}
+                      placeholder={provider.hasKey ? 'Configured. Enter a new key to replace.' : 'Paste API key (optional for local endpoints)'}
+                      style={{ backgroundColor: 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '8px 12px', color: 'white', fontFamily: 'inherit', fontSize: '0.84rem', outline: 'none', flex: 1 }}
+                    />
+                    <button type="button" className="btn-primary" onClick={() => handleSaveProviderKey(provider.id)} disabled={loading || !(providerKeyDrafts[provider.id] || '').trim()} style={{ height: '34px', padding: '0 14px', fontSize: '0.76rem' }}>
+                      Save Key
+                    </button>
+                  </div>
+                  {providerTestResults[provider.id] && (
+                    <span style={{ fontSize: '0.72rem', color: providerTestResults[provider.id].ok ? '#10b981' : '#f87171' }}>
+                      {providerTestResults[provider.id].message}
+                    </span>
+                  )}
+                  {provider.baseUrl?.startsWith('http://') && !provider.baseUrl.includes('localhost') && !provider.baseUrl.includes('127.0.0.1') && (
+                    <span style={{ fontSize: '0.72rem', color: '#fbbf24' }}>Warning: unencrypted http:// endpoint.</span>
+                  )}
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
-              <button type="button" className="btn-secondary" onClick={handleClearApiKeys} disabled={loading} style={{ height: '36px', padding: '0 16px', fontSize: '0.8rem' }}>
-                Clear API Keys
-              </button>
-              <button type="button" className="btn-primary" onClick={handleSaveApiKeys} disabled={loading} style={{ height: '36px', padding: '0 18px', fontSize: '0.8rem' }}>
-                {loading ? 'Saving...' : 'Save API Keys'}
-              </button>
-            </div>
+            {addProviderOpen && (
+              <div style={{ border: '1px solid hsl(var(--border-dim))', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-secondary))' }}>Add Provider</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {PROVIDER_PRESETS.filter(preset => !providers.some(provider => provider.id === preset.id)).map(preset => (
+                    <button key={preset.id} type="button" className="btn-secondary" style={{ height: '30px', padding: '0 12px', fontSize: '0.74rem' }}
+                      onClick={() => setAddProviderDraft({ id: preset.id, label: preset.label, baseUrl: preset.baseUrl, apiKey: '' })}>
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <input type="text" placeholder="id (e.g. groq)" value={addProviderDraft.id} disabled={loading}
+                    onChange={(e) => setAddProviderDraft(prev => ({ ...prev, id: e.target.value }))}
+                    style={{ backgroundColor: 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '8px 12px', color: 'white', fontSize: '0.84rem', outline: 'none' }} />
+                  <input type="text" placeholder="Display name" value={addProviderDraft.label} disabled={loading}
+                    onChange={(e) => setAddProviderDraft(prev => ({ ...prev, label: e.target.value }))}
+                    style={{ backgroundColor: 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '8px 12px', color: 'white', fontSize: '0.84rem', outline: 'none' }} />
+                  <input type="text" placeholder="Base URL (https://.../v1)" value={addProviderDraft.baseUrl} disabled={loading}
+                    onChange={(e) => setAddProviderDraft(prev => ({ ...prev, baseUrl: e.target.value }))}
+                    style={{ backgroundColor: 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '8px 12px', color: 'white', fontSize: '0.84rem', outline: 'none', gridColumn: '1 / -1' }} />
+                  <input type="password" placeholder="API key (optional)" value={addProviderDraft.apiKey} disabled={loading}
+                    onChange={(e) => setAddProviderDraft(prev => ({ ...prev, apiKey: e.target.value }))}
+                    style={{ backgroundColor: 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '8px 12px', color: 'white', fontSize: '0.84rem', outline: 'none', gridColumn: '1 / -1' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" className="btn-secondary" onClick={() => { setAddProviderOpen(false); setAddProviderDraft({ id: '', label: '', baseUrl: '', apiKey: '' }); }} style={{ height: '34px', padding: '0 14px', fontSize: '0.76rem' }}>
+                    Cancel
+                  </button>
+                  <button type="button" className="btn-primary" onClick={handleAddProvider}
+                    disabled={loading || !addProviderDraft.id.trim() || !addProviderDraft.baseUrl.trim()}
+                    style={{ height: '34px', padding: '0 16px', fontSize: '0.76rem' }}>
+                    Add Provider
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Section 1: Workspace Agent Settings */}
