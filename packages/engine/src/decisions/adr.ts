@@ -1,7 +1,16 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export async function createNewADR(dirPath: string, title: string): Promise<string> {
+export interface AdrContentOptions {
+  context?: string;
+  decision?: string;
+}
+
+export async function createNewADR(
+  dirPath: string,
+  title: string,
+  options: AdrContentOptions = {}
+): Promise<string> {
   const decisionsDir = path.join(dirPath, '.room', 'decisions');
   await fs.mkdir(decisionsDir, { recursive: true });
 
@@ -35,7 +44,7 @@ export async function createNewADR(dirPath: string, title: string): Promise<stri
 - **Author**: ROOM Engine
 
 ## Context and Problem Statement
-Define the architectural challenge and context.
+${options.context || 'Define the architectural challenge and context.'}
 
 ## Decision Drivers
 - Driver 1
@@ -46,7 +55,7 @@ Define the architectural challenge and context.
 - Option 2
 
 ## Decision Outcome
-Chosen Option: Option X, because ...
+${options.decision || 'Chosen Option: Option X, because ...'}
 
 ### Consequences
 - Good consequences
