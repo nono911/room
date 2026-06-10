@@ -4,7 +4,7 @@ import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, normalizeLocalCliModelName, assertLocalCliExecutionAllowed, AGY_FALLBACK_MODELS, type AgentConfig } from '@room/engine';
+import { scanDirectory, writeScanData, loadAgents, DiscussionEngine, detectLocalAgents, resolveOnPath, LocalCliProvider, getFallbackModels, isOpenAiModelAllowed, validateAgentConfig as validateEngineAgentConfig, normalizeLocalCliModelName, assertLocalCliExecutionAllowed, AGY_FALLBACK_MODELS, type AgentConfig, loadTaskBoard } from '@room/engine';
 
 const execFileP = promisify(execFile);
 
@@ -1349,6 +1349,35 @@ ipcMain.handle('summarize-discussion', async (event, { dirPath, discussionId, ag
       : (useProjectSummaryAgent ? [] : (agentNames || []));
     const summary = await engine.summarizeDiscussion(safeDiscussionId, summaryAgentNames, projectSummaryAgent);
     return { success: true, ...summary };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('generate-tasks-from-discussion', async (event, { dirPath, discussionId, moderatorName }: { dirPath: string; discussionId: string; moderatorName?: string }) => {
+  try {
+    await applyApiKeysToEnvironment();
+    const projectRoot = requireBoundProjectRoot(dirPath);
+    const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
+      ? discussionId
+      : '';
+    if (!safeDiscussionId) {
+      return { success: false, error: 'Invalid discussion id.' };
+    }
+
+    const engine = new DiscussionEngine(projectRoot);
+    const result = await engine.generateTasksFromDiscussion(safeDiscussionId, moderatorName);
+    return { success: true, ...result };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-task-board', async (event, { dirPath }: { dirPath: string }) => {
+  try {
+    const projectRoot = requireBoundProjectRoot(dirPath);
+    const board = await loadTaskBoard(projectRoot);
+    return { success: true, cards: board.cards };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

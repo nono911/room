@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runDiscussion: (dirPath, topic, agentNames, options = {}) => ipcRenderer.invoke('run-discussion', { dirPath, topic, agentNames, ...options }),
   runTask: (dirPath, task, options = {}) => ipcRenderer.invoke('run-task', { dirPath, task, ...options }),
   summarizeDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('summarize-discussion', { dirPath, discussionId, ...options }),
+  generateTasksFromDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('generate-tasks-from-discussion', { dirPath, discussionId, ...options }),
+  loadTaskBoard: (dirPath) => ipcRenderer.invoke('load-task-board', { dirPath }),
   onDiscussionEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('discussion-event', listener);

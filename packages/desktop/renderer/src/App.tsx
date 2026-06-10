@@ -152,6 +152,8 @@ declare global {
         error?: string;
       }>;
       summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => Promise<{ success: boolean; filename?: string; content?: string; error?: string }>;
+      generateTasksFromDiscussion: (dirPath: string, discussionId: string, options?: { moderatorName?: string }) => Promise<{ success: boolean; createdTaskCards?: TaskBoardCard[]; errors?: string[]; error?: string }>;
+      loadTaskBoard: (dirPath: string) => Promise<{ success: boolean; cards?: TaskBoardCard[]; error?: string }>;
       onDiscussionEvent: (callback: (event: DiscussionIpcEvent) => void) => () => void;
       saveRoomFile: (dirPath: string, section: 'documents' | 'tasks', filename: string, content: string) => Promise<{ success: boolean; filename?: string; error?: string }>;
       saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
@@ -171,6 +173,17 @@ declare global {
       saveProjectConfig: (dirPath: string, config: any) => Promise<{ success: boolean; error?: string }>;
     };
   }
+}
+
+interface TaskBoardCard {
+  id: string;
+  title: string;
+  kind: 'epic' | 'task' | 'subtask';
+  parentId?: string;
+  details?: string;
+  status: 'todo' | 'in_progress' | 'done';
+  sourceDiscussionId?: string;
+  createdAt: string;
 }
 
 interface UIMessage {
@@ -1058,6 +1071,7 @@ export default function App() {
   const [lastMaxRound, setLastMaxRound] = useState<number>(-1);
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
   const [lastDiscussionLog, setLastDiscussionLog] = useState<any | null>(null);
+  const [taskBoardCards, setTaskBoardCards] = useState<TaskBoardCard[]>([]);
   const [lastDiscussionTopic, setLastDiscussionTopic] = useState<string>('');
   const [contextOverviewDraft, setContextOverviewDraft] = useState<string>('');
   const [contextStructureDraft, setContextStructureDraft] = useState<string>('');
@@ -1687,6 +1701,7 @@ export default function App() {
         } catch (err) {
           console.error('Error loading project configuration:', err);
         }
+        await loadTaskBoardCards(pathStr);
       } else {
         setErrorMsg(data.error || 'Failed to load project metadata.');
       }
@@ -2307,6 +2322,17 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setDiscussionMessages([]);
   };
 
+  const loadTaskBoardCards = async (dirPath: string) => {
+    try {
+      const res = await window.electronAPI.loadTaskBoard(dirPath);
+      if (res.success && res.cards) {
+        setTaskBoardCards(res.cards);
+      }
+    } catch {
+      // Board is optional; ignore load failures.
+    }
+  };
+
   const loadDiscussionSession = async (filename: string) => {
     if (!projectPath) return;
     const discussionId = getDiscussionIdFromFile(filename);
@@ -2384,6 +2410,32 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       setActiveTab('Documents');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to summarize chat.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateTasksFromActiveDiscussion = async () => {
+    if (!projectPath || !activeDiscussionId) {
+      setErrorMsg('Run or select a chat before generating tasks.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const res = await window.electronAPI.generateTasksFromDiscussion(projectPath, activeDiscussionId, {
+        moderatorName: discussionModeratorName || undefined
+      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to generate tasks.');
+        return;
+      }
+
+      await loadProjectData(projectPath);
+      setActiveTab('Tasks');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to generate tasks.');
     } finally {
       setLoading(false);
     }
@@ -3747,6 +3799,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </button>
               <button className="btn-secondary" type="button" onClick={() => saveDiscussionOutput('tasks')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
                 Create Task Note
+              </button>
+              <button className="btn-secondary" type="button" onClick={generateTasksFromActiveDiscussion} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                Generate Tasks (AI)
               </button>
             </div>
           )}
@@ -5280,6 +5335,37 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       return (
         <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', minHeight: '520px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {taskBoardCards.length > 0 && (
+              <div style={{ background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '14px 16px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>
+                  Task Board
+                </div>
+                {(() => {
+                  const knownIds = new Set(taskBoardCards.map(card => card.id));
+                  const childrenOf = new Map<string, TaskBoardCard[]>();
+                  const roots: TaskBoardCard[] = [];
+                  for (const card of taskBoardCards) {
+                    if (card.parentId && knownIds.has(card.parentId)) {
+                      const list = childrenOf.get(card.parentId) || [];
+                      list.push(card);
+                      childrenOf.set(card.parentId, list);
+                    } else {
+                      roots.push(card);
+                    }
+                  }
+                  const renderCard = (card: TaskBoardCard, depth: number): JSX.Element => (
+                    <div key={card.id} style={{ marginLeft: `${depth * 14}px`, fontSize: '0.82rem', padding: '2px 0' }}>
+                      <span style={{ color: 'hsl(var(--text-muted))' }}>{card.status === 'done' ? '☑' : '☐'} </span>
+                      <span style={{ color: 'hsl(var(--accent-purple))', fontWeight: 600 }}>{card.id}</span>
+                      <span style={{ color: 'hsl(var(--text-muted))' }}> ({card.kind}) </span>
+                      {card.title}
+                      {childrenOf.get(card.id)?.map(child => renderCard(child, depth + 1))}
+                    </div>
+                  );
+                  return roots.map(card => renderCard(card, 0));
+                })()}
+              </div>
+            )}
             <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
               Workspace task notes logged under <code>.room/tasks/</code>.
             </div>
