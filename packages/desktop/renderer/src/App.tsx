@@ -181,6 +181,7 @@ interface UIMessage {
   streaming?: boolean;
   progressStep?: number;
   contextSummary?: string;
+  round?: number;
 }
 
 type DiscussionIpcEvent =
@@ -1051,6 +1052,9 @@ export default function App() {
   const [codingTaskMaxCycles, setCodingTaskMaxCycles] = useState<number>(2);
   const [selectedCodingTaskContextRefs, setSelectedCodingTaskContextRefs] = useState<string[]>(['workspace:overview', 'workspace:structure']);
   const [lastCodingTaskResult, setLastCodingTaskResult] = useState<any | null>(null);
+  const [openRounds, setOpenRounds] = useState<Record<number, boolean>>({});
+  const [expandedMsgKeys, setExpandedMsgKeys] = useState<Record<string, boolean>>({});
+  const [lastMaxRound, setLastMaxRound] = useState<number>(-1);
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
   const [lastDiscussionLog, setLastDiscussionLog] = useState<any | null>(null);
   const [lastDiscussionTopic, setLastDiscussionTopic] = useState<string>('');
@@ -1219,6 +1223,15 @@ export default function App() {
     }
   }, [newAgentProvider]);
 
+  // Auto-expand the newest cycle when a new one starts
+  const maxRound = codingTaskMessages.length > 0 ? Math.max(...codingTaskMessages.map(m => m.round ?? 0)) : 0;
+  useEffect(() => {
+    if (maxRound > lastMaxRound) {
+      setOpenRounds(prev => ({ ...prev, [maxRound]: true }));
+      setLastMaxRound(maxRound);
+    }
+  }, [maxRound, lastMaxRound]);
+
   // User input topic and timeline state
   const [userInputTopic, setUserInputTopic] = useState<string>('');
   const [discussionMessages, setDiscussionMessages] = useState<UIMessage[]>([]);
@@ -1235,6 +1248,9 @@ export default function App() {
     setWorkspaceFileSearch('');
     setDiscussionMessages([]);
     setCodingTaskMessages([]);
+    setOpenRounds({});
+    setExpandedMsgKeys({});
+    setLastMaxRound(-1);
     setActiveDiscussionId(null);
     setLastDiscussionLog(null);
     setLastDiscussionTopic('');
@@ -2063,14 +2079,29 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   const formatDiscussionLogMessages = (log: any): UIMessage[] => {
     const messages = Array.isArray(log?.messages) ? log.messages : [];
+    let inferredRound = 1;
+    const seenAgentsInRound = new Set<string>();
+
     return messages.map((message: any) => {
       if (message.type === 'user') {
         return {
           author: 'You',
           role: 'user',
           time: message.timestamp || '',
-          text: message.content || ''
+          text: message.content || '',
+          round: 0
         };
+      }
+
+      let msgRound = message.round;
+      if (msgRound === undefined) {
+        const agentName = message.agentName || 'agent';
+        if (seenAgentsInRound.has(agentName)) {
+          inferredRound++;
+          seenAgentsInRound.clear();
+        }
+        seenAgentsInRound.add(agentName);
+        msgRound = inferredRound;
       }
 
       const contextCount = Array.isArray(message.contextMessages) ? message.contextMessages.length : 0;
@@ -2079,6 +2110,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         role: String(message.agentName || 'agent').toLowerCase(),
         time: message.timestamp || '',
         text: message.content || '',
+        round: msgRound,
         contextSummary: contextCount > 0
           ? `Context: ${contextCount} chat message${contextCount === 1 ? '' : 's'}`
           : 'Context: current message only'
@@ -2370,6 +2402,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setLoading(true);
     setErrorMsg(null);
     setLastCodingTaskResult(null);
+    setOpenRounds({ 0: true });
+    setExpandedMsgKeys({});
+    setLastMaxRound(0);
     const task = codingTaskInput.trim();
     setCodingTaskInput('');
     setCodingTaskMessages([
@@ -2377,13 +2412,15 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         author: 'You',
         role: 'user',
         time: new Date().toLocaleTimeString(),
-        text: task
+        text: task,
+        round: 0
       },
       {
         author: 'System Engine',
         role: 'system',
         time: new Date().toLocaleTimeString(),
-        text: `Starting ${taskRunType} task with ${codingTaskDeveloperName}, then review by ${codingTaskReviewerNames.join(', ')}.`
+        text: `Starting ${taskRunType} task with ${codingTaskDeveloperName}, then review by ${codingTaskReviewerNames.join(', ')}.`,
+        round: 0
       }
     ]);
 
@@ -2403,6 +2440,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
             text: getAgentProgressMessage(0),
             streaming: true,
             progressStep: 0,
+            round: event.round,
             contextSummary: `Cycle ${event.round} • ${event.role}`
           }
         ]);
@@ -2428,7 +2466,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               time: new Date().toLocaleTimeString(),
               text: getAgentProgressMessage(0),
               streaming: true,
-              progressStep: 0
+              progressStep: 0,
+              round: event.round
             }
           ];
         });
@@ -2449,6 +2488,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               time: event.message.timestamp,
               streaming: false,
               progressStep: undefined,
+              round: event.round,
               contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
             };
           });
@@ -2463,6 +2503,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: event.message.content,
               streaming: false,
               progressStep: undefined,
+              round: event.round,
               contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
             }
           ];
@@ -2500,6 +2541,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           author: 'System Engine',
           role: 'system',
           time: new Date().toLocaleTimeString(),
+          round: res.result.cycles,
           text: res.result.status === 'approved'
             ? `Task approved after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}. Artifact: ${res.result.artifactFilename || 'none'}`
             : `Task still needs revision after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}. Artifact: ${res.result.artifactFilename || 'none'}`
@@ -3904,7 +3946,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               </div>
             )}
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px', paddingRight: '6px' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '6px' }}>
               {codingTaskMessages.length === 0 ? (
                 <div className="markdown-preview" style={{ maxHeight: 'none', height: '100%', minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
                   <div style={{ color: 'white', fontWeight: 700 }}>No task run yet.</div>
@@ -3916,24 +3958,195 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                   </button>
                 </div>
               ) : (
-                codingTaskMessages.map((msg, idx) => (
-                  <div
-                    key={`${msg.id || msg.author}-${idx}`}
-                    className={`chat-bubble ${msg.role}`}
-                    style={{
-                      alignSelf: msg.role === 'system' ? 'center' : idx % 2 === 0 ? 'flex-start' : 'flex-end',
-                      borderStyle: msg.role === 'system' ? 'dashed' : 'solid',
-                      borderColor: msg.role === 'system' ? 'hsl(var(--accent-orange) / 0.5)' : undefined,
-                      maxWidth: msg.role === 'system' ? '92%' : '86%'
-                    }}
-                  >
-                    <div className="bubble-meta">
-                      <span className="bubble-author">{msg.author}</span>
-                      <span>{msg.streaming ? 'Working...' : msg.time}</span>
-                    </div>
-                    {renderMarkdownContent(msg.text, msg.streaming)}
-                  </div>
-                ))
+                (() => {
+                  const messagesByRound: Record<number, UIMessage[]> = {};
+                  codingTaskMessages.forEach(msg => {
+                    const r = msg.round ?? 0;
+                    if (!messagesByRound[r]) {
+                      messagesByRound[r] = [];
+                    }
+                    messagesByRound[r].push(msg);
+                  });
+
+                  const rounds = Object.keys(messagesByRound).map(Number).sort((a, b) => a - b);
+
+                  return rounds.map(r => {
+                    const msgs = messagesByRound[r];
+                    const isOpen = openRounds[r] ?? false;
+
+                    let roundTitle = `Cycle ${r}`;
+                    let roundSubtitle = '';
+                    if (r === 0) {
+                      roundTitle = 'Setup & Requirements';
+                      roundSubtitle = 'Initial prompt and system startup';
+                    } else {
+                      const agents = Array.from(new Set(msgs.filter(m => m.role !== 'system' && m.role !== 'user').map(m => m.author)));
+                      roundSubtitle = agents.length > 0 ? `Participants: ${agents.join(', ')}` : 'Agent running...';
+                    }
+
+                    return (
+                      <div
+                        key={r}
+                        style={{
+                          background: 'hsl(var(--bg-card) / 0.25)',
+                          border: '1px solid hsl(var(--border-dim))',
+                          borderRadius: '12px',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          transition: 'all 0.2s ease',
+                          boxShadow: isOpen ? '0 4px 16px rgba(0, 0, 0, 0.2)' : 'none'
+                        }}
+                      >
+                        <div
+                          onClick={() => setOpenRounds(prev => ({ ...prev, [r]: !prev[r] }))}
+                          style={{
+                            padding: '12px 16px',
+                            background: isOpen ? 'hsl(var(--bg-sidebar))' : 'transparent',
+                            borderBottom: isOpen ? '1px solid hsl(var(--border-dim))' : 'none',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            transition: 'background-color 0.2s'
+                          }}
+                          className="accordion-header"
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isOpen ? 'white' : 'hsl(var(--text-secondary))', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>{roundTitle}</span>
+                              {r > 0 && (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: 'hsl(var(--accent-purple) / 0.15)',
+                                  color: 'hsl(var(--accent-purple))',
+                                  fontWeight: 600
+                                }}>
+                                  {msgs.length} message{msgs.length === 1 ? '' : 's'}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {roundSubtitle}
+                            </div>
+                          </div>
+                          
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <svg
+                              width="16"
+                              height="16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              viewBox="0 0 24 24"
+                              style={{
+                                transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+                                transition: 'transform 0.2s ease',
+                                color: 'hsl(var(--text-muted))'
+                              }}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                          </div>
+                        </div>
+
+                        {isOpen && (
+                          <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'hsl(var(--bg-app) / 0.2)' }}>
+                            {msgs.map((msg, idx) => {
+                              const msgKey = `${msg.id || msg.author}-${r}-${idx}`;
+                              const isLong = msg.text.length > 1200;
+                              const isMsgExpanded = expandedMsgKeys[msgKey] ?? false;
+
+                              let overlayBg = 'hsl(var(--bg-card))';
+                              if (msg.role === 'system') overlayBg = 'hsl(var(--bg-app))';
+                              else if (idx % 2 !== 0) overlayBg = 'hsl(var(--bg-card) / 0.7)';
+
+                              return (
+                                <div
+                                  key={msgKey}
+                                  className={`chat-bubble ${msg.role}`}
+                                  style={{
+                                    alignSelf: msg.role === 'system' ? 'center' : idx % 2 === 0 ? 'flex-start' : 'flex-end',
+                                    borderStyle: msg.role === 'system' ? 'dashed' : 'solid',
+                                    borderColor: msg.role === 'system' ? 'hsl(var(--accent-orange) / 0.5)' : undefined,
+                                    maxWidth: msg.role === 'system' ? '92%' : '86%',
+                                    display: 'flex',
+                                    flexDirection: 'column'
+                                  }}
+                                >
+                                  <div className="bubble-meta">
+                                    <span className="bubble-author">{msg.author}</span>
+                                    <span>{msg.streaming ? 'Working...' : msg.time}</span>
+                                  </div>
+
+                                  <div style={{ position: 'relative', minWidth: 0 }}>
+                                    <div style={{
+                                      maxHeight: isLong && !isMsgExpanded ? '320px' : 'none',
+                                      overflow: 'hidden',
+                                      position: 'relative',
+                                      transition: 'max-height 0.25s ease'
+                                    }}>
+                                      {renderMarkdownContent(msg.text, msg.streaming)}
+                                      
+                                      {isLong && !isMsgExpanded && (
+                                        <div style={{
+                                          position: 'absolute',
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
+                                          height: '80px',
+                                          background: `linear-gradient(to bottom, transparent, ${overlayBg})`,
+                                          pointerEvents: 'none'
+                                        }} />
+                                      )}
+                                    </div>
+
+                                    {isLong && (
+                                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+                                        <button
+                                          type="button"
+                                          className="btn-secondary"
+                                          onClick={() => setExpandedMsgKeys(prev => ({ ...prev, [msgKey]: !isMsgExpanded }))}
+                                          style={{
+                                            padding: '4px 10px',
+                                            fontSize: '0.72rem',
+                                            borderRadius: '6px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                          }}
+                                        >
+                                          {isMsgExpanded ? (
+                                            <>
+                                              <span>Collapse message</span>
+                                              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                              </svg>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <span>Show full output ({Math.round(msg.text.length / 100) / 10} KB)</span>
+                                              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                              </svg>
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()
               )}
             </div>
           </div>

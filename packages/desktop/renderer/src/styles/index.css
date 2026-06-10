@@ -289,6 +289,8 @@ body {
   line-height: 1.6;
   font-size: 0.95rem;
   border: 1px solid hsl(var(--border-dim));
+  background: hsl(var(--bg-card) / 0.85);
+  border-left: 4px solid hsl(var(--border-dim));
   position: relative;
   animation: messageSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -820,4 +822,8 @@ details[open] .collapsible-summary::after {
 /* Transitions for dynamic workspace grids */
 .app-container {
   transition: grid-template-columns 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.accordion-header:hover {
+  background-color: hsl(var(--bg-sidebar) / 0.7) !important;
 }

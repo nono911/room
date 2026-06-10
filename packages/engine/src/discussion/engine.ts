@@ -14,6 +14,7 @@ export interface DiscussionMessage {
   providerName: string;
   content: string;
   timestamp: string;
+  round?: number;
   contextMessages?: {
     type?: 'user' | 'agent';
     agentName: string;
@@ -1061,6 +1062,7 @@ ${doerWorkInstructions}
         providerName: developer.provider,
         content: developerOutput,
         timestamp: new Date().toLocaleTimeString(),
+        round: cycle,
         contextMessages
       };
       result.messages.push(developerMessage);
@@ -1160,6 +1162,7 @@ Output format:
           providerName: reviewer.provider,
           content: reviewOutput,
           timestamp: new Date().toLocaleTimeString(),
+          round: cycle,
           contextMessages: reviewerContextMessages
         };
         result.messages.push(reviewerMessage);
