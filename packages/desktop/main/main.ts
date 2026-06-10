@@ -1194,7 +1194,7 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
         if (verdict.executed) {
           moderatorActions.push(
             ...verdict.executed.createdTaskCards.map(card => ({ type: 'task' as const, id: card.id, title: card.title })),
-            ...verdict.executed.createdAdrFilenames.map(filename => ({ type: 'adr' as const, filename }))
+            ...verdict.executed.createdAdrs.map(adr => ({ type: 'adr' as const, id: adr.id, filename: adr.filename }))
           );
         }
         if (verdict.status === 'PASS') {

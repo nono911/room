@@ -6,7 +6,7 @@ export interface ActionExecutionResult {
   control: 'continue' | 'stop' | null;
   controlInstructions?: string;
   createdTaskCards: TaskCard[];
-  createdAdrFilenames: string[];
+  createdAdrs: { id: string; filename: string }[];
   errors: string[];
 }
 
@@ -18,7 +18,7 @@ export async function executeModeratorActions(
   const result: ActionExecutionResult = {
     control: null,
     createdTaskCards: [],
-    createdAdrFilenames: [],
+    createdAdrs: [],
     errors: []
   };
 
@@ -53,9 +53,9 @@ export async function executeModeratorActions(
   for (const action of actions) {
     if (action.action !== 'create_adr') continue;
     try {
-      const { filename, created } = await createNewADR(dirPath, action.title, { context: action.context, decision: action.decision });
+      const { id, filename, created } = await createNewADR(dirPath, action.title, { context: action.context, decision: action.decision });
       if (created) {
-        result.createdAdrFilenames.push(filename);
+        result.createdAdrs.push({ id, filename });
       }
     } catch (err: any) {
       result.errors.push(`create_adr "${action.title}" failed: ${err.message}`);

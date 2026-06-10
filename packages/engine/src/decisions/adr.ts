@@ -10,7 +10,7 @@ export async function createNewADR(
   dirPath: string,
   title: string,
   options: AdrContentOptions = {}
-): Promise<{ filename: string; created: boolean }> {
+): Promise<{ id: string; filename: string; created: boolean }> {
   const decisionsDir = path.join(dirPath, '.room', 'decisions');
   await fs.mkdir(decisionsDir, { recursive: true });
 
@@ -42,17 +42,25 @@ export async function createNewADR(
   for (const file of files) {
     const match = file.match(/^ADR-\d+-(.+)\.md$/i);
     if (match && match[1].normalize('NFC').toLowerCase() === kebabTitle.normalize('NFC').toLowerCase()) {
-      return { filename: file, created: false };
+      return { id: await readExistingAdrId(path.join(decisionsDir, file), file), filename: file, created: false };
     }
   }
 
+  const id = `adr-${nextNumStr}`;
   const filename = `ADR-${nextNumStr}-${kebabTitle}.md`;
   const filePath = path.join(decisionsDir, filename);
+  const createdAt = new Date().toISOString();
 
-  const adrContent = `# ADR-${nextNumStr}: ${title}
+  const adrContent = `---
+id: ${id}
+title: ${JSON.stringify(title)}
+createdAt: ${JSON.stringify(createdAt)}
+---
+
+# ADR-${nextNumStr}: ${title}
 
 - **Status**: Proposed
-- **Date**: ${new Date().toISOString().split('T')[0]}
+- **Date**: ${createdAt.split('T')[0]}
 - **Author**: ROOM Engine
 
 ## Context and Problem Statement
@@ -75,5 +83,20 @@ ${options.decision || 'Chosen Option: Option X, because ...'}
 `;
 
   await fs.writeFile(filePath, adrContent, 'utf-8');
-  return { filename, created: true };
+  return { id, filename, created: true };
+}
+
+async function readExistingAdrId(filePath: string, filename: string): Promise<string> {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
+    const idLine = frontmatter?.[1].match(/^id:\s*(\S+)\s*$/m);
+    if (idLine) {
+      return idLine[1];
+    }
+  } catch {
+    // Fall through to the filename-derived id for unreadable files.
+  }
+  const numberMatch = filename.match(/^ADR-(\d+)-/i);
+  return `adr-${(numberMatch?.[1] || '0').padStart(3, '0')}`;
 }

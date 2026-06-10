@@ -97,6 +97,7 @@ export function hashSummaryInput(messages: PromptHistoryMessage[], candidateInde
     const message = messages[index];
     return {
       index,
+      id: message.id,
       type: message.type || 'agent',
       agentName: message.agentName,
       providerName: message.providerName,

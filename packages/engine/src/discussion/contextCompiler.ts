@@ -1,4 +1,5 @@
 export interface PromptHistoryMessage {
+  id?: string;
   type?: 'user' | 'agent';
   agentName: string;
   providerName: string;
@@ -7,6 +8,9 @@ export interface PromptHistoryMessage {
 }
 
 export interface PromptContextMessage {
+  id?: string;
+  promptNumber: number;
+  logIndex: number;
   type?: 'user' | 'agent';
   agentName: string;
   providerName: string;
@@ -57,14 +61,18 @@ export function compileDiscussionContext(
   };
   const includedIndexes = selectPromptHistoryIndexes(messages, resolvedOptions);
   const includedMessagesForHistory = includedIndexes.map(index => messages[index]);
-  const includedMessages = includedMessagesForHistory.map(toPromptContextMessage);
+  const includedMessages = includedMessagesForHistory.map((message, promptIndex) => (
+    toPromptContextMessage(message, promptIndex + 1, includedIndexes[promptIndex])
+  ));
   const omittedIndexes = messages
     .map((_, index) => index)
     .filter(index => !includedIndexes.includes(index));
   const summaryCandidateIndexes = omittedIndexes.filter(index => isSummaryCandidateMessage(messages[index]));
   const omittedMessageCount = omittedIndexes.length;
-  const rawHistory = messages.map(formatMessageForPromptHistory).join('\n\n');
-  const historyBody = includedMessagesForHistory.map(formatMessageForPromptHistory).join('\n\n');
+  const rawHistory = messages.map((message, index) => formatMessageForPromptHistory(message, index + 1)).join('\n\n');
+  const historyBody = includedMessagesForHistory
+    .map((message, promptIndex) => formatMessageForPromptHistory(message, promptIndex + 1))
+    .join('\n\n');
   const omissionNote = omittedMessageCount > 0
     ? `The full discussion log has ${messages.length} message(s). This prompt includes ${includedIndexes.length} message(s); ${omittedMessageCount} older message(s) are omitted from this prompt.`
     : `The full discussion log has ${messages.length} message(s). All messages are included in this prompt.`;
@@ -134,11 +142,14 @@ function buildPriorMessageInstruction(includedMessageCount: number, omittedMessa
   const omissionClause = omittedMessageCount > 0
     ? ` ${omittedMessageCount} older message(s) exist in the full log but are not included in this prompt, so do not claim to have read them unless summarized here.`
     : '';
-  return `\n\nYou have ${includedMessageCount} previous chat message(s) included in the discussion history for this prompt, including the user's latest message.${omissionClause} Explicitly build on, refine, challenge, or resolve points from the included history instead of answering as a standalone first response.`;
+  return `\n\nYou have ${includedMessageCount} previous chat message(s) included in the discussion history for this prompt, including the user's latest message.${omissionClause} Explicitly build on, refine, challenge, or resolve points from the included history instead of answering as a standalone first response. When recording references, cite the visible Message number from this prompt.`;
 }
 
-function toPromptContextMessage(message: PromptHistoryMessage): PromptContextMessage {
+function toPromptContextMessage(message: PromptHistoryMessage, promptNumber: number, logIndex: number): PromptContextMessage {
   return {
+    id: message.id,
+    promptNumber,
+    logIndex,
     type: message.type || 'agent',
     agentName: message.agentName,
     providerName: message.providerName,
@@ -146,16 +157,16 @@ function toPromptContextMessage(message: PromptHistoryMessage): PromptContextMes
   };
 }
 
-function formatMessageForPromptHistory(message: PromptHistoryMessage): string {
+function formatMessageForPromptHistory(message: PromptHistoryMessage, promptNumber: number): string {
   if (message.type === 'user') {
-    return `--- ${message.agentName} ---\n${message.content}`;
+    return `--- Message ${promptNumber}: ${message.agentName} ---\n${message.content}`;
   }
 
   const cleanedContent = cleanAgentUserContent(message.content);
   const content = isOnlyOmissionNotes(cleanedContent)
     ? '[Previous Local CLI action narration omitted.]'
     : cleanedContent;
-  return `--- ${message.agentName} (${message.providerName}) ---\n${content}`;
+  return `--- Message ${promptNumber}: ${message.agentName} (${message.providerName}) ---\n${content}`;
 }
 
 function isSummaryCandidateMessage(message: PromptHistoryMessage): boolean {

@@ -3,6 +3,7 @@ import { compileDiscussionContext } from './contextCompiler.js';
 
 function message(index: number, type: 'user' | 'agent' = 'agent') {
   return {
+    id: `scope:message-${String(index).padStart(4, '0')}`,
     type,
     agentName: type === 'user' ? `User ${index}` : `Agent ${index}`,
     providerName: type === 'user' ? 'User' : 'Local CLI',
@@ -36,12 +37,20 @@ describe('compileDiscussionContext', () => {
     ]);
     expect(context.omittedMessageCount).toBe(4);
     expect(context.includedIndexes).toEqual([0, 5, 6, 7]);
+    expect(context.includedMessages.map(item => item.promptNumber)).toEqual([1, 2, 3, 4]);
+    expect(context.includedMessages.map(item => item.logIndex)).toEqual([0, 5, 6, 7]);
+    expect(context.includedMessages.map(item => item.id)).toEqual([
+      'scope:message-0001',
+      'scope:message-0006',
+      'scope:message-0007',
+      'scope:message-0008'
+    ]);
     expect(context.omittedIndexes).toEqual([1, 2, 3, 4]);
     expect(context.summaryCandidateIndexes).toEqual([1, 2, 3, 4]);
     expect(context.totalLogMessages).toBe(8);
     expect(context.historyBlock).toContain('4 older message(s) are omitted');
-    expect(context.historyBlock).toContain('--- User 1 ---');
-    expect(context.historyBlock).toContain('--- User 8 ---');
+    expect(context.historyBlock).toContain('--- Message 1: User 1 ---');
+    expect(context.historyBlock).toContain('--- Message 4: User 8 ---');
   });
 
   it('can retain the latest user message even when the first user anchor is disabled', () => {

@@ -25,7 +25,7 @@ describe('executeModeratorActions', () => {
 
     expect(result.createdTaskCards).toHaveLength(2);
     expect(result.createdTaskCards[1].parentId).toBe(result.createdTaskCards[0].id);
-    expect(result.createdAdrFilenames).toEqual(['ADR-001-use-sqlite.md']);
+    expect(result.createdAdrs).toEqual([{ id: 'adr-001', filename: 'ADR-001-use-sqlite.md' }]);
     expect(result.errors).toEqual([]);
 
     const board = await loadTaskBoard(dir);

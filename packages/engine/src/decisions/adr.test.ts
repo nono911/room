@@ -16,8 +16,10 @@ afterEach(async () => {
 
 describe('createNewADR', () => {
   it('numbers ADRs sequentially', async () => {
-    const { filename: first } = await createNewADR(dir, 'Use SQLite');
-    const { filename: second } = await createNewADR(dir, 'Adopt ESM');
+    const { id: firstId, filename: first } = await createNewADR(dir, 'Use SQLite');
+    const { id: secondId, filename: second } = await createNewADR(dir, 'Adopt ESM');
+    expect(firstId).toBe('adr-001');
+    expect(secondId).toBe('adr-002');
     expect(first).toBe('ADR-001-use-sqlite.md');
     expect(second).toBe('ADR-002-adopt-esm.md');
   });
@@ -28,6 +30,8 @@ describe('createNewADR', () => {
       decision: 'Adopt SQLite for the local store.'
     });
     const content = await fs.readFile(path.join(dir, '.room', 'decisions', filename), 'utf-8');
+    expect(content).toContain('id: adr-001');
+    expect(content).toContain('createdAt:');
     expect(content).toContain('We need embedded storage.');
     expect(content).toContain('Adopt SQLite for the local store.');
     expect(content).not.toContain('Define the architectural challenge');
@@ -50,8 +54,10 @@ describe('createNewADR', () => {
   });
 
   it('deduplicates by returning existing filename when the title already exists', async () => {
-    const { filename: first, created: firstCreated } = await createNewADR(dir, 'Unique Decision');
-    const { filename: second, created: secondCreated } = await createNewADR(dir, 'Unique Decision');
+    const { id: firstId, filename: first, created: firstCreated } = await createNewADR(dir, 'Unique Decision');
+    const { id: secondId, filename: second, created: secondCreated } = await createNewADR(dir, 'Unique Decision');
+    expect(firstId).toBe('adr-001');
+    expect(secondId).toBe('adr-001');
     expect(first).toBe('ADR-001-unique-decision.md');
     expect(second).toBe('ADR-001-unique-decision.md');
     expect(firstCreated).toBe(true);
@@ -59,5 +65,15 @@ describe('createNewADR', () => {
     
     const files = await fs.readdir(path.join(dir, '.room', 'decisions'));
     expect(files).toHaveLength(1);
+  });
+
+  it('keeps the frontmatter id when a deduplicated file was renamed', async () => {
+    const { filename } = await createNewADR(dir, 'Unique Decision');
+    const decisionsDir = path.join(dir, '.room', 'decisions');
+    await fs.rename(path.join(decisionsDir, filename), path.join(decisionsDir, 'ADR-005-unique-decision.md'));
+
+    const { id, created } = await createNewADR(dir, 'Unique Decision');
+    expect(created).toBe(false);
+    expect(id).toBe('adr-001');
   });
 });

@@ -24,8 +24,10 @@ import {
   shouldGenerateContextSummary,
   summarizeContextMessages
 } from './contextSummarizer.js';
+import { appendRoomEvents, NewRoomEvent } from '../events/eventLog.js';
 
 export interface DiscussionMessage {
+  id?: string;
   type?: 'user' | 'agent';
   agentName: string;
   providerName: string;
@@ -34,6 +36,9 @@ export interface DiscussionMessage {
   round?: number;
   references?: MessageReference[];
   contextMessages?: {
+    id?: string;
+    promptNumber?: number;
+    logIndex?: number;
     type?: 'user' | 'agent';
     agentName: string;
     providerName: string;
@@ -142,9 +147,9 @@ Avoid restarting from scratch unless the user asks for a new direction.`;
 const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
 At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
 \`\`\`room-refs
-{"references": [{"author": "<agent or user name>", "reason": "<why you used it>"}]}
+{"references": [{"message": <visible Message number>, "author": "<agent or user name>", "reason": "<why you used it>"}]}
 \`\`\`
-List only messages that genuinely shaped your answer. If you used none, output {"references": []}. Do not mention this block in your prose.`;
+Use the visible Message number shown in the prompt history, not the full log number. List only messages that genuinely shaped your answer. If you used none, output {"references": []}. Do not mention this block in your prose.`;
 
 const USER_FACING_OUTPUT_POLICY = `=== User-Facing Output Policy ===
 Return only the useful answer for the user in clean Markdown.
@@ -208,6 +213,28 @@ function localCliNoFinalAnswerMessage(agentName: string): string {
   return `[System Notice from ${agentName}]: This Local CLI did not produce a final answer. It only emitted tool/action narration. The agent should answer from the provided ROOM context; if it must inspect files directly, enable an explicit tool-capable workflow for that agent.`;
 }
 
+function formatMessageOrdinal(value: number): string {
+  return String(value).padStart(4, '0');
+}
+
+function messageIdFor(scopeId: string, sequence: number): string {
+  return `${scopeId}:message-${formatMessageOrdinal(sequence)}`;
+}
+
+function ensureStableMessageIds(scopeId: string, messages: DiscussionMessage[]): void {
+  messages.forEach((message, index) => {
+    if (!message.id) {
+      message.id = messageIdFor(scopeId, index + 1);
+    }
+  });
+}
+
+// Message ids are positional: logs are append-only and ensureStableMessageIds runs
+// before any append, so ids are always the contiguous sequence 1..length.
+function nextStableMessageId(scopeId: string, messages: DiscussionMessage[]): string {
+  return messageIdFor(scopeId, messages.length + 1);
+}
+
 function isToolNarrationLine(line: string): boolean {
   const normalized = line.trim();
   if (!normalized) return false;
@@ -234,26 +261,27 @@ function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ..
 
 function renderDiscussionMarkdown(log: DiscussionLog): string {
   const messages = log.messages.map((message, index) => {
+    const messageIdLine = message.id ? `Message ID: ${message.id}\n\n` : '';
     if (message.type === 'user') {
       return `## ${index + 1}. ${message.agentName}
 
-${message.content.trim()}
+${messageIdLine}${message.content.trim()}
 `;
     }
 
     const contextMessages = message.contextMessages || [];
     const contextSummary = contextMessages.length > 0
-      ? contextMessages.map(contextMessage => `- ${contextMessage.agentName} (${contextMessage.providerName}) at ${contextMessage.timestamp}`).join('\n')
+      ? contextMessages.map(contextMessage => `- ${contextMessage.promptNumber ? `Message ${contextMessage.promptNumber}: ` : ''}${contextMessage.agentName} (${contextMessage.providerName}) at ${contextMessage.timestamp}${contextMessage.id ? ` [${contextMessage.id}]` : ''}`).join('\n')
       : '- Current user message only; no previous chat messages yet.';
 
     const references = message.references || [];
     const referenceSection = references.length > 0
-      ? `\n### References used\n${references.map(ref => `- ${ref.author}${ref.reason ? ` — ${ref.reason}` : ''}`).join('\n')}\n`
+      ? `\n### References used\n${references.map(ref => `- ${ref.message ? `Message ${ref.message}: ` : ''}${ref.author || ref.messageId || 'Unknown'}${ref.messageId ? ` [${ref.messageId}]` : ''}${ref.reason ? ` — ${ref.reason}` : ''}`).join('\n')}\n`
       : '';
 
     return `## ${index + 1}. ${message.agentName} (${message.providerName})
 
-### Context received
+${messageIdLine}### Context received
 ${contextSummary}
 ${referenceSection}
 ### Response
@@ -280,9 +308,10 @@ function renderCodingTaskMarkdown(result: CodingTaskResult): string {
     const label = message.type === 'user'
       ? message.agentName
       : `${message.agentName} (${message.providerName})`;
+    const messageIdLine = message.id ? `Message ID: ${message.id}\n\n` : '';
     return `## ${index + 1}. ${label}
 
-${message.content.trim()}
+${messageIdLine}${message.content.trim()}
 `;
   }).join('\n');
 
@@ -346,6 +375,77 @@ export class DiscussionEngine {
 
   constructor(dirPath: string) {
     this.dirPath = dirPath;
+  }
+
+  private async appendEvent(input: NewRoomEvent): Promise<void> {
+    await this.appendEvents([input]);
+  }
+
+  private async appendEvents(inputs: NewRoomEvent[]): Promise<void> {
+    if (inputs.length === 0) return;
+    try {
+      await appendRoomEvents(this.dirPath, inputs);
+    } catch (err: any) {
+      console.warn(`[Discussion Engine] Failed to append event(s) ${inputs.map(input => input.type).join(', ')}: ${err.message}`);
+    }
+  }
+
+  private async appendMessageCreatedEvent(scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage): Promise<void> {
+    if (!message.id) return;
+    await this.appendEvent({
+      type: 'message.created',
+      actor: message.agentName,
+      source: { type: scopeType, id: scopeId },
+      target: { type: 'message', id: message.id },
+      data: {
+        messageType: message.type || 'agent',
+        providerName: message.providerName,
+        round: message.round
+      }
+    });
+  }
+
+  private async appendReferenceEvents(scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage): Promise<void> {
+    if (!message.id || !message.references) return;
+    const sourceMessageId = message.id;
+    await this.appendEvents(message.references
+      .filter(reference => reference.messageId)
+      .map(reference => ({
+        type: 'message.referenced',
+        actor: message.agentName,
+        source: { type: 'message', id: sourceMessageId },
+        target: { type: 'message', id: reference.messageId! },
+        data: {
+          scopeType,
+          scopeId,
+          promptMessageNumber: reference.message,
+          author: reference.author,
+          reason: reference.reason
+        }
+      })));
+  }
+
+  private async appendActionEvents(sourceDiscussionId: string, executed: ActionExecutionResult): Promise<void> {
+    await this.appendEvents([
+      ...executed.createdTaskCards.map(card => ({
+        type: 'task.created',
+        source: { type: 'discussion', id: sourceDiscussionId },
+        target: { type: 'task', id: card.id },
+        data: {
+          title: card.title,
+          kind: card.kind,
+          parentId: card.parentId
+        }
+      })),
+      ...executed.createdAdrs.map(adr => ({
+        type: 'adr.created',
+        source: { type: 'discussion', id: sourceDiscussionId },
+        target: { type: 'adr', id: adr.id },
+        data: {
+          filename: adr.filename
+        }
+      }))
+    ]);
   }
 
   private getProvider(agent: AgentConfig): Provider {
@@ -611,6 +711,7 @@ If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address eac
     const logPath = path.join(discussionsDir, `${discussionId}.json`);
     const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
     const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+    ensureStableMessageIds(discussionId, discussionLog.messages);
     const agents = await loadAgents(this.dirPath);
     const moderator = this.pickModerator(agents, moderatorName);
 
@@ -658,6 +759,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
     const content = await provider.execute(prompt, systemPrompt);
     const { actions, errors: actionErrors } = parseModeratorActions(content);
     const executed = await executeModeratorActions(this.dirPath, actions, discussionId);
+    await this.appendActionEvents(discussionId, executed);
     executed.errors.push(...actionErrors);
 
     const strippedContent = stripActionBlocks(content);
@@ -674,12 +776,15 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
 
     const actionNotes = [
       ...executed.createdTaskCards.map(card => `[Moderator action: created task card ${card.id} - ${card.title}]`),
-      ...executed.createdAdrFilenames.map(filename => `[Moderator action: created ${filename}]`),
+      ...executed.createdAdrs.map(adr => `[Moderator action: created ${adr.filename}]`),
       ...executed.errors.map(message => `[Moderator action error: ${message}]`)
     ].join('\n');
     const displayContent = [strippedContent || content.trim(), actionNotes].filter(Boolean).join('\n\n');
 
-    const contextMessages = discussionLog.messages.map(message => ({
+    const contextMessages = discussionLog.messages.map((message, index) => ({
+      id: message.id,
+      promptNumber: index + 1,
+      logIndex: index,
       type: message.type || 'agent',
       agentName: message.agentName,
       providerName: message.providerName,
@@ -687,6 +792,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
     }));
 
     discussionLog.messages.push({
+      id: nextStableMessageId(discussionId, discussionLog.messages),
       type: 'agent',
       agentName: moderator.name,
       providerName: moderator.provider,
@@ -694,6 +800,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
       timestamp: new Date().toLocaleTimeString(),
       contextMessages
     });
+    await this.appendMessageCreatedEvent('discussion', discussionId, discussionLog.messages[discussionLog.messages.length - 1]);
     discussionLog.status = result.status === 'PASS' ? 'approved' : 'needs_revision';
 
     await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
@@ -713,6 +820,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
 
     const logPath = path.join(this.dirPath, '.room', 'discussions', `${discussionId}.json`);
     const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+    ensureStableMessageIds(discussionId, discussionLog.messages);
     const agents = await loadAgents(this.dirPath);
     const summaryAgent = summaryAgentOverride || agentNames
       .map(name => agents.find(a => a.name.toLowerCase() === name.toLowerCase()))
@@ -761,6 +869,16 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     const documentsDir = path.join(this.dirPath, '.room', 'documents');
     await fs.mkdir(documentsDir, { recursive: true });
     await fs.writeFile(path.join(documentsDir, filename), `${content}\n`, 'utf-8');
+    await this.appendEvent({
+      type: 'artifact.created',
+      actor: summaryAgent.name,
+      source: { type: 'discussion', id: discussionId },
+      target: { type: 'artifact', id: filename },
+      data: {
+        path: path.join('.room', 'documents', filename),
+        kind: 'summary'
+      }
+    });
 
     return { filename, content };
   }
@@ -775,6 +893,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
 
     const logPath = path.join(this.dirPath, '.room', 'discussions', `${discussionId}.json`);
     const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+    ensureStableMessageIds(discussionId, discussionLog.messages);
     const agents = await loadAgents(this.dirPath);
     const moderator = this.pickModerator(agents, moderatorName);
     if (!moderator) {
@@ -811,6 +930,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
     }
 
     const executed = await executeModeratorActions(this.dirPath, taskActions, discussionId);
+    await this.appendActionEvents(discussionId, executed);
     return { createdTaskCards: executed.createdTaskCards, errors: [...errors, ...executed.errors] };
   }
 
@@ -849,6 +969,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
         status: 'active',
         messages: Array.isArray(existingLog.messages) ? existingLog.messages : []
       };
+      ensureStableMessageIds(discussionId, discussionLog.messages);
     } catch {
       discussionLog = {
         id: discussionId,
@@ -883,6 +1004,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
     }
 
     const userMessage: DiscussionMessage = {
+      id: nextStableMessageId(discussionId, discussionLog.messages),
       type: 'user',
       agentName: options.userLabel || 'You',
       providerName: 'User',
@@ -890,6 +1012,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
       timestamp: new Date().toLocaleTimeString()
     };
     discussionLog.messages.push(userMessage);
+    await this.appendMessageCreatedEvent('discussion', discussionId, userMessage);
 
     let approved = false;
     let successfulAgentRuns = 0;
@@ -966,7 +1089,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
             }
           });
           response = cleanAgentUserContent(response);
-          const parsedRefs = parseMessageReferences(response);
+          const parsedRefs = parseMessageReferences(response, contextMessages);
           messageReferences = parsedRefs.references;
           if (parsedRefs.cleaned) {
             response = parsedRefs.cleaned;
@@ -994,6 +1117,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
         }
 
         const msg: DiscussionMessage = {
+          id: nextStableMessageId(discussionId, discussionLog.messages),
           type: 'agent',
           agentName: agent.name,
           providerName: agent.provider,
@@ -1004,6 +1128,8 @@ You convert finished ROOM chats into actionable task plans for the project task 
         };
 
         discussionLog.messages.push(msg);
+        await this.appendMessageCreatedEvent('discussion', discussionId, msg);
+        await this.appendReferenceEvents('discussion', discussionId, msg);
         options.onEvent?.({
           type: 'message_completed',
           discussionId,
@@ -1130,6 +1256,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
       status: 'needs_revision',
       cycles: 0,
       messages: [{
+        id: messageIdFor(taskId, 1),
         type: 'user',
         agentName: 'You',
         providerName: 'User',
@@ -1149,6 +1276,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
 
     options.onEvent?.({ type: 'discussion_started', discussionId: taskId, title });
     await saveResult();
+    await this.appendMessageCreatedEvent('coding-task', taskId, result.messages[0]);
 
     let reviewerFeedback = '';
     const cycleLimit = Math.max(1, Math.min(5, Math.floor(maxCycles || 1)));
@@ -1199,10 +1327,12 @@ ${doerWorkInstructions}
       const developerSystemPrompt = composeAgentSystemPrompt(
         developer.systemPrompt,
         developer.provider === 'Local CLI',
-        'You are in a ROOM task execution loop. Your responsibility is to produce the requested deliverable, then address reviewer feedback until it is approved.'
+        'You are in a ROOM task execution loop. Your responsibility is to produce the requested deliverable, then address reviewer feedback until it is approved.',
+        REFERENCE_TRACING_PROTOCOL
       );
 
       let developerOutput = '';
+      let developerReferences: MessageReference[] = [];
       try {
         developerOutput = await developerProvider.execute(developerPrompt, developerSystemPrompt, {
           onChunk: (chunk) => {
@@ -1217,6 +1347,11 @@ ${doerWorkInstructions}
           }
         });
         developerOutput = cleanAgentUserContent(developerOutput);
+        const parsedDeveloperRefs = parseMessageReferences(developerOutput, developerContext.includedMessages);
+        developerReferences = parsedDeveloperRefs.references;
+        if (parsedDeveloperRefs.cleaned) {
+          developerOutput = parsedDeveloperRefs.cleaned;
+        }
         if (developer.provider === 'Local CLI' && isOnlyOmissionNotes(developerOutput)) {
           developerOutput = localCliNoFinalAnswerMessage(developer.name);
         }
@@ -1233,15 +1368,19 @@ ${doerWorkInstructions}
       }
 
       const developerMessage: DiscussionMessage = {
+        id: nextStableMessageId(taskId, result.messages),
         type: 'agent',
         agentName: developer.name,
         providerName: developer.provider,
         content: developerOutput,
         timestamp: new Date().toLocaleTimeString(),
         round: cycle,
-        contextMessages: developerContext.includedMessages
+        contextMessages: developerContext.includedMessages,
+        ...(developerReferences.length > 0 ? { references: developerReferences } : {})
       };
       result.messages.push(developerMessage);
+      await this.appendMessageCreatedEvent('coding-task', taskId, developerMessage);
+      await this.appendReferenceEvents('coding-task', taskId, developerMessage);
       result.statusSummary = `${doerLabel} completed cycle ${cycle}. Waiting for review.`;
       options.onEvent?.({ type: 'message_completed', discussionId: taskId, message: developerMessage, round: cycle });
       await saveResult();
@@ -1301,10 +1440,12 @@ Output format:
         const reviewerSystemPrompt = composeAgentSystemPrompt(
           reviewer.systemPrompt,
           reviewer.provider === 'Local CLI',
-          `You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do not approve incomplete work.`
+          `You are the ${reviewerLabel} in a ROOM task loop. Be strict, specific, and do not approve incomplete work.`,
+          REFERENCE_TRACING_PROTOCOL
         );
 
         let reviewOutput = '';
+        let reviewerReferences: MessageReference[] = [];
         try {
           reviewOutput = await reviewerProvider.execute(reviewPrompt, reviewerSystemPrompt, {
             onChunk: (chunk) => {
@@ -1319,6 +1460,11 @@ Output format:
             }
           });
           reviewOutput = cleanAgentUserContent(reviewOutput);
+          const parsedReviewerRefs = parseMessageReferences(reviewOutput, reviewerContext.includedMessages);
+          reviewerReferences = parsedReviewerRefs.references;
+          if (parsedReviewerRefs.cleaned) {
+            reviewOutput = parsedReviewerRefs.cleaned;
+          }
           if (reviewer.provider === 'Local CLI' && isOnlyOmissionNotes(reviewOutput)) {
             reviewOutput = localCliNoFinalAnswerMessage(reviewer.name);
           }
@@ -1336,15 +1482,19 @@ Output format:
 
         reviewerOutputs.push(reviewOutput);
         const reviewerMessage: DiscussionMessage = {
+          id: nextStableMessageId(taskId, result.messages),
           type: 'agent',
           agentName: reviewer.name,
           providerName: reviewer.provider,
           content: reviewOutput,
           timestamp: new Date().toLocaleTimeString(),
           round: cycle,
-          contextMessages: reviewerContext.includedMessages
+          contextMessages: reviewerContext.includedMessages,
+          ...(reviewerReferences.length > 0 ? { references: reviewerReferences } : {})
         };
         result.messages.push(reviewerMessage);
+        await this.appendMessageCreatedEvent('coding-task', taskId, reviewerMessage);
+        await this.appendReferenceEvents('coding-task', taskId, reviewerMessage);
         options.onEvent?.({ type: 'message_completed', discussionId: taskId, message: reviewerMessage, round: cycle });
         await saveResult();
       }
@@ -1372,6 +1522,15 @@ Output format:
       .reverse()
       .find(message => message.type === 'agent' && message.agentName === developer.name) || null;
     await fs.writeFile(artifactPath, renderTaskArtifact(result, finalDoerMessage), 'utf-8');
+    await this.appendEvent({
+      type: 'artifact.created',
+      source: { type: 'coding-task', id: taskId },
+      target: { type: 'artifact', id: artifactFilename },
+      data: {
+        path: path.join('.room', 'tasks', artifactFilename),
+        sourceMessageId: finalDoerMessage?.id
+      }
+    });
     await saveResult();
     options.onEvent?.({
       type: 'discussion_completed',
