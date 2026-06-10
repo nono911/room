@@ -1191,6 +1191,8 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
       }
     );
 
+    const moderatorActions: Array<{ type: 'task' | 'adr'; id?: string; title?: string; filename?: string }> = [];
+
     if (qualityGate) {
       const cycleLimit = Number.isFinite(qualityGateCycles)
         ? Math.max(1, Math.min(3, Math.floor(qualityGateCycles || 1)))
@@ -1198,6 +1200,12 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
 
       for (let cycle = 1; cycle <= cycleLimit; cycle++) {
         const verdict = await engine.evaluateDiscussion(discussionId, moderatorName);
+        if (verdict.executed) {
+          moderatorActions.push(
+            ...verdict.executed.createdTaskCards.map(card => ({ type: 'task' as const, id: card.id, title: card.title })),
+            ...verdict.executed.createdAdrFilenames.map(filename => ({ type: 'adr' as const, filename }))
+          );
+        }
         if (verdict.status === 'PASS') {
           break;
         }
@@ -1241,7 +1249,7 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
       );
     }
 
-    return { success: true, log, summary };
+    return { success: true, log, summary, moderatorActions };
   } catch (error: any) {
     sendDiscussionEvent({
       type: 'discussion_failed',

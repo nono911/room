@@ -95,6 +95,7 @@ declare global {
       ) => Promise<{
         success: boolean;
         summary?: { filename: string; content: string };
+        moderatorActions?: { type: 'task' | 'adr'; id?: string; title?: string; filename?: string }[];
         log?: {
           id: string;
           title: string;
@@ -2799,6 +2800,14 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: 'Review loop completed: output passed the active gate.'
             }]
           : [];
+        const actionMessages = (res.moderatorActions || []).map(action => ({
+          author: 'System Engine',
+          role: 'system',
+          time: new Date().toLocaleTimeString(),
+          text: action.type === 'task'
+            ? `Moderator created task card ${action.id}: ${action.title}`
+            : `Moderator created ${action.filename}`
+        }));
         const summaryMessage = res.summary?.filename
           ? [{
               author: 'System Engine',
@@ -2807,7 +2816,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: `Auto Summary saved to Documents: ${res.summary.filename}`
             }]
           : [];
-        setDiscussionMessages([...formatted, ...statusMessage, ...summaryMessage]);
+        setDiscussionMessages([...formatted, ...statusMessage, ...actionMessages, ...summaryMessage]);
         await loadProjectData(projectPath);
       } else {
         setErrorMsg(res.error || 'Failed to complete discussion execution. Check API credentials.');
