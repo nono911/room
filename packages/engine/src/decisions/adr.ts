@@ -10,7 +10,7 @@ export async function createNewADR(
   dirPath: string,
   title: string,
   options: AdrContentOptions = {}
-): Promise<string> {
+): Promise<{ filename: string; created: boolean }> {
   const decisionsDir = path.join(dirPath, '.room', 'decisions');
   await fs.mkdir(decisionsDir, { recursive: true });
 
@@ -29,10 +29,22 @@ export async function createNewADR(
 
   const nextNum = maxNum + 1;
   const nextNumStr = String(nextNum).padStart(3, '0');
-  const kebabTitle = title
+  let kebabTitle = title
+    .normalize('NFC')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/(^-|-$)/g, '');
+
+  if (!kebabTitle) {
+    kebabTitle = 'decision';
+  }
+
+  for (const file of files) {
+    const match = file.match(/^ADR-\d+-(.+)\.md$/i);
+    if (match && match[1].normalize('NFC').toLowerCase() === kebabTitle.normalize('NFC').toLowerCase()) {
+      return { filename: file, created: false };
+    }
+  }
 
   const filename = `ADR-${nextNumStr}-${kebabTitle}.md`;
   const filePath = path.join(decisionsDir, filename);
@@ -63,5 +75,5 @@ ${options.decision || 'Chosen Option: Option X, because ...'}
 `;
 
   await fs.writeFile(filePath, adrContent, 'utf-8');
-  return filename;
+  return { filename, created: true };
 }

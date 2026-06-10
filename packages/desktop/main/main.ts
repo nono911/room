@@ -552,18 +552,9 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
     let content = '';
     try {
       if (ref === 'workspace:overview') {
-        label = 'Workspace Overview';
-        content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'context', 'overview.md'),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'workspace.md'),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'project.md')
-        ]);
+        continue;
       } else if (ref === 'workspace:structure') {
-        label = 'Workspace Structure';
-        content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'context', 'structure.md'),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'architecture', 'current.md')
-        ]);
+        continue;
       } else if (ref.startsWith('file:')) {
         const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
         label = `Workspace File: ${relPath}`;

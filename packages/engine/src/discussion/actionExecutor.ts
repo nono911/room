@@ -53,9 +53,10 @@ export async function executeModeratorActions(
   for (const action of actions) {
     if (action.action !== 'create_adr') continue;
     try {
-      result.createdAdrFilenames.push(
-        await createNewADR(dirPath, action.title, { context: action.context, decision: action.decision })
-      );
+      const { filename, created } = await createNewADR(dirPath, action.title, { context: action.context, decision: action.decision });
+      if (created) {
+        result.createdAdrFilenames.push(filename);
+      }
     } catch (err: any) {
       result.errors.push(`create_adr "${action.title}" failed: ${err.message}`);
     }

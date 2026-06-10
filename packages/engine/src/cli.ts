@@ -181,8 +181,12 @@ adrCmd
   .action(async (title, options) => {
     const targetDir = path.resolve(options.path);
     try {
-      const filename = await createNewADR(targetDir, title);
-      console.log(`Created new ADR at .room/decisions/${filename}`);
+      const { filename, created } = await createNewADR(targetDir, title);
+      if (created) {
+        console.log(`Created new ADR at .room/decisions/${filename}`);
+      } else {
+        console.log(`ADR already exists at .room/decisions/${filename}`);
+      }
     } catch (error: any) {
       console.error('Failed to create ADR:', error.message);
       process.exit(1);

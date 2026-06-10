@@ -18,6 +18,13 @@ describe('loadTaskBoard', () => {
   it('returns an empty board when no file exists', async () => {
     expect(await loadTaskBoard(dir)).toEqual({ cards: [] });
   });
+
+  it('throws an error when board.json is malformed JSON', async () => {
+    const tasksDir = path.join(dir, '.room', 'tasks');
+    await fs.mkdir(tasksDir, { recursive: true });
+    await fs.writeFile(path.join(tasksDir, 'board.json'), '{invalid json}');
+    await expect(loadTaskBoard(dir)).rejects.toThrow();
+  });
 });
 
 describe('addTaskCards', () => {
@@ -51,6 +58,21 @@ describe('addTaskCards', () => {
   it('leaves parentId unset when the parent title does not exist', async () => {
     const created = await addTaskCards(dir, [{ title: 'Orphan', parent: 'Missing Epic' }]);
     expect(created[0].parentId).toBeUndefined();
+  });
+
+  it('skips creating cards with existing titles (case-insensitive) and does not increment ids for skipped cards', async () => {
+    await addTaskCards(dir, [{ title: 'First Task' }]);
+    const added = await addTaskCards(dir, [
+      { title: 'first task' },
+      { title: 'Second Task' }
+    ]);
+    expect(added).toHaveLength(1);
+    expect(added[0].title).toBe('Second Task');
+    expect(added[0].id).toBe('card-002');
+
+    const board = await loadTaskBoard(dir);
+    expect(board.cards).toHaveLength(2);
+    expect(board.cards.map(c => c.title)).toEqual(['First Task', 'Second Task']);
   });
 });
 

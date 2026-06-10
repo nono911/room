@@ -11,6 +11,7 @@ import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, ActionExecutionResult } from './actionExecutor.js';
 import { TaskCard } from './taskBoard.js';
 import { parseMessageReferences, MessageReference } from './references.js';
+import { compileDiscussionContext } from './contextCompiler.js';
 
 export interface DiscussionMessage {
   type?: 'user' | 'agent';
@@ -207,18 +208,6 @@ function isToolNarrationLine(line: string): boolean {
   if (/^I will (list|view|read) the contents of\b/i.test(normalized)) return true;
   if (/^Let's (list|read|view|see|check)\b/i.test(normalized)) return true;
   return false;
-}
-
-function formatMessageForPromptHistory(message: DiscussionMessage): string {
-  if (message.type === 'user') {
-    return `--- ${message.agentName} ---\n${message.content}`;
-  }
-
-  const cleanedContent = cleanAgentUserContent(message.content);
-  const content = isOnlyOmissionNotes(cleanedContent)
-    ? '[Previous Local CLI action narration omitted.]'
-    : cleanedContent;
-  return `--- ${message.agentName} (${message.providerName}) ---\n${content}`;
 }
 
 function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ...sections: string[]): string {
@@ -444,25 +433,28 @@ Respond with these sections:
 - REQUIRED_CHANGES: specific changes needed before approval.
 - APPROVAL_STATUS: NEEDS_REVISION or APPROVED.
 
-Only include [APPROVED] when OPEN_FINDINGS is empty and the technical plan is implementable with clear tests. If any meaningful gap remains, do not include [APPROVED].`;
+Only output APPROVAL_STATUS: APPROVED when OPEN_FINDINGS is empty and the result is complete, actionable, and verifiable. If any meaningful gap remains, output APPROVAL_STATUS: NEEDS_REVISION.`;
     }
 
     return `
 
 === Review Loop Protocol ===
-If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address each item before adding new scope. Produce a concrete technical plan with affected modules, implementation steps, and tests.`;
+If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address each item before adding new scope. Produce a concrete, actionable result with affected areas, steps, and validation appropriate to the work.`;
   }
 
   private safeDocumentSlug(input: string): string {
-    return (input || 'discussion')
+    const slug = (input || 'discussion')
+      .normalize('NFC')
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
       .replace(/^-+|-+$/g, '')
-      .slice(0, 80) || 'discussion';
+      .slice(0, 80);
+    return slug || 'discussion';
   }
 
   private isDeveloperAgent(agent: AgentConfig): boolean {
     const text = `${agent.name} ${agent.role}`.toLowerCase();
+    if (text.includes('planner')) return false;
     return text.includes('developer') || text.includes('implement') || text.includes('engineer') || text.includes('coder');
   }
 
@@ -528,7 +520,8 @@ If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address eac
         : undefined
     ) || agents.find(agent => {
       const text = `${agent.name} ${agent.role}`.toLowerCase();
-      return text.includes('moderator') || text.includes('lead') || text.includes('director') || text.includes('reviewer');
+      return text.includes('moderator') || text.includes('lead') || text.includes('director') || text.includes('reviewer')
+        || text.includes('editor') || text.includes('risk manager');
     }) || agents[0];
   }
 
@@ -824,8 +817,6 @@ You convert finished ROOM chats into actionable task plans for the project task 
     };
     discussionLog.messages.push(userMessage);
 
-    let conversationHistory = discussionLog.messages.map(formatMessageForPromptHistory).join('\n\n');
-    conversationHistory += '\n\n';
     let approved = false;
     let successfulAgentRuns = 0;
     let failedAgentRuns = 0;
@@ -863,15 +854,9 @@ You convert finished ROOM chats into actionable task plans for the project task 
           }
         }
 
-        const contextMessages = discussionLog.messages.map(message => ({
-          type: message.type || 'agent',
-          agentName: message.agentName,
-          providerName: message.providerName,
-          timestamp: message.timestamp
-        }));
-        const priorMessageInstruction = contextMessages.length > 0
-          ? `\n\nYou have ${contextMessages.length} previous chat message(s) in the discussion history, including the user's latest message. Explicitly build on, refine, challenge, or resolve points from that history instead of answering as a standalone first response.`
-          : '\n\nYou are the first AI member to respond. Establish a useful starting point for the later members.';
+        const compiledContext = compileDiscussionContext(discussionLog.messages, projectContext);
+        const contextMessages = compiledContext.includedMessages;
+        const priorMessageInstruction = compiledContext.priorMessageInstruction;
         const reviewProtocol = options.reviewMode ? this.buildReviewProtocol(agent) : '';
         const systemPrompt = composeAgentSystemPrompt(
           agent.systemPrompt,
@@ -880,9 +865,9 @@ You convert finished ROOM chats into actionable task plans for the project task 
           REFERENCE_TRACING_PROTOCOL,
           skillsContext,
           reviewProtocol,
-          `=== Project Context ===\n${projectContext}`
+          compiledContext.projectContextBlock
         );
-        const prompt = `Here is the discussion history so far:\n${conversationHistory}\n\nPlease provide your response as the ${agent.name} (${agent.role}).${priorMessageInstruction}${options.reviewMode ? '\n\nIf this is a later round, focus on closing remaining OPEN_FINDINGS before introducing new recommendations.' : ''}`;
+        const prompt = `Here is the discussion history available for this response:\n${compiledContext.historyBlock}\n\nPlease provide your response as the ${agent.name} (${agent.role}).${priorMessageInstruction}${options.reviewMode ? '\n\nIf this is a later round, focus on closing remaining OPEN_FINDINGS before introducing new recommendations.' : ''}`;
 
         let response = '';
         let agentFailed = false;
@@ -945,7 +930,6 @@ You convert finished ROOM chats into actionable task plans for the project task 
           message: msg,
           round
         });
-        conversationHistory += `\n--- ${agent.name} (${agent.role}) ---\n${response}\n`;
 
         await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
         await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
@@ -1102,6 +1086,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
         timestamp: new Date().toLocaleTimeString()
       });
 
+      const developerContext = compileDiscussionContext(result.messages, projectContext);
       const developerPrompt = `You are the ${doerLabel} assigned to this ROOM task.
 
 Task type:
@@ -1113,11 +1098,13 @@ ${task}
 Workspace root:
 ${this.dirPath}
 
-Project context:
-${projectContext || '(No workspace context provided.)'}
+${developerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
+
+Task history available for this pass:
+${developerContext.historyBlock}
 
 Reviewer feedback to address:
-${reviewerFeedback || '(No reviewer feedback yet.)'}
+${reviewerFeedback ? 'Use the latest reviewer message(s) in the task history above.' : '(No reviewer feedback yet.)'}
 
 Instructions:
 ${doerWorkInstructions}
@@ -1159,12 +1146,6 @@ ${doerWorkInstructions}
         developerOutput = cleanAgentUserContent(`[System Error from ${developer.name}]: ${err.message}`);
       }
 
-      const contextMessages = result.messages.map(message => ({
-        type: message.type || 'agent',
-        agentName: message.agentName,
-        providerName: message.providerName,
-        timestamp: message.timestamp
-      }));
       const developerMessage: DiscussionMessage = {
         type: 'agent',
         agentName: developer.name,
@@ -1172,7 +1153,7 @@ ${doerWorkInstructions}
         content: developerOutput,
         timestamp: new Date().toLocaleTimeString(),
         round: cycle,
-        contextMessages
+        contextMessages: developerContext.includedMessages
       };
       result.messages.push(developerMessage);
       result.statusSummary = `${doerLabel} completed cycle ${cycle}. Waiting for review.`;
@@ -1193,6 +1174,7 @@ ${doerWorkInstructions}
           timestamp: new Date().toLocaleTimeString()
         });
 
+        const reviewerContext = compileDiscussionContext(result.messages, projectContext);
         const reviewPrompt = `Review this ROOM task after the ${doerLabel}'s latest pass.
 
 Task type:
@@ -1204,11 +1186,13 @@ ${task}
 Workspace root:
 ${this.dirPath}
 
-Project context:
-${projectContext || '(No workspace context provided.)'}
+${reviewerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
+
+Task history available for this review:
+${reviewerContext.historyBlock}
 
 ${doerLabel} report:
-${developerOutput}
+Use the latest ${doerLabel} message in the task history above.
 
 Review rules:
 ${reviewerRules}
@@ -1259,12 +1243,6 @@ Output format:
         }
 
         reviewerOutputs.push(reviewOutput);
-        const reviewerContextMessages = result.messages.map(message => ({
-          type: message.type || 'agent',
-          agentName: message.agentName,
-          providerName: message.providerName,
-          timestamp: message.timestamp
-        }));
         const reviewerMessage: DiscussionMessage = {
           type: 'agent',
           agentName: reviewer.name,
@@ -1272,7 +1250,7 @@ Output format:
           content: reviewOutput,
           timestamp: new Date().toLocaleTimeString(),
           round: cycle,
-          contextMessages: reviewerContextMessages
+          contextMessages: reviewerContext.includedMessages
         };
         result.messages.push(reviewerMessage);
         options.onEvent?.({ type: 'message_completed', discussionId: taskId, message: reviewerMessage, round: cycle });

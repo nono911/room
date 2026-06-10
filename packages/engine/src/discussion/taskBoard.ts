@@ -34,10 +34,14 @@ function boardPaths(dirPath: string) {
 
 export async function loadTaskBoard(dirPath: string): Promise<TaskBoard> {
   try {
-    const parsed = JSON.parse(await fs.readFile(boardPaths(dirPath).jsonPath, 'utf-8')) as TaskBoard;
+    const content = await fs.readFile(boardPaths(dirPath).jsonPath, 'utf-8');
+    const parsed = JSON.parse(content) as TaskBoard;
     return { cards: Array.isArray(parsed.cards) ? parsed.cards : [] };
-  } catch {
-    return { cards: [] };
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      return { cards: [] };
+    }
+    throw err;
   }
 }
 
@@ -54,9 +58,12 @@ export async function addTaskCards(
     return match ? Math.max(max, parseInt(match[1], 10)) : max;
   }, 0) + 1;
 
-  const titleToId = new Map(board.cards.map(card => [card.title.toLowerCase(), card.id]));
+  const titleToId = new Map(board.cards.map(card => [card.title.normalize('NFC').toLowerCase(), card.id]));
   const created: TaskCard[] = [];
   for (const input of inputs) {
+    if (titleToId.has(input.title.normalize('NFC').toLowerCase())) {
+      continue;
+    }
     const card: TaskCard = {
       id: `card-${String(nextNum++).padStart(3, '0')}`,
       title: input.title,
@@ -66,9 +73,9 @@ export async function addTaskCards(
     };
     if (input.details) card.details = input.details;
     if (sourceDiscussionId) card.sourceDiscussionId = sourceDiscussionId;
-    const parentId = input.parent ? titleToId.get(input.parent.toLowerCase()) : undefined;
+    const parentId = input.parent ? titleToId.get(input.parent.normalize('NFC').toLowerCase()) : undefined;
     if (parentId) card.parentId = parentId;
-    titleToId.set(card.title.toLowerCase(), card.id);
+    titleToId.set(card.title.normalize('NFC').toLowerCase(), card.id);
     board.cards.push(card);
     created.push(card);
   }

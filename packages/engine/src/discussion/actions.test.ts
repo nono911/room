@@ -80,4 +80,9 @@ describe('stripActionBlocks', () => {
   it('returns trimmed content unchanged when no blocks exist', () => {
     expect(stripActionBlocks('  Hello.  ')).toBe('Hello.');
   });
+
+  it('does not collapse extra newlines inside non-room-action code blocks', () => {
+    const content = 'Before.\n\n```typescript\nconst a = 1;\n\n\nconst b = 2;\n```\n\nAfter.';
+    expect(stripActionBlocks(content)).toBe('Before.\n\n```typescript\nconst a = 1;\n\n\nconst b = 2;\n```\n\nAfter.');
+  });
 });

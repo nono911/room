@@ -100,5 +100,10 @@ export function parseModeratorActions(content: string): ParsedModeratorActions {
 }
 
 export function stripActionBlocks(content: string): string {
-  return content.replace(ACTION_BLOCK_PATTERN, '').replace(/\n{3,}/g, '\n\n').trim();
+  const withoutActions = content.replace(ACTION_BLOCK_PATTERN, '');
+  const parts = withoutActions.split('```');
+  for (let i = 0; i < parts.length; i += 2) {
+    parts[i] = parts[i].replace(/\n{3,}/g, '\n\n');
+  }
+  return parts.join('```').trim();
 }
