@@ -77,6 +77,10 @@ const PROVIDER_PRESETS: { id: string; label: string; baseUrl: string; keyless?: 
   { id: 'lmstudio', label: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1', keyless: true }
 ];
 
+const LEGACY_PROVIDER_IDS: Record<string, string> = { Gemini: 'gemini', Claude: 'anthropic', Codex: 'openai' };
+const normalizeProviderId = (value: string) => LEGACY_PROVIDER_IDS[value] || value;
+const providerLabel = (providers: MaskedProvider[], id: string) => providers.find(provider => provider.id === normalizeProviderId(id))?.label || id;
+
 declare global {
   interface Window {
     electronAPI: {
@@ -833,7 +837,7 @@ export default function App() {
   // Form states for creating custom agents
   const [newAgentName, setNewAgentName] = useState<string>('');
   const [newAgentRole, setNewAgentRole] = useState<string>('');
-  const [newAgentProvider, setNewAgentProvider] = useState<'Gemini' | 'Claude' | 'Codex' | 'Local CLI'>('Gemini');
+  const [newAgentProvider, setNewAgentProvider] = useState<string>('gemini');
   const [newAgentCommand, setNewAgentCommand] = useState<string>('');
   const [newAgentPrompt, setNewAgentPrompt] = useState<string>('');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
@@ -1056,7 +1060,7 @@ export default function App() {
     if (newAgentProvider && newAgentProvider !== 'Local CLI' && !dynamicCliModels[newAgentProvider]) {
       const fetchModels = async () => {
         try {
-          const res = await window.electronAPI.detectApiModels(newAgentProvider);
+          const res = await window.electronAPI.detectApiModels(normalizeProviderId(newAgentProvider));
           if (res.success && res.models && res.models.length > 0) {
             const models = res.models;
             setDynamicCliModels(prev => ({ ...prev, [newAgentProvider]: models }));
@@ -1257,8 +1261,13 @@ export default function App() {
       return dynamicCliModels[provider];
     }
 
-    if (provider === 'Claude' || provider === 'Gemini' || provider === 'Codex') {
-      return getFallbackModels(provider as 'Claude' | 'Gemini' | 'Codex') as ModelOption[];
+    const id = normalizeProviderId(provider);
+    const fallbackKey = ({ gemini: 'Gemini', anthropic: 'Claude', openai: 'Codex' } as Record<string, string>)[id];
+    if (fallbackKey) {
+      return getFallbackModels(fallbackKey as 'Claude' | 'Gemini' | 'Codex') as ModelOption[];
+    }
+    if (providers.some(candidate => candidate.id === id)) {
+      return []; // custom providers: discovered via detectApiModels or typed manually
     }
 
     return [];
@@ -1289,7 +1298,7 @@ export default function App() {
   const resetAgentForm = () => {
     setNewAgentName('');
     setNewAgentRole('');
-    setNewAgentProvider('Gemini');
+    setNewAgentProvider('gemini');
     setNewAgentModel('');
     setNewAgentModelCustom(false);
     setNewAgentCommand('');
@@ -1311,7 +1320,7 @@ export default function App() {
     setEditingAgent(agent);
     setNewAgentName(agent.name);
     setNewAgentRole(agent.role);
-    setNewAgentProvider(agent.provider);
+    setNewAgentProvider(normalizeProviderId(agent.provider));
     setNewAgentModel(agent.modelName || '');
     setNewAgentModelCustom(false);
     setNewAgentPrompt(agent.systemPrompt);
@@ -1398,7 +1407,7 @@ export default function App() {
     setErrorMsg(null);
     try {
       for (const template of templatesToAdd) {
-        const provider = template.provider as 'Gemini' | 'Claude' | 'Codex';
+        const provider = normalizeProviderId(template.provider);
         const modelOptions = getModelOptions(provider, 'none');
         const defaultModel = modelOptions[0]?.value;
         const skillFiles = await ensureTemplateSkills(template.skills);
@@ -1749,7 +1758,7 @@ export default function App() {
   };
 
   const handleDeleteProvider = async (providerId: string) => {
-    const usedBy = (projectData?.agents || []).filter((agent: any) => agent.provider === providerId).map((agent: any) => agent.name);
+    const usedBy = (projectData?.agents || []).filter((agent: any) => normalizeProviderId(agent.provider) === providerId).map((agent: any) => agent.name);
     const detail = usedBy.length > 0
       ? `\n\nUsed by: ${usedBy.join(', ')}. These members will fall back to Gemini until reassigned.`
       : '';
@@ -4678,7 +4687,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: aiMemberDetailsExpanded ? 'repeat(auto-fill, minmax(320px, 1fr))' : 'repeat(auto-fill, minmax(260px, 1fr))', gap: aiMemberDetailsExpanded ? '20px' : '10px' }}>
               {agents.map((agent: any, idx: number) => {
-                const providerClass = agent.provider.toLowerCase();
+                const providerClass = normalizeProviderId(agent.provider).toLowerCase();
                 return (
                   <div key={idx} style={{
                     background: 'hsl(var(--bg-card))',
@@ -4740,7 +4749,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                         fontWeight: 600,
                         textTransform: 'uppercase'
                       }}>
-                        {agent.provider}
+                        {providerLabel(providers, agent.provider)}
                       </span>
                       {agent.provider !== 'Local CLI' && agent.modelName && (
                         <span style={{
@@ -5109,10 +5118,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
                       outline: 'none'
                     }}
                   >
-                    <optgroup label="Cloud Providers">
-                      <option value="Gemini">Gemini (Google)</option>
-                      <option value="Claude">Claude (Anthropic)</option>
-                      <option value="Codex">Codex (OpenAI)</option>
+                    <optgroup label="API Providers">
+                      {providers.map(provider => (
+                        <option key={provider.id} value={provider.id}>{provider.label}</option>
+                      ))}
                     </optgroup>
                     
                     <optgroup label="Detected Local CLI Agents">
