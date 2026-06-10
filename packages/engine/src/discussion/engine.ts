@@ -684,6 +684,55 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     return { filename, content };
   }
 
+  async generateTasksFromDiscussion(
+    discussionId: string,
+    moderatorName?: string
+  ): Promise<{ createdTaskCards: TaskCard[]; errors: string[] }> {
+    if (!/^discussion-\d+$/.test(discussionId)) {
+      throw new Error('Invalid discussion id.');
+    }
+
+    const logPath = path.join(this.dirPath, '.room', 'discussions', `${discussionId}.json`);
+    const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+    const agents = await loadAgents(this.dirPath);
+    const moderator = this.pickModerator(agents, moderatorName);
+    if (!moderator) {
+      throw new Error('No AI member is available to generate tasks.');
+    }
+
+    await this.assertAgentExecutionAllowed(moderator);
+    const provider = this.getProvider(moderator);
+    const transcript = renderDiscussionMarkdown(discussionLog);
+    const prompt = `Convert the outcome of this ROOM chat into a structured task board plan.
+
+Output requirements:
+- Output ONLY fenced code blocks labeled room-action, one JSON object per block. No prose outside the blocks.
+- Start with exactly one epic block: {"action": "create_task", "kind": "epic", "title": "<the discussion outcome>", "details": "<one-line goal>"}
+- Add one block per concrete task: {"action": "create_task", "kind": "task", "title": "...", "details": "...", "parent": "<epic title>"}
+- Add subtask blocks for implementation items: {"action": "create_task", "kind": "subtask", "title": "...", "parent": "<task title>"}
+- Keep titles short and actionable. Skip work the chat did not actually agree on.
+- Use the same natural language as the chat.
+
+Chat transcript:
+${transcript}`;
+
+    const systemPrompt = `${moderator.systemPrompt}
+
+${LANGUAGE_POLICY}
+
+You convert finished ROOM chats into actionable task plans for the project task board.`;
+
+    const content = await provider.execute(prompt, systemPrompt);
+    const { actions, errors } = parseModeratorActions(content);
+    const taskActions = actions.filter(action => action.action === 'create_task');
+    if (taskActions.length === 0) {
+      throw new Error('The moderator did not produce any create_task actions. Try again or pick another moderator.');
+    }
+
+    const executed = await executeModeratorActions(this.dirPath, taskActions, discussionId);
+    return { createdTaskCards: executed.createdTaskCards, errors: [...errors, ...executed.errors] };
+  }
+
   async runDiscussion(
     discussionId: string,
     title: string,
