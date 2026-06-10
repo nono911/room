@@ -7,6 +7,9 @@ import { ClaudeProvider } from '../providers/claude.js';
 import { CodexProvider } from '../providers/codex.js';
 import { LocalCliProvider } from '../providers/localCli.js';
 import { Provider } from '../providers/provider.js';
+import { parseModeratorActions, stripActionBlocks } from './actions.js';
+import { executeModeratorActions, ActionExecutionResult } from './actionExecutor.js';
+import { TaskCard } from './taskBoard.js';
 
 export interface DiscussionMessage {
   type?: 'user' | 'agent';
@@ -85,6 +88,7 @@ export interface QualityGateResult {
   status: 'PASS' | 'NEEDS_MORE_DISCUSSION';
   content: string;
   nextRoundInstructions: string;
+  executed?: ActionExecutionResult;
 }
 
 export interface CodingTaskResult {
@@ -503,6 +507,17 @@ If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address eac
     };
   }
 
+  private pickModerator(agents: AgentConfig[], moderatorName?: string): AgentConfig | undefined {
+    return (
+      moderatorName
+        ? agents.find(agent => agent.name.toLowerCase() === moderatorName.toLowerCase())
+        : undefined
+    ) || agents.find(agent => {
+      const text = `${agent.name} ${agent.role}`.toLowerCase();
+      return text.includes('moderator') || text.includes('lead') || text.includes('director') || text.includes('reviewer');
+    }) || agents[0];
+  }
+
   async evaluateDiscussion(
     discussionId: string,
     moderatorName?: string
@@ -516,14 +531,7 @@ If prior agents raised OPEN_FINDINGS or REQUIRED_CHANGES, explicitly address eac
     const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
     const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
     const agents = await loadAgents(this.dirPath);
-    const moderator = (
-      moderatorName
-        ? agents.find(agent => agent.name.toLowerCase() === moderatorName.toLowerCase())
-        : undefined
-    ) || agents.find(agent => {
-      const text = `${agent.name} ${agent.role}`.toLowerCase();
-      return text.includes('moderator') || text.includes('lead') || text.includes('director') || text.includes('reviewer');
-    }) || agents[0];
+    const moderator = this.pickModerator(agents, moderatorName);
 
     if (!moderator) {
       throw new Error('No AI member is available to run the quality gate.');
@@ -549,6 +557,14 @@ Rules:
 - If NEEDS_MORE_DISCUSSION, NEXT_ROUND_INSTRUCTIONS must tell the next agents exactly what to fix or deepen.
 - Keep the same natural language as the chat unless the user explicitly asked otherwise.
 
+Runtime actions (optional):
+You may also emit runtime actions for the ROOM engine to execute. Put each action in its own fenced code block labeled room-action containing one JSON object:
+- {"action": "continue", "instructions": "<what the next round must fix>"} - force one more focused round.
+- {"action": "stop", "reason": "<why the chat is done>"} - stop the discussion now.
+- {"action": "create_task", "title": "...", "details": "...", "kind": "epic|task|subtask", "parent": "<parent card title>"} - add a card to the project task board.
+- {"action": "create_adr", "title": "...", "context": "...", "decision": "..."} - record an architecture decision the chat clearly made.
+Only emit create_task or create_adr for outcomes the chat actually agreed on. The STATUS line is still required.
+
 Chat transcript:
 ${transcript}`;
 
@@ -559,7 +575,29 @@ ${LANGUAGE_POLICY}
 You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.`;
 
     const content = await provider.execute(prompt, systemPrompt);
-    const result = this.parseQualityGateResult(content);
+    const { actions, errors: actionErrors } = parseModeratorActions(content);
+    const executed = await executeModeratorActions(this.dirPath, actions, discussionId);
+    executed.errors.push(...actionErrors);
+
+    const strippedContent = stripActionBlocks(content);
+    const result = this.parseQualityGateResult(strippedContent || content);
+    if (executed.control === 'stop') {
+      result.status = 'PASS';
+    } else if (executed.control === 'continue') {
+      result.status = 'NEEDS_MORE_DISCUSSION';
+      if (executed.controlInstructions) {
+        result.nextRoundInstructions = executed.controlInstructions;
+      }
+    }
+    result.executed = executed;
+
+    const actionNotes = [
+      ...executed.createdTaskCards.map(card => `[Moderator action: created task card ${card.id} - ${card.title}]`),
+      ...executed.createdAdrFilenames.map(filename => `[Moderator action: created ${filename}]`),
+      ...executed.errors.map(message => `[Moderator action error: ${message}]`)
+    ].join('\n');
+    const displayContent = [strippedContent || content.trim(), actionNotes].filter(Boolean).join('\n\n');
+
     const contextMessages = discussionLog.messages.map(message => ({
       type: message.type || 'agent',
       agentName: message.agentName,
@@ -571,7 +609,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
       type: 'agent',
       agentName: moderator.name,
       providerName: moderator.provider,
-      content,
+      content: displayContent,
       timestamp: new Date().toLocaleTimeString(),
       contextMessages
     });
