@@ -1298,7 +1298,7 @@ ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, max
   };
   try {
     const projectRoot = requireBoundProjectRoot(dirPath);
-    const engine = new DiscussionEngine(projectRoot);
+    const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
     await applyApiKeysToEnvironment();
     const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
     let log = await engine.runDiscussion(
@@ -1366,7 +1366,7 @@ ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, re
 
   try {
     const projectRoot = requireBoundProjectRoot(dirPath);
-    const engine = new DiscussionEngine(projectRoot);
+    const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
     await applyApiKeysToEnvironment();
     const agents = await loadAgents(projectRoot);
     const doer = doerName
@@ -1438,7 +1438,7 @@ ipcMain.handle('summarize-discussion', async (event, { dirPath, discussionId, ag
       return { success: false, error: 'Invalid discussion id.' };
     }
 
-    const engine = new DiscussionEngine(projectRoot);
+    const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
     const projectConfig = await readProjectConfigFromDisk(projectRoot);
     const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
     const summaryAgentNames = summaryAgentName
@@ -1462,7 +1462,7 @@ ipcMain.handle('generate-tasks-from-discussion', async (event, { dirPath, discus
       return { success: false, error: 'Invalid discussion id.' };
     }
 
-    const engine = new DiscussionEngine(projectRoot);
+    const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
     const result = await engine.generateTasksFromDiscussion(safeDiscussionId, moderatorName);
     return { success: true, ...result };
   } catch (error: any) {
@@ -1623,57 +1623,153 @@ ipcMain.handle('detect-local-agents', async () => {
   }
 });
 
-ipcMain.handle('load-api-keys', async () => {
+function maskProvider(entry: ProviderEntry) {
+  return {
+    id: entry.id,
+    label: entry.label,
+    kind: entry.kind,
+    baseUrl: entry.baseUrl,
+    builtIn: !!entry.builtIn,
+    hasKey: !!entry.apiKey
+  };
+}
+
+async function fetchProviderModels(entry: ProviderEntry): Promise<
+  { ok: true; models: { value: string; label: string }[] } | { ok: false; status?: number; error: string }
+> {
   try {
-    const keys = await applyApiKeysToEnvironment();
-    return { success: true, status: apiKeyStatus(keys) };
+    if (entry.kind === 'gemini') {
+      if (!entry.apiKey) return { ok: false, error: 'Gemini API key is not configured.' };
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${entry.apiKey}`);
+      if (!res.ok) return { ok: false, status: res.status, error: `${entry.label}: status ${res.status}: ${await res.text()}` };
+      const data: any = await res.json();
+      return {
+        ok: true,
+        models: (data.models || [])
+          .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => ({ value: m.name.replace('models/', ''), label: m.displayName || m.name }))
+      };
+    }
+    if (entry.kind === 'anthropic') {
+      if (!entry.apiKey) return { ok: false, error: 'Anthropic API key is not configured.' };
+      const res = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': entry.apiKey, 'anthropic-version': '2023-06-01' }
+      });
+      if (!res.ok) return { ok: false, status: res.status, error: `${entry.label}: status ${res.status}: ${await res.text()}` };
+      const data: any = await res.json();
+      return { ok: true, models: (data.data || []).map((m: any) => ({ value: m.id, label: m.display_name || m.id })) };
+    }
+    const headers: Record<string, string> = {};
+    if (entry.apiKey) headers['Authorization'] = `Bearer ${entry.apiKey}`;
+    const base = (entry.baseUrl || '').replace(/\/+$/, '');
+    const res = await fetch(`${base}/models`, { headers });
+    if (!res.ok) return { ok: false, status: res.status, error: `${entry.label}: status ${res.status}: ${await res.text()}` };
+    const data: any = await res.json();
+    const models = (data.data || [])
+      .filter((m: any) => m.id && (entry.id !== 'openai' || isOpenAiModelAllowed(m.id)))
+      .map((m: any) => ({ value: m.id, label: m.id }));
+    return { ok: true, models };
+  } catch (error: any) {
+    return { ok: false, error: `${entry.label}: ${error.message}` };
+  }
+}
+
+async function probeChatCompletion(entry: ProviderEntry): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (entry.apiKey) headers['Authorization'] = `Bearer ${entry.apiKey}`;
+    const base = (entry.baseUrl || '').replace(/\/+$/, '');
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: 'test', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
+    });
+    // 400 (unknown model) still proves the endpoint speaks OpenAI-compatible; 401/403/404 do not.
+    if (res.ok || res.status === 400) return { ok: true };
+    return { ok: false, error: `${entry.label}: status ${res.status}: ${await res.text()}` };
+  } catch (error: any) {
+    return { ok: false, error: `${entry.label}: ${error.message}` };
+  }
+}
+
+ipcMain.handle('load-providers', async () => {
+  try {
+    const providers = await readProvidersFromDisk();
+    return { success: true, providers: providers.map(maskProvider) };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('save-api-keys', async (_, payload: ApiKeyConfig) => {
+ipcMain.handle('save-provider', async (_, payload: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => {
   try {
-    const existing = await readApiKeysFromDisk();
-    const next: ApiKeyConfig = { ...existing };
-
-    if (typeof payload?.geminiApiKey === 'string' && payload.geminiApiKey.trim()) {
-      next.geminiApiKey = payload.geminiApiKey.trim();
+    const providers = await readProvidersFromDisk();
+    const id = typeof payload?.id === 'string' ? payload.id.trim() : '';
+    if (!isValidProviderId(id)) {
+      return { success: false, error: 'Provider id must be a lowercase slug (a-z, 0-9, dashes).' };
     }
-    if (typeof payload?.anthropicApiKey === 'string' && payload.anthropicApiKey.trim()) {
-      next.anthropicApiKey = payload.anthropicApiKey.trim();
+    const existing = providers.find(entry => entry.id === id);
+    const label = (payload.label || existing?.label || '').trim();
+    const baseUrl = (payload.baseUrl ?? existing?.baseUrl ?? '').trim();
+    if (!label) return { success: false, error: 'Provider name is required.' };
+    if (existing?.builtIn) {
+      // Built-ins: only the key may change.
+      if (payload.apiKey === null) delete existing.apiKey;
+      else if (typeof payload.apiKey === 'string' && payload.apiKey.trim()) existing.apiKey = payload.apiKey.trim();
+    } else {
+      if (!/^https?:\/\//.test(baseUrl)) {
+        return { success: false, error: 'Base URL must start with http:// or https://.' };
+      }
+      const entry: ProviderEntry = {
+        id,
+        label,
+        kind: 'openai-compatible',
+        baseUrl,
+        ...(existing?.apiKey ? { apiKey: existing.apiKey } : {})
+      };
+      if (payload.apiKey === null) delete entry.apiKey;
+      else if (typeof payload.apiKey === 'string' && payload.apiKey.trim()) entry.apiKey = payload.apiKey.trim();
+      const index = providers.findIndex(candidate => candidate.id === id);
+      if (index >= 0) providers[index] = entry;
+      else providers.push(entry);
     }
-    if (typeof payload?.openaiApiKey === 'string' && payload.openaiApiKey.trim()) {
-      next.openaiApiKey = payload.openaiApiKey.trim();
-    }
-
-    await writeApiKeysToDisk(next);
-    const keys = await applyApiKeysToEnvironment();
-    return { success: true, status: apiKeyStatus(keys) };
+    await writeProvidersToDisk(providers);
+    await applyApiKeysToEnvironment();
+    const updated = await readProvidersFromDisk();
+    return { success: true, providers: updated.map(maskProvider) };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('clear-api-keys', async () => {
+ipcMain.handle('delete-provider', async (_, providerId: string) => {
   try {
-    await writeApiKeysToDisk({});
-    if (ORIGINAL_API_ENV.geminiApiKey) {
-      process.env.GEMINI_API_KEY = ORIGINAL_API_ENV.geminiApiKey;
-    } else {
-      delete process.env.GEMINI_API_KEY;
+    const providers = await readProvidersFromDisk();
+    const entry = providers.find(candidate => candidate.id === providerId);
+    if (!entry) return { success: false, error: 'Provider not found.' };
+    if (entry.builtIn) return { success: false, error: 'Built-in providers cannot be removed.' };
+    const remaining = providers.filter(candidate => candidate.id !== providerId);
+    await writeProvidersToDisk(remaining);
+    return { success: true, providers: remaining.map(maskProvider) };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('test-provider', async (_, providerId: string) => {
+  try {
+    const providers = await readProvidersFromDisk();
+    const entry = providers.find(candidate => candidate.id === providerId);
+    if (!entry) return { success: false, error: 'Provider not found.' };
+    const result = await fetchProviderModels(entry);
+    if (result.ok) return { success: true, message: `OK — ${result.models.length} model(s) visible.` };
+    if (result.status === 404 || result.status === 405) {
+      const probe = await probeChatCompletion(entry);
+      return probe.ok
+        ? { success: true, message: 'OK — chat completions endpoint reachable.' }
+        : { success: false, error: probe.error };
     }
-    if (ORIGINAL_API_ENV.anthropicApiKey) {
-      process.env.ANTHROPIC_API_KEY = ORIGINAL_API_ENV.anthropicApiKey;
-    } else {
-      delete process.env.ANTHROPIC_API_KEY;
-    }
-    if (ORIGINAL_API_ENV.openaiApiKey) {
-      process.env.OPENAI_API_KEY = ORIGINAL_API_ENV.openaiApiKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
-    return { success: true, status: apiKeyStatus(ORIGINAL_API_ENV) };
+    return { success: false, error: result.error };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -1802,70 +1898,16 @@ ipcMain.handle('detect-cli-models', async (_, cliId: string) => {
   }
 });
 
-ipcMain.handle('detect-api-models', async (_, { provider, apiKey }: { provider: string; apiKey?: string }) => {
+ipcMain.handle('detect-api-models', async (_, payload: { providerId: string }) => {
   try {
-    await applyApiKeysToEnvironment();
-    if (provider === 'Gemini') {
-      const geminiKey = apiKey || process.env.GEMINI_API_KEY || '';
-      if (!geminiKey) return { success: false, error: 'Gemini API key is not configured.' };
-      
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`);
-      if (res.ok) {
-        const data: any = await res.json();
-        const models = (data.models || [])
-          .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-          .map((m: any) => ({
-            value: m.name.replace('models/', ''),
-            label: m.displayName || m.name
-          }));
-        if (models.length > 0) return { success: true, models };
-      } else {
-        const errText = await res.text();
-        return { success: false, error: `API returned status ${res.status}: ${errText}` };
-      }
-    } else if (provider === 'Codex') {
-      const openaiKey = apiKey || process.env.OPENAI_API_KEY || '';
-      if (!openaiKey) return { success: false, error: 'OpenAI API key is not configured.' };
-
-      const res = await fetch('https://api.openai.com/v1/models', {
-        headers: { 'Authorization': `Bearer ${openaiKey}` }
-      });
-      if (res.ok) {
-        const data: any = await res.json();
-        const models = (data.data || [])
-          .filter((m: any) => m.id && isOpenAiModelAllowed(m.id))
-          .map((m: any) => ({
-            value: m.id,
-            label: m.id
-          }));
-        if (models.length > 0) return { success: true, models };
-      } else {
-        const errText = await res.text();
-        return { success: false, error: `API returned status ${res.status}: ${errText}` };
-      }
-    } else if (provider === 'Claude') {
-      const anthropicKey = apiKey || process.env.ANTHROPIC_API_KEY || '';
-      if (!anthropicKey) return { success: false, error: 'Anthropic API key is not configured.' };
-
-      const res = await fetch('https://api.anthropic.com/v1/models', {
-        headers: {
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01'
-        }
-      });
-      if (res.ok) {
-        const data: any = await res.json();
-        const models = (data.data || []).map((m: any) => ({
-          value: m.id,
-          label: m.display_name || m.id
-        }));
-        if (models.length > 0) return { success: true, models };
-      } else {
-        const errText = await res.text();
-        return { success: false, error: `API returned status ${res.status}: ${errText}` };
-      }
-    }
-    return { success: false, error: 'Unsupported provider or no models found.' };
+    const providers = await readProvidersFromDisk();
+    const id = normalizeProviderId(typeof payload?.providerId === 'string' ? payload.providerId : '');
+    const entry = providers.find(candidate => candidate.id === id);
+    if (!entry) return { success: false, error: 'Unknown provider.' };
+    const result = await fetchProviderModels(entry);
+    if (result.ok && result.models.length > 0) return { success: true, models: result.models };
+    if (result.ok) return { success: true, models: [] };
+    return { success: false, error: result.error };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
