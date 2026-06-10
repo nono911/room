@@ -35,6 +35,9 @@ describe('compileDiscussionContext', () => {
       'User 8'
     ]);
     expect(context.omittedMessageCount).toBe(4);
+    expect(context.includedIndexes).toEqual([0, 5, 6, 7]);
+    expect(context.omittedIndexes).toEqual([1, 2, 3, 4]);
+    expect(context.summaryCandidateIndexes).toEqual([1, 2, 3, 4]);
     expect(context.totalLogMessages).toBe(8);
     expect(context.historyBlock).toContain('4 older message(s) are omitted');
     expect(context.historyBlock).toContain('--- User 1 ---');
@@ -90,5 +93,44 @@ describe('compileDiscussionContext', () => {
     const context = compileDiscussionContext([message(1, 'user')], '');
 
     expect(context.projectContextBlock).toBe('=== Project Context ===\n(No workspace context provided.)');
+  });
+
+  it('inserts an omitted-message summary without changing included metadata', () => {
+    const messages = [
+      message(1, 'user'),
+      message(2),
+      message(3),
+      message(4)
+    ];
+
+    const context = compileDiscussionContext(messages, 'Project context', {
+      maxRecentMessages: 1,
+      summary: 'Earlier decision: keep the compiler pure.'
+    });
+
+    expect(context.summaryUsed).toBe(true);
+    expect(context.includedIndexes).toEqual([0, 3]);
+    expect(context.historyBlock).toContain('=== Summary of Omitted Messages ===');
+    expect(context.historyBlock).toContain('Earlier decision: keep the compiler pure.');
+    expect(context.historyBlock).toContain('=== Included Messages ===');
+  });
+
+  it('excludes omission-only notes from summary candidates', () => {
+    const messages = [
+      message(1, 'user'),
+      {
+        ...message(2),
+        content: '[Tool/action narration omitted: 2 lines.]'
+      },
+      message(3),
+      message(4)
+    ];
+
+    const context = compileDiscussionContext(messages, 'Project context', {
+      maxRecentMessages: 1
+    });
+
+    expect(context.omittedIndexes).toEqual([1, 2]);
+    expect(context.summaryCandidateIndexes).toEqual([2]);
   });
 });

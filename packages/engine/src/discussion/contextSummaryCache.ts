@@ -1,0 +1,130 @@
+import { createHash } from 'crypto';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { PromptHistoryMessage } from './contextCompiler.js';
+
+export type ContextSummarySource = 'discussion' | 'coding-task';
+
+export interface ContextSummaryCache {
+  version: 1;
+  source: ContextSummarySource;
+  contextId: string;
+  summarizedMessageIndexes: number[];
+  summarizedMessageCount: number;
+  summaryInputHash: string;
+  summary: string;
+  updatedAt: string;
+}
+
+export interface ContextSummaryCacheInput {
+  dirPath: string;
+  source: ContextSummarySource;
+  contextId: string;
+}
+
+export function validateContextSummaryId(source: ContextSummarySource, contextId: string): void {
+  const pattern = source === 'discussion' ? /^discussion-\d+$/ : /^task-\d+$/;
+  if (!pattern.test(contextId)) {
+    throw new Error(`Invalid ${source} context summary id.`);
+  }
+}
+
+export function contextSummaryCachePath(input: ContextSummaryCacheInput): string {
+  validateContextSummaryId(input.source, input.contextId);
+  const dirname = input.source === 'discussion' ? 'discussions' : 'tasks';
+  return path.join(input.dirPath, '.room', dirname, `${input.contextId}.context-summary.json`);
+}
+
+export async function readContextSummaryCache(input: ContextSummaryCacheInput): Promise<ContextSummaryCache | null> {
+  const cachePath = contextSummaryCachePath(input);
+  try {
+    const parsed = JSON.parse(await fs.readFile(cachePath, 'utf-8')) as ContextSummaryCache;
+    if (!isContextSummaryCache(parsed, input.source, input.contextId)) {
+      return null;
+    }
+    return parsed;
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function writeContextSummaryCache(
+  input: ContextSummaryCacheInput,
+  cache: ContextSummaryCache
+): Promise<void> {
+  const cachePath = contextSummaryCachePath(input);
+  await fs.mkdir(path.dirname(cachePath), { recursive: true });
+  await fs.writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf-8');
+}
+
+export function isReusableContextSummaryCache(
+  cache: ContextSummaryCache | null,
+  messages: PromptHistoryMessage[],
+  candidateIndexes: number[]
+): cache is ContextSummaryCache {
+  if (!cache) {
+    return false;
+  }
+  return sameOrderedIndexes(cache.summarizedMessageIndexes, candidateIndexes)
+    && cache.summaryInputHash === hashSummaryInput(messages, candidateIndexes);
+}
+
+export function createContextSummaryCache(
+  source: ContextSummarySource,
+  contextId: string,
+  messages: PromptHistoryMessage[],
+  candidateIndexes: number[],
+  summary: string
+): ContextSummaryCache {
+  validateContextSummaryId(source, contextId);
+  return {
+    version: 1,
+    source,
+    contextId,
+    summarizedMessageIndexes: [...candidateIndexes],
+    summarizedMessageCount: candidateIndexes.length,
+    summaryInputHash: hashSummaryInput(messages, candidateIndexes),
+    summary,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+export function hashSummaryInput(messages: PromptHistoryMessage[], candidateIndexes: number[]): string {
+  const payload = candidateIndexes.map(index => {
+    const message = messages[index];
+    return {
+      index,
+      type: message.type || 'agent',
+      agentName: message.agentName,
+      providerName: message.providerName,
+      content: message.content
+    };
+  });
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+export function sameOrderedIndexes(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function isContextSummaryCache(
+  value: ContextSummaryCache,
+  source: ContextSummarySource,
+  contextId: string
+): value is ContextSummaryCache {
+  return value?.version === 1
+    && value.source === source
+    && value.contextId === contextId
+    && Array.isArray(value.summarizedMessageIndexes)
+    && value.summarizedMessageIndexes.every(index => Number.isInteger(index) && index >= 0)
+    && value.summarizedMessageCount === value.summarizedMessageIndexes.length
+    && typeof value.summaryInputHash === 'string'
+    && typeof value.summary === 'string'
+    && typeof value.updatedAt === 'string';
+}

@@ -11,7 +11,19 @@ import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, ActionExecutionResult } from './actionExecutor.js';
 import { TaskCard } from './taskBoard.js';
 import { parseMessageReferences, MessageReference } from './references.js';
-import { compileDiscussionContext } from './contextCompiler.js';
+import { compileDiscussionContext, CompiledDiscussionContext, PromptHistoryMessage } from './contextCompiler.js';
+import {
+  ContextSummarySource,
+  createContextSummaryCache,
+  isReusableContextSummaryCache,
+  readContextSummaryCache,
+  writeContextSummaryCache
+} from './contextSummaryCache.js';
+import {
+  DEFAULT_CONTEXT_SUMMARY_POLICY,
+  shouldGenerateContextSummary,
+  summarizeContextMessages
+} from './contextSummarizer.js';
 
 export interface DiscussionMessage {
   type?: 'user' | 'agent';
@@ -371,6 +383,68 @@ export class DiscussionEngine {
   private async assertAgentExecutionAllowed(agent: AgentConfig): Promise<void> {
     if (agent.provider === 'Local CLI') {
       assertLocalCliExecutionAllowed(agent, await this.isDangerousLocalCliAllowed());
+    }
+  }
+
+  private pickContextSummaryAgent(agents: AgentConfig[]): AgentConfig | undefined {
+    const nonLocalAgents = agents.filter(agent => agent.provider !== 'Local CLI');
+    return nonLocalAgents.find(agent => {
+      const text = `${agent.name} ${agent.role}`.toLowerCase();
+      return text.includes('reporter') || text.includes('scribe') || text.includes('summary');
+    }) || nonLocalAgents[0];
+  }
+
+  private async compileContextWithOptionalSummary(
+    source: ContextSummarySource,
+    contextId: string,
+    messages: PromptHistoryMessage[],
+    projectContext: string,
+    agents: AgentConfig[]
+  ): Promise<CompiledDiscussionContext> {
+    const draftContext = compileDiscussionContext(messages, projectContext);
+    const candidateIndexes = draftContext.summaryCandidateIndexes;
+    if (candidateIndexes.length === 0) {
+      return draftContext;
+    }
+
+    const cacheInput = { dirPath: this.dirPath, source, contextId };
+    const existingCache = await readContextSummaryCache(cacheInput);
+    if (isReusableContextSummaryCache(existingCache, messages, candidateIndexes)) {
+      return compileDiscussionContext(messages, projectContext, {
+        summary: existingCache.summary
+      });
+    }
+
+    if (!shouldGenerateContextSummary(messages, candidateIndexes)) {
+      return draftContext;
+    }
+
+    const summaryAgent = this.pickContextSummaryAgent(agents);
+    if (!summaryAgent) {
+      return draftContext;
+    }
+
+    try {
+      await this.assertAgentExecutionAllowed(summaryAgent);
+      const provider = this.getProvider(summaryAgent);
+      const systemPrompt = composeAgentSystemPrompt(
+        summaryAgent.systemPrompt,
+        false,
+        'You summarize omitted ROOM context into compact durable memory for future agent turns.'
+      );
+      const summary = await summarizeContextMessages(
+        provider,
+        systemPrompt,
+        messages,
+        candidateIndexes,
+        DEFAULT_CONTEXT_SUMMARY_POLICY
+      );
+      const cache = createContextSummaryCache(source, contextId, messages, candidateIndexes, summary);
+      await writeContextSummaryCache(cacheInput, cache);
+      return compileDiscussionContext(messages, projectContext, { summary });
+    } catch (err: any) {
+      console.warn(`[Discussion Engine] Skipped context summary cache for ${contextId}: ${err.message}`);
+      return draftContext;
     }
   }
 
@@ -854,7 +928,13 @@ You convert finished ROOM chats into actionable task plans for the project task 
           }
         }
 
-        const compiledContext = compileDiscussionContext(discussionLog.messages, projectContext);
+        const compiledContext = await this.compileContextWithOptionalSummary(
+          'discussion',
+          discussionId,
+          discussionLog.messages,
+          projectContext,
+          agents
+        );
         const contextMessages = compiledContext.includedMessages;
         const priorMessageInstruction = compiledContext.priorMessageInstruction;
         const reviewProtocol = options.reviewMode ? this.buildReviewProtocol(agent) : '';
@@ -1086,7 +1166,13 @@ You convert finished ROOM chats into actionable task plans for the project task 
         timestamp: new Date().toLocaleTimeString()
       });
 
-      const developerContext = compileDiscussionContext(result.messages, projectContext);
+      const developerContext = await this.compileContextWithOptionalSummary(
+        'coding-task',
+        taskId,
+        result.messages,
+        projectContext,
+        agents
+      );
       const developerPrompt = `You are the ${doerLabel} assigned to this ROOM task.
 
 Task type:
@@ -1174,7 +1260,13 @@ ${doerWorkInstructions}
           timestamp: new Date().toLocaleTimeString()
         });
 
-        const reviewerContext = compileDiscussionContext(result.messages, projectContext);
+        const reviewerContext = await this.compileContextWithOptionalSummary(
+          'coding-task',
+          taskId,
+          result.messages,
+          projectContext,
+          agents
+        );
         const reviewPrompt = `Review this ROOM task after the ${doerLabel}'s latest pass.
 
 Task type:

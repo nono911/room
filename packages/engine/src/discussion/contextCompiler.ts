@@ -17,6 +17,7 @@ export interface DiscussionContextOptions {
   maxRecentMessages: number;
   keepFirstUserMessage: boolean;
   keepLatestUserMessage: boolean;
+  summary?: string;
 }
 
 export interface CompiledDiscussionContext {
@@ -24,6 +25,9 @@ export interface CompiledDiscussionContext {
   projectContextBlock: string;
   priorMessageInstruction: string;
   includedMessages: PromptContextMessage[];
+  includedIndexes: number[];
+  omittedIndexes: number[];
+  summaryCandidateIndexes: number[];
   omittedMessageCount: number;
   summaryUsed: boolean;
   totalLogMessages: number;
@@ -38,7 +42,8 @@ export interface CompiledDiscussionContext {
 export const DEFAULT_DISCUSSION_CONTEXT_OPTIONS: DiscussionContextOptions = {
   maxRecentMessages: 12,
   keepFirstUserMessage: true,
-  keepLatestUserMessage: true
+  keepLatestUserMessage: true,
+  summary: undefined
 };
 
 export function compileDiscussionContext(
@@ -53,13 +58,20 @@ export function compileDiscussionContext(
   const includedIndexes = selectPromptHistoryIndexes(messages, resolvedOptions);
   const includedMessagesForHistory = includedIndexes.map(index => messages[index]);
   const includedMessages = includedMessagesForHistory.map(toPromptContextMessage);
-  const omittedMessageCount = Math.max(0, messages.length - includedIndexes.length);
+  const omittedIndexes = messages
+    .map((_, index) => index)
+    .filter(index => !includedIndexes.includes(index));
+  const summaryCandidateIndexes = omittedIndexes.filter(index => isSummaryCandidateMessage(messages[index]));
+  const omittedMessageCount = omittedIndexes.length;
   const rawHistory = messages.map(formatMessageForPromptHistory).join('\n\n');
   const historyBody = includedMessagesForHistory.map(formatMessageForPromptHistory).join('\n\n');
   const omissionNote = omittedMessageCount > 0
     ? `The full discussion log has ${messages.length} message(s). This prompt includes ${includedIndexes.length} message(s); ${omittedMessageCount} older message(s) are omitted from this prompt.`
     : `The full discussion log has ${messages.length} message(s). All messages are included in this prompt.`;
-  const historyBlock = `${omissionNote}\n\n${historyBody}`.trim();
+  const summaryBlock = resolvedOptions.summary?.trim()
+    ? `\n\n=== Summary of Omitted Messages ===\n${resolvedOptions.summary.trim()}\n\n=== Included Messages ===`
+    : '';
+  const historyBlock = `${omissionNote}${summaryBlock}\n\n${historyBody}`.trim();
   const compiledProjectContext = dedupeExactBlocks(projectContext) || '(No workspace context provided.)';
   const projectContextBlock = `=== Project Context ===\n${compiledProjectContext}`;
   const priorMessageInstruction = buildPriorMessageInstruction(includedMessages.length, omittedMessageCount);
@@ -69,8 +81,11 @@ export function compileDiscussionContext(
     projectContextBlock,
     priorMessageInstruction,
     includedMessages,
+    includedIndexes,
+    omittedIndexes,
+    summaryCandidateIndexes,
     omittedMessageCount,
-    summaryUsed: false,
+    summaryUsed: !!resolvedOptions.summary?.trim(),
     totalLogMessages: messages.length,
     metrics: {
       rawHistoryChars: rawHistory.length,
@@ -141,6 +156,11 @@ function formatMessageForPromptHistory(message: PromptHistoryMessage): string {
     ? '[Previous Local CLI action narration omitted.]'
     : cleanedContent;
   return `--- ${message.agentName} (${message.providerName}) ---\n${content}`;
+}
+
+function isSummaryCandidateMessage(message: PromptHistoryMessage): boolean {
+  const cleanedContent = cleanAgentUserContent(message.content);
+  return !!cleanedContent && !isOnlyOmissionNotes(cleanedContent);
 }
 
 function cleanAgentUserContent(content: string): string {
