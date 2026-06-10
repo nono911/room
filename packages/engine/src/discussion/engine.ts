@@ -10,6 +10,7 @@ import { Provider } from '../providers/provider.js';
 import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, ActionExecutionResult } from './actionExecutor.js';
 import { TaskCard } from './taskBoard.js';
+import { parseMessageReferences, MessageReference } from './references.js';
 
 export interface DiscussionMessage {
   type?: 'user' | 'agent';
@@ -18,6 +19,7 @@ export interface DiscussionMessage {
   content: string;
   timestamp: string;
   round?: number;
+  references?: MessageReference[];
   contextMessages?: {
     type?: 'user' | 'agent';
     agentName: string;
@@ -123,6 +125,13 @@ This is a collaborative chat, not a set of isolated answers.
 When there is prior chat history, explicitly reference at least one concrete point from the previous user or AI messages.
 State whether you are building on, refining, challenging, or resolving that point before adding your own contribution.
 Avoid restarting from scratch unless the user asks for a new direction.`;
+
+const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
+At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
+\`\`\`room-refs
+{"references": [{"author": "<agent or user name>", "reason": "<why you used it>"}]}
+\`\`\`
+List only messages that genuinely shaped your answer. If you used none, output {"references": []}. Do not mention this block in your prose.`;
 
 const USER_FACING_OUTPUT_POLICY = `=== User-Facing Output Policy ===
 Return only the useful answer for the user in clean Markdown.
@@ -236,11 +245,16 @@ ${message.content.trim()}
       ? contextMessages.map(contextMessage => `- ${contextMessage.agentName} (${contextMessage.providerName}) at ${contextMessage.timestamp}`).join('\n')
       : '- Current user message only; no previous chat messages yet.';
 
+    const references = message.references || [];
+    const referenceSection = references.length > 0
+      ? `\n### References used\n${references.map(ref => `- ${ref.author}${ref.reason ? ` — ${ref.reason}` : ''}`).join('\n')}\n`
+      : '';
+
     return `## ${index + 1}. ${message.agentName} (${message.providerName})
 
 ### Context received
 ${contextSummary}
-
+${referenceSection}
 ### Response
 
 ${message.content.trim()}
@@ -863,6 +877,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
           agent.systemPrompt,
           agent.provider === 'Local CLI',
           DISCUSSION_PROTOCOL,
+          REFERENCE_TRACING_PROTOCOL,
           skillsContext,
           reviewProtocol,
           `=== Project Context ===\n${projectContext}`
@@ -871,6 +886,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
 
         let response = '';
         let agentFailed = false;
+        let messageReferences: MessageReference[] = [];
         try {
           response = await provider.execute(prompt, systemPrompt, {
             onChunk: (chunk) => {
@@ -885,6 +901,11 @@ You convert finished ROOM chats into actionable task plans for the project task 
             }
           });
           response = cleanAgentUserContent(response);
+          const parsedRefs = parseMessageReferences(response);
+          messageReferences = parsedRefs.references;
+          if (parsedRefs.cleaned) {
+            response = parsedRefs.cleaned;
+          }
           if (agent.provider === 'Local CLI' && isOnlyOmissionNotes(response)) {
             agentFailed = true;
             failedAgentRuns++;
@@ -913,7 +934,8 @@ You convert finished ROOM chats into actionable task plans for the project task 
           providerName: agent.provider,
           content: response,
           timestamp: new Date().toLocaleTimeString(),
-          contextMessages
+          contextMessages,
+          ...(messageReferences.length > 0 ? { references: messageReferences } : {})
         };
 
         discussionLog.messages.push(msg);

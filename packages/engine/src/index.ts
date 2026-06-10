@@ -7,6 +7,7 @@ export * from './discussion/engine.js';
 export * from './discussion/actions.js';
 export * from './discussion/actionExecutor.js';
 export * from './discussion/taskBoard.js';
+export * from './discussion/references.js';
 export * from './impact/analyzer.js';
 export * from './decisions/adr.js';
 export * from './modelCatalog.js';
