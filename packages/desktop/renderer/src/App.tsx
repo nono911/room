@@ -113,6 +113,7 @@ declare global {
               providerName: string;
               timestamp: string;
             }[];
+            references?: { author: string; reason?: string }[];
           }[];
         };
         error?: string;
@@ -1072,6 +1073,7 @@ export default function App() {
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
   const [lastDiscussionLog, setLastDiscussionLog] = useState<any | null>(null);
   const [taskBoardCards, setTaskBoardCards] = useState<TaskBoardCard[]>([]);
+  const [showInspector, setShowInspector] = useState(false);
   const [lastDiscussionTopic, setLastDiscussionTopic] = useState<string>('');
   const [contextOverviewDraft, setContextOverviewDraft] = useState<string>('');
   const [contextStructureDraft, setContextStructureDraft] = useState<string>('');
@@ -3803,6 +3805,46 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               <button className="btn-secondary" type="button" onClick={generateTasksFromActiveDiscussion} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
                 Generate Tasks (AI)
               </button>
+              <button className="btn-secondary" type="button" onClick={() => setShowInspector(prev => !prev)} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
+                {showInspector ? 'Hide Inspector' : 'Inspector'}
+              </button>
+            </div>
+          )}
+
+          {showInspector && lastDiscussionLog && !loading && (
+            <div style={{ marginTop: '12px', background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '14px 16px', maxHeight: '320px', overflowY: 'auto' }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>
+                Discussion Inspector — who used what
+              </div>
+              {(lastDiscussionLog.messages || []).map((message: any, index: number) => {
+                if (message.type === 'user') {
+                  return (
+                    <div key={index} style={{ fontSize: '0.85rem', fontWeight: 600, padding: '4px 0' }}>
+                      ● {message.agentName} (user)
+                    </div>
+                  );
+                }
+                const refs = Array.isArray(message.references) ? message.references : [];
+                const contextCount = Array.isArray(message.contextMessages) ? message.contextMessages.length : 0;
+                return (
+                  <div key={index} style={{ marginLeft: '14px', padding: '4px 0' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                      {message.agentName} ({message.providerName})
+                    </div>
+                    {refs.length > 0 ? (
+                      refs.map((ref: any, refIndex: number) => (
+                        <div key={refIndex} style={{ marginLeft: '14px', fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>
+                          ↳ used {ref.author}{ref.reason ? ` — ${ref.reason}` : ''}
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ marginLeft: '14px', fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>
+                        ↳ no explicit references recorded ({contextCount} context message{contextCount === 1 ? '' : 's'} received)
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
