@@ -6,6 +6,15 @@
 
 Every project deserves its own room and its own AI team.
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg" alt="Node >= 18" />
+  <img src="https://img.shields.io/badge/platform-Electron-9cf.svg" alt="Platform: Electron" />
+  <a href="#contributing"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome" /></a>
+</p>
+
+<!-- TODO: Add a screenshot or short GIF of the desktop app here. A single image of the Discussions screen is the highest-impact thing this README can show. -->
+
 ROOM is a collaborative workspace where humans and AI specialists work together around shared context, discussions, tasks, documents, and decisions. It is built as a TypeScript monorepo with an Electron desktop app and a reusable CLI engine.
 
 The main workflow is local-first: open any project workspace, initialize `.room/`, add AI members from reusable roles or custom persona instructions, then let them discuss ideas, plans, scripts, research questions, implementation work, and decisions against the shared workspace context.
@@ -23,6 +32,19 @@ ROOM should be easy to fork for different domains: software, film, research, edu
 ROOM is in early active development. The core desktop workflow works, but APIs, workspace file formats, packaged builds, and role templates may still change as the product matures.
 
 Use it today if you are comfortable with local-first tools and occasional rough edges. Treat `.room/` as workspace data that should be reviewed before committing to another repository.
+
+## Quick Start
+
+Requires Node.js 18+ and npm. Packaging currently targets macOS (arm64); development mode works anywhere Electron runs.
+
+```bash
+git clone https://github.com/nono911/room.git
+cd room
+npm run install:all
+npm run dev:desktop
+```
+
+Then open a workspace folder in the app, initialize `.room/`, add AI members, and start a discussion. AI providers (built-in Gemini/Claude/OpenAI plus any OpenAI-compatible endpoint) are configured in `Settings`; Local CLI members such as `claude`, `codex`, or `gemini` work without API keys if the CLI is installed and authenticated on your machine.
 
 ## How ROOM Works
 
@@ -68,12 +90,14 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 - Context Picker for sending workspace overview, structure, files, documents, tasks, or previous discussions into a run.
 - Context compiler that preserves the current topic and recent messages while capping prompt history for long local CLI runs.
 - Lazy rolling summary cache for omitted discussion/task messages when a non-local summarizer is available.
-- Review loop mode where reviewer-style agents keep findings open until they can approve with `[APPROVED]`.
-- Quality Gate mode where a moderator-style AI member can decide whether a discussion passes or needs another focused round.
+- Review loop mode where reviewer-style agents keep findings open until they can approve with `APPROVAL_STATUS: APPROVED`.
+- Quality Gate mode where a moderator-style AI member can decide whether a discussion passes or needs another focused round, and can record agreed outcomes as task cards and ADRs.
+- Stable message IDs and reference tracing: each AI member records which prior messages shaped its answer, resolved against the exact prompt it saw.
+- Append-only event log (`.room/events.jsonl`) recording message, reference, task, ADR, and artifact creation for provenance and future analytics.
 - Task Run workflow for assigning real work to a Doer, sending it through Reviewer/Lead approval, and looping back when changes are required.
 - Task artifacts saved separately from transcripts, so the final deliverable is easy to find without reading the full chat log.
 - AI member templates and team presets for software, film/story, research, writing, business planning, and design work.
-- API key settings for Gemini, Claude/Anthropic, and OpenAI-compatible model discovery.
+- Provider registry: built-in Gemini / Claude (Anthropic) / OpenAI plus any OpenAI-compatible endpoint (Groq, OpenRouter, Mistral, DeepSeek, xAI, Together, Ollama, LM Studio, or custom base URLs) with per-provider keys, model discovery, and connection tests.
 - Local CLI provider support with safe mode by default and explicit dangerous permission opt-in.
 - Repository scanner that updates `.room/context/overview.md`, `.room/context/structure.md`, and `.room/context/project-map.json`.
 - Context, Documents, Tasks, Discussions, Roles, and AI Members screens in the desktop app.
@@ -88,21 +112,18 @@ packages/
     renderer/              Vite React UI
   engine/                  Core ROOM engine and CLI
     src/providers/         API and local CLI providers
-    src/discussion/        Multi-agent discussion/review loop
-    src/scanner/           Repository scanner
+    src/discussion/        Multi-agent discussion/review loop, context compiler, task board
+    src/decisions/         ADR creation
+    src/events/            Append-only workspace event log
+    src/impact/            Feature impact analysis
+    src/scanner.ts         Repository scanner
     src/cli.ts             CLI entrypoint
 .room/                     ROOM memory for this repository
 ```
 
-## Install
-
-```bash
-npm run install:all
-```
-
-Requires Node.js 18+.
-
 ## Run the Desktop App
+
+Install dependencies first with `npm run install:all` (see [Quick Start](#quick-start)).
 
 Development mode:
 
@@ -127,6 +148,16 @@ The packaged app is created at:
 ```text
 packages/desktop/dist-packaged/mac-arm64/ROOM.app
 ```
+
+## Run Tests
+
+The engine package has a Vitest suite covering the context compiler, reference tracing, task board, ADR creation, and the event log:
+
+```bash
+npm test -w packages/engine
+```
+
+The desktop package has no automated tests yet; validate desktop changes with `npm run build:desktop`.
 
 ## Desktop Usage
 
@@ -174,7 +205,7 @@ Discussion controls:
 - `Quality Gate`: ask a moderator-style member to decide whether another focused discussion round is needed.
 - `Summarize Chat`: save a durable memory artifact into `.room/documents/`.
 
-Discussion logs are saved under `.room/discussions/` as both machine-readable JSON and readable Markdown.
+Discussion logs are saved under `.room/discussions/` as both machine-readable JSON and readable Markdown. Every message gets a stable ID (`discussion-12:message-0004`), each AI member records which prior messages it actually used, and message, reference, task, ADR, and artifact creation are appended to `.room/events.jsonl` so outcomes can be traced back to the discussion that produced them.
 
 For long discussions, ROOM compiles a smaller prompt context for each agent turn. It keeps the first user message as an anchor, always keeps the latest user message/current topic, keeps the latest messages in full, and records how many older messages were omitted. When enough omitted context accumulates and a non-local summary-capable member is available, ROOM can save a compact `.context-summary.json` sidecar and reuse it in later prompts.
 
@@ -279,11 +310,13 @@ Analyze feature impact:
 node packages/engine/dist/bin/room.js impact "Add OAuth login" --path .
 ```
 
-Create a legacy ADR:
+Create an ADR (Architecture Decision Record):
 
 ```bash
 node packages/engine/dist/bin/room.js adr new "Use Electron for the desktop workspace" --path .
 ```
+
+ADRs are saved under `.room/decisions/` with a stable `id` in their frontmatter. The Quality Gate moderator can also create ADRs and task cards directly from an approved discussion.
 
 ## `.room/` Workspace Structure
 
@@ -319,11 +352,14 @@ On disk this is represented as:
   documents/
     task-xxxx-artifact.md
     discussion-xxxx-summary.md
+  decisions/
+    ADR-001-use-electron.md
   roles/
   skills/
   members/
   config.json
   mcp.json
+  events.jsonl
 ```
 
 Important files:
@@ -334,6 +370,8 @@ Important files:
 - `.room/discussions/`: discussion logs generated by AI members.
 - `.room/**/*.context-summary.json`: cached summaries of omitted context used to keep long workflows compact.
 - `.room/documents/`: working docs, summaries, and final task artifacts.
+- `.room/decisions/`: Architecture Decision Records with stable frontmatter ids.
+- `.room/events.jsonl`: append-only provenance log of messages, references, tasks, ADRs, and artifacts.
 - `.room/roles/`: reusable role templates and legacy skill files.
 - `.room/skills/`: reusable skill instructions used by AI members.
 - `.room/members/`: saved AI member profiles, prompts, providers, and models.
@@ -347,7 +385,7 @@ Important files:
 ```json
 {
   "mainAgent": "claude",
-  "modelName": "claude-3-5-sonnet",
+  "modelName": "claude-sonnet-4-6",
   "allowDangerousCli": false
 }
 ```
@@ -380,16 +418,20 @@ Contributions are welcome while the project shape is still forming.
 Before opening a pull request:
 
 1. Keep changes focused and explain the workflow or bug they improve.
-2. Run the relevant build command:
-   - `npm run build:engine` for engine or CLI changes.
+2. Run the relevant checks:
+   - `npm run build:engine` and `npm test -w packages/engine` for engine or CLI changes.
    - `npm run build:desktop` for Electron, renderer, or desktop workflow changes.
-3. Include screenshots or recordings for UI changes when possible.
-4. Call out changes that affect `.room/` file formats, Local CLI execution, MCP behavior, or dangerous permissions.
+3. Add or update tests next to the code you change in `packages/engine/src/` (`*.test.ts`, Vitest).
+4. Include screenshots or recordings for UI changes when possible.
+5. Call out changes that affect `.room/` file formats, the `events.jsonl` schema, Local CLI execution, MCP behavior, or dangerous permissions.
+
+Use Conventional Commits (`feat(engine): ...`, `fix(desktop): ...`). See [AGENTS.md](AGENTS.md) for repository conventions, coding style, and structure notes.
 
 ## Roadmap
 
 - Better first-run onboarding and example workspaces.
-- More durable tests around provider execution, discussion loops, task runs, and workspace file handling.
+- Knowledge graph and trace views derived from the `.room/events.jsonl` provenance log.
+- Test coverage for the desktop app and provider execution (the engine already has a Vitest suite).
 - Stronger markdown/document rendering for saved discussions, summaries, and task artifacts.
 - Improved Local CLI model detection and provider-specific execution policies.
 - Cross-platform packaging and release automation.
