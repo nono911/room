@@ -4,9 +4,9 @@ import * as fs from 'fs/promises';
 import {
   ROOM_DIR, ALLOWED_ROOM_FILE_SECTIONS,
   requireBoundProjectRoot, resolveWithinProject,
-  sanitizeFileName, isAllowed, isPlainObject,
-  readProjectConfigFromDisk, validateProjectConfig
+  sanitizeFileName, isAllowed, isPlainObject
 } from './shared.js';
+import { readProjectConfigFromDisk, validateProjectConfig } from './config-store.js';
 
 async function removeSupersededDiscussionSummaries(documentsDir: string, keepFilename: string): Promise<void> {
   const match = keepFilename.match(/-discussion-\d+-summary\.md$/);

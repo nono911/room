@@ -3,9 +3,9 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
   ROOM_DIR,
-  requireBoundProjectRoot, resolveWithinProject,
-  readMcpConfigFromDisk, validateMcpConfig
+  requireBoundProjectRoot, resolveWithinProject
 } from './shared.js';
+import { readMcpConfigFromDisk, validateMcpConfig } from './config-store.js';
 
 export function registerMcpIpc(): void {
   ipcMain.handle('load-mcp-config', async (event, dirPath: string) => {

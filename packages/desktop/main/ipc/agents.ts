@@ -5,9 +5,10 @@ import {
   ROOM_DIR,
   requireBoundProjectRoot, resolveWithinProject,
   sanitizeFileName, sanitizeAgentFileName, readTextFileWithLimit,
-  isDangerousAgentAllowed, extractMarkdownHeading,
+  extractMarkdownHeading,
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
 } from './shared.js';
+import { isDangerousAgentAllowed } from './config-store.js';
 
 interface SkillPreviewItem {
   filename: string;
