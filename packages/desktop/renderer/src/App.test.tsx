@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { expect, test, vi } from 'vitest';
-import App from './App.js';
+import App from './app/App.js';
 import { ProvidersProvider } from './features/providers/context/ProvidersContext.js';
 
 test('renders welcome screen initially, then opens workspace, navigates all tabs, and verifies IPC calls', async () => {
@@ -717,5 +717,4 @@ test('discussion path ignores task-* streaming events', async () => {
     expect(mockUnsubscribe).toHaveBeenCalled();
   });
 });
-
 

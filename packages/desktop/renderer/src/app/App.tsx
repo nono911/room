@@ -7,44 +7,44 @@ import type {
   TaskBoardCard,
   LocalCliPermissionMode,
   TemplateSkill
-} from './types/domain.js';
-import { api } from './shared/ipc/client.js';
-import { useProviders } from './features/providers/context/ProvidersContext.js';
-import { useTaskRun } from './features/task-run/useTaskRun.js';
-import { useDiscussion } from './features/discussions/useDiscussion.js';
-import { useContextPicker } from './shared/hooks/useContextPicker.js';
-import { useOnboarding } from './shared/hooks/useOnboarding.js';
-import { useContentSettings } from './shared/hooks/useContentSettings.js';
-import { useProjectSettings } from './features/providers/useProjectSettings.js';
+} from '../types/domain.js';
+import { api } from '../shared/ipc/client.js';
+import { useProviders } from '../features/providers/context/ProvidersContext.js';
+import { useTaskRun } from '../features/task-run/useTaskRun.js';
+import { useDiscussion } from '../features/discussions/useDiscussion.js';
+import { useContextPicker } from '../shared/hooks/useContextPicker.js';
+import { useOnboarding } from '../shared/hooks/useOnboarding.js';
+import { useContentSettings } from '../shared/hooks/useContentSettings.js';
+import { useProjectSettings } from '../features/providers/useProjectSettings.js';
 
 // Layout and Onboarding components
-import { Sidebar } from './shared/components/Sidebar.js';
-import { ContextPanel } from './shared/components/ContextPanel.js';
-import { ErrorBanner } from './shared/components/ErrorBanner.js';
-import { SetupChecklist } from './components/onboarding/SetupChecklist.js';
-import { OnboardingTour } from './components/onboarding/OnboardingTour.js';
-import { ContextPickerPanel } from './components/context/ContextPickerPanel.js';
+import { Sidebar } from '../shared/components/Sidebar.js';
+import { ContextPanel } from '../shared/components/ContextPanel.js';
+import { ErrorBanner } from '../shared/components/ErrorBanner.js';
+import { SetupChecklist } from '../components/onboarding/SetupChecklist.js';
+import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
+import { ContextPickerPanel } from '../components/context/ContextPickerPanel.js';
 
 // Screens
-import { OverviewScreen } from './components/screens/OverviewScreen.js';
-import { FilesScreen } from './features/workspace-files/components/FilesScreen.js';
-import { AIMembersScreen } from './features/ai-members/components/AIMembersScreen.js';
-import { AgentEditorScreen } from './features/ai-members/components/AgentEditorScreen.js';
-import { DiscussionsScreen } from './features/discussions/components/DiscussionsScreen.js';
-import { TaskRunScreen } from './features/task-run/components/TaskRunScreen.js';
-import { DocumentsScreen } from './features/workspace-files/components/DocumentsScreen.js';
-import { TaskArchiveScreen } from './features/workspace-files/components/TaskArchiveScreen.js';
-import { ContextScreen } from './features/workspace-files/components/ContextScreen.js';
-import { DecisionsScreen } from './features/workspace-files/components/DecisionsScreen.js';
-import { McpServersScreen } from './features/mcp/components/McpServersScreen.js';
-import { SettingsScreen } from './features/providers/components/SettingsScreen.js';
+import { OverviewScreen } from '../components/screens/OverviewScreen.js';
+import { FilesScreen } from '../features/workspace-files/components/FilesScreen.js';
+import { AIMembersScreen } from '../features/ai-members/components/AIMembersScreen.js';
+import { AgentEditorScreen } from '../features/ai-members/components/AgentEditorScreen.js';
+import { DiscussionsScreen } from '../features/discussions/components/DiscussionsScreen.js';
+import { TaskRunScreen } from '../features/task-run/components/TaskRunScreen.js';
+import { DocumentsScreen } from '../features/workspace-files/components/DocumentsScreen.js';
+import { TaskArchiveScreen } from '../features/workspace-files/components/TaskArchiveScreen.js';
+import { ContextScreen } from '../features/workspace-files/components/ContextScreen.js';
+import { DecisionsScreen } from '../features/workspace-files/components/DecisionsScreen.js';
+import { McpServersScreen } from '../features/mcp/components/McpServersScreen.js';
+import { SettingsScreen } from '../features/providers/components/SettingsScreen.js';
 
 import {
   normalizeProviderId,
   taskTypeOptions,
   agentPersonaTemplates,
   teamPresets
-} from './shared/data/staticData.js';
+} from '../shared/data/staticData.js';
 
 export default function App() {
   const {
