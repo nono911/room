@@ -18,9 +18,15 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./renderer/src/*"]
+    }
   },
   "include": [
-    "renderer/src"
+    "renderer/src",
+    "shared/**/*"
   ]
 }
+

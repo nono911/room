@@ -1,0 +1,7 @@
+export { registerWorkspaceIpc } from './workspace.js';
+export { registerDiscussionsIpc } from './discussions.js';
+export { registerTasksIpc } from './tasks.js';
+export { registerAgentsIpc } from './agents.js';
+export { registerProvidersIpc } from './providers.js';
+export { registerMcpIpc } from './mcp.js';
+export { registerFilesIpc } from './files.js';

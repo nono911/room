@@ -13,7 +13,9 @@
     "build:main": "tsc -p tsconfig.main.json && cp main/preload.js dist/main/preload.js",
     "build": "npm run build:renderer && npm run build:main",
     "dist": "npm run build && electron-builder",
-    "start": "electron ."
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "build": {
     "appId": "com.room.workspace",
@@ -40,13 +42,17 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
     "electron": "30.5.1",
     "electron-builder": "^26.15.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.4.5",
-    "vite": "^5.2.11"
+    "vite": "^5.2.11",
+    "vitest": "^4.1.8"
   }
 }
