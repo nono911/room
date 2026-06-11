@@ -10,6 +10,7 @@ import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
 import { useProjectSettings } from '../features/providers/useProjectSettings.js';
+import { useRoomFilePreview } from './hooks/useRoomFilePreview.js';
 import { useSetupGuidance } from './hooks/useSetupGuidance.js';
 import { useWorkspaceData } from './hooks/useWorkspaceData.js';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
@@ -288,8 +289,15 @@ export default function App() {
     setLoading,
     setErrorMsg
   });
-
-
+  const { loadRoomFilePreview } = useRoomFilePreview({
+    projectPath,
+    setInitialSelectedFile,
+    setEditingSkillFile,
+    setEditingSkillContent,
+    setEditingSkillSource,
+    setLoading,
+    setErrorMsg
+  });
 
   /*
   const triggerScan = async () => {
@@ -355,35 +363,6 @@ export default function App() {
       setErrorMsg(err.message || 'Failed to enable write access for this Developer.');
     } finally {
       setLoading(false);
-    }
-  };
-
-
-
-  const loadRoomFilePreview = async (
-    section: 'skills' | 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions',
-    filename: string
-  ) => {
-    if (!projectPath || !filename) return;
-    if (section === 'skills') {
-      setLoading(true);
-      setErrorMsg(null);
-      try {
-        const res = await api.readRoomFile(projectPath, section, filename);
-        if (!res.success) {
-          setErrorMsg(res.error || `Failed to load ${filename}.`);
-          return;
-        }
-        setEditingSkillFile(filename);
-        setEditingSkillContent(res.content || '');
-        setEditingSkillSource(res.sourceSection === 'roles' ? 'roles' : 'skills');
-      } catch (err: any) {
-        setErrorMsg(err.message || `Failed to load ${filename}.`);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setInitialSelectedFile({ section, file: filename });
     }
   };
 
