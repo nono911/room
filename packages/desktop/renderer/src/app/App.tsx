@@ -13,6 +13,7 @@ import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
 import { useProjectSettings } from '../features/providers/useProjectSettings.js';
+import { useSetupGuidance } from './hooks/useSetupGuidance.js';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
 import { AppThemeStyles } from './components/AppThemeStyles.js';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
@@ -438,89 +439,18 @@ export default function App() {
     }
   };
 
-  const onboardingSteps = [
-    {
-      title: 'ROOM starts with shared project memory',
-      body: 'Keep a short workspace overview and attach the files, notes, or documents that should guide discussions, tasks, and decisions.',
-      action: 'Open Context',
-      run: () => setActiveTab('Context')
-    },
-    {
-      title: 'AI Members are reusable teammates',
-      body: 'Create role-based agents from templates, choose a provider, assign skills, and check that the selected skills can be delivered.',
-      action: 'Open AI Members',
-      run: () => setActiveTab('AI Members')
-    },
-    {
-      title: 'Skills are reusable instructions',
-      body: 'Skills are Markdown files. You can edit them, assign them to agents, and use Check Skills to confirm they will be sent at runtime.',
-      action: 'Create Agent',
-      run: () => {
-        resetAgentForm();
-        setActiveTab('Agent:New');
-      }
-    },
-    {
-      title: 'Context Picker keeps large repos manageable',
-      body: 'Use Add Context in Discussions or Task Run to attach the docs, tasks, and files that should become the evidence trail for the run.',
-      action: 'Open Discussions',
-      run: () => setActiveTab('Discussions')
-    },
-    {
-      title: 'Runs leave a traceable trail',
-      body: 'Give one agent the work, choose reviewers, and let ROOM keep the message references, created tasks, ADRs, and artifacts connected.',
-      action: 'Open Task Run',
-      run: () => setActiveTab('Task Run')
-    }
-  ];
-
-  const isPlaceholderContext = (content?: string) => {
-    const normalized = (content || '').trim();
-    if (!normalized) return true;
-    return normalized.includes('Describe what this workspace is for.') ||
-      normalized.includes('Describe the important parts of this workspace and how they relate to each other.');
-  };
-
-  const hasUsefulContext = (hasCompletedScan || !!projectData?.hasScanData) && !!projectData && (
-    !isPlaceholderContext(projectData.projectMd) ||
-    !isPlaceholderContext(projectData.archMd)
-  );
-
-  const setupItems = [
-    {
-      label: 'Review workspace context',
-      done: hasUsefulContext,
-      action: 'Open',
-      run: () => setActiveTab('Context')
-    },
-    {
-      label: 'Create AI member',
-      done: (projectData?.agents || []).length > 0,
-      action: 'Open',
-      run: () => setActiveTab('AI Members')
-    },
-    {
-      label: 'Add or edit skills',
-      done: (projectData?.skills || []).length > 0,
-      action: 'Edit',
-      run: () => {
-        resetAgentForm();
-        setActiveTab('Agent:New');
-      }
-    },
-    {
-      label: 'Attach useful context',
-      done: selectedDiscussionContextRefs.length > 2 || selectedCodingTaskContextRefs.length > 2,
-      action: 'Pick',
-      run: () => openContextPicker(activeTab === 'Task Run' ? 'task' : 'discussion')
-    },
-    {
-      label: 'Create a traceable run',
-      done: discussionMessages.length > 0 || codingTaskMessages.length > 0 || (projectData?.discussions || []).length > 0 || (projectData?.tasks || []).length > 0,
-      action: 'Start',
-      run: () => setActiveTab('Discussions')
-    }
-  ];
+  const { onboardingSteps, setupItems } = useSetupGuidance({
+    activeTab,
+    projectData,
+    hasCompletedScan,
+    selectedDiscussionContextRefs,
+    selectedCodingTaskContextRefs,
+    discussionMessages,
+    codingTaskMessages,
+    resetAgentForm,
+    setActiveTab,
+    openContextPicker
+  });
 
   const renderMainTab = () => {
     if (activeTab === 'Discussions') {
