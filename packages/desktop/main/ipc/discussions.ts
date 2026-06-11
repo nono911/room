@@ -6,9 +6,10 @@ import {
   ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   requireBoundProjectRoot, resolveWithinProject,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
-  readProvidersFromDisk, readProjectConfigFromDisk, applyApiKeysToEnvironment,
+  readProjectConfigFromDisk,
   type ProjectConfig
 } from './shared.js';
+import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
 
 function normalizeContextRef(rawRef: unknown): string | null {
   if (typeof rawRef !== 'string') return null;

@@ -6,8 +6,9 @@ import {
   ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT, WORKSPACE_FILE_READ_LIMIT_BYTES,
   resolveProjectPath, bindCurrentProjectRoot, requireBoundProjectRoot, resolveWithinProject,
   sanitizeFileName, sanitizeWorkspaceRelativePath, safeReadDir, readFirstExistingFile,
-  readMergedDirs, readProjectConfigFromDisk, applyApiKeysToEnvironment
+  readMergedDirs, readProjectConfigFromDisk
 } from './shared.js';
+import { applyApiKeysToEnvironment } from './provider-store.js';
 import { searchContextItems } from './workspace-context.js';
 import { listWorkspaceFiles } from './workspace-files.js';
 

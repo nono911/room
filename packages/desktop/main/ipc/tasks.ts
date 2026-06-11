@@ -4,9 +4,9 @@ import { DiscussionEngine, loadAgents, loadTaskBoard } from '@room/engine';
 import {
   ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   requireBoundProjectRoot, resolveWithinProject,
-  sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
-  readProvidersFromDisk, applyApiKeysToEnvironment
+  sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile
 } from './shared.js';
+import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
 
 function normalizeContextRef(rawRef: unknown): string | null {
   if (typeof rawRef !== 'string') return null;

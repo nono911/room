@@ -1,7 +1,7 @@
 import { app, BrowserWindow, protocol, net } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { applyApiKeysToEnvironment } from './ipc/shared.js';
+import { applyApiKeysToEnvironment } from './ipc/provider-store.js';
 import {
   registerWorkspaceIpc,
   registerDiscussionsIpc,

@@ -150,7 +150,7 @@ export function registerAgentsIpc(): void {
 
   ipcMain.handle('detect-cli-models', async (_, cliId: string) => {
     try {
-      const { applyApiKeysToEnvironment: applyKeys } = await import('./shared.js');
+      const { applyApiKeysToEnvironment: applyKeys } = await import('./provider-store.js');
       await applyKeys();
       const { resolveOnPath, getFallbackModels, isOpenAiModelAllowed, AGY_FALLBACK_MODELS } = await import('@room/engine');
       const { promisify } = await import('util');

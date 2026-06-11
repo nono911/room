@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { isValidProviderId, normalizeProviderId, isOpenAiModelAllowed, getFallbackModels, type ProviderEntry } from '@room/engine';
 import {
   readProvidersFromDisk, writeProvidersToDisk, applyApiKeysToEnvironment
-} from './shared.js';
+} from './provider-store.js';
 
 function maskProvider(entry: ProviderEntry) {
   return {
