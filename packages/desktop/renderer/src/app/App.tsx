@@ -1,10 +1,7 @@
 import { useState, useEffect } from 'react';
 
 // Imported types for ROOM
-import type {
-  ProjectData,
-  TaskBoardCard,
-} from '../types/domain.js';
+import type { ProjectData, TaskBoardCard } from '../types/domain.js';
 import { api } from '../shared/ipc/client.js';
 import { useTaskRun } from '../features/task-run/useTaskRun.js';
 import { useDiscussion } from '../features/discussions/useDiscussion.js';
@@ -14,6 +11,7 @@ import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
 import { useProjectSettings } from '../features/providers/useProjectSettings.js';
 import { useSetupGuidance } from './hooks/useSetupGuidance.js';
+import { useWorkspaceData } from './hooks/useWorkspaceData.js';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
 import { AppThemeStyles } from './components/AppThemeStyles.js';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
@@ -185,6 +183,19 @@ export default function App() {
   });
   const [aiMembersSidebarExpanded, setAiMembersSidebarExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_members_sidebar_expanded') === 'true');
   const [aiMemberDetailsExpanded, setAiMemberDetailsExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_member_details_expanded') !== 'false');
+  const {
+    loadWorkspaceCoreData,
+    loadProjectData
+  } = useWorkspaceData({
+    setProjectData,
+    setHasCompletedScan,
+    loadProjectConfig: (pathStr: string) => loadProjectConfig(pathStr),
+    loadTaskBoardCards: (pathStr: string) => loadTaskBoardCards(pathStr),
+    selectDefaultDiscussionAgents: (agents: any[]) => selectDefaultDiscussionAgents(agents),
+    setCodingTaskDeveloperName,
+    setCodingTaskReviewerNames,
+    setErrorMsg
+  });
 
   useEffect(() => {
     if (!scanStartedAt) return;
@@ -220,69 +231,6 @@ export default function App() {
     setScanStartedAt(null);
     setActiveTab('Discussions');
   }
-
-  const loadWorkspaceCoreData = async (pathStr: string) => {
-    const data = await api.getProjectData(pathStr);
-    if (data.success) {
-      setHasCompletedScan(!!localStorage.getItem(`room_scan_completed:${pathStr}`) || !!data.hasScanData);
-      setProjectData({
-        projectMd: data.projectMd,
-        archMd: data.archMd,
-        hasScanData: data.hasScanData,
-        tasks: data.tasks,
-        taskRuns: data.taskRuns || [],
-        decisions: data.decisions,
-        reviews: data.reviews || [],
-        documents: data.documents || [],
-        discussions: data.discussions,
-        skills: data.skills,
-        agents: data.agents || []
-      });
-      return data;
-    } else {
-      setErrorMsg(data.error || 'Failed to load project metadata.');
-      return null;
-    }
-  };
-
-  const selectDefaultAgents = (agents: any[]) => {
-    selectDefaultDiscussionAgents(agents);
-    if (agents && agents.length > 0) {
-      const names = agents.map((a: any) => a.name);
-      const developerCandidate = agents.find((agent: any) => {
-        const text = `${agent.name} ${agent.role}`.toLowerCase();
-        return text.includes('developer') || text.includes('implement') || text.includes('engineer') || text.includes('coder');
-      }) || agents[0];
-      setCodingTaskDeveloperName(prev => names.includes(prev) ? prev : developerCandidate?.name || '');
-      setCodingTaskReviewerNames(prev => {
-        const validPrev = prev.filter(name => names.includes(name));
-        if (validPrev.length > 0) return validPrev;
-        return agents
-          .filter((agent: any) => {
-            const text = `${agent.name} ${agent.role}`.toLowerCase();
-            return text.includes('review') || text.includes('senior') || text.includes('qa');
-          })
-          .map((agent: any) => agent.name)
-          .slice(0, 2);
-      });
-    } else {
-      setCodingTaskDeveloperName('');
-      setCodingTaskReviewerNames([]);
-    }
-  };
-
-  const loadProjectData = async (pathStr: string) => {
-    try {
-      const data = await loadWorkspaceCoreData(pathStr);
-      if (data) {
-        selectDefaultAgents(data.agents || []);
-        await loadProjectConfig(pathStr);
-        await loadTaskBoardCards(pathStr);
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error fetching project data.');
-    }
-  };
 
   const {
     newAgentName,
