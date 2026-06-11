@@ -6,7 +6,6 @@ import type {
   SkillPreviewResult,
   TaskBoardCard,
   LocalCliPermissionMode,
-  ProjectConfigState,
   TemplateSkill
 } from './types/domain.js';
 import { api } from './shared/ipc/client.js';
@@ -16,6 +15,7 @@ import { useDiscussion } from './features/discussions/useDiscussion.js';
 import { useContextPicker } from './shared/hooks/useContextPicker.js';
 import { useOnboarding } from './shared/hooks/useOnboarding.js';
 import { useContentSettings } from './shared/hooks/useContentSettings.js';
+import { useProjectSettings } from './features/providers/useProjectSettings.js';
 
 // Layout and Onboarding components
 import { Sidebar } from './shared/components/Sidebar.js';
@@ -99,7 +99,12 @@ export default function App() {
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
   // Main Workspace Agent & Visual Customizer State
-  const [projectConfig, setProjectConfig] = useState<ProjectConfigState>({ mainAgent: 'none', allowDangerousCli: false });
+  const {
+    projectConfig,
+    setProjectConfig,
+    loadProjectConfig,
+    handleUpdateProjectConfig
+  } = useProjectSettings({ projectPath });
   const {
     contentTheme, setContentTheme,
     contentFontFamily, setContentFontFamily,
@@ -621,21 +626,6 @@ export default function App() {
     }
   };
 
-  const loadProjectConfig = async (pathStr: string) => {
-    try {
-      const configRes = await api.loadProjectConfig(pathStr);
-      if (configRes.success && configRes.config) {
-        setProjectConfig({
-          mainAgent: configRes.config.mainAgent || 'none',
-          modelName: configRes.config.modelName,
-          allowDangerousCli: !!configRes.config.allowDangerousCli
-        });
-      }
-    } catch (err) {
-      console.error('Error loading project configuration:', err);
-    }
-  };
-
   const loadProjectData = async (pathStr: string) => {
     try {
       const data = await loadWorkspaceCoreData(pathStr);
@@ -685,30 +675,6 @@ export default function App() {
     }
   };
   */
-
-  const handleUpdateProjectConfig = async (key: keyof ProjectConfigState, value: string | boolean) => {
-    if (!projectPath) return;
-    const newConfig: ProjectConfigState = { ...projectConfig, [key]: value };
-    if (key === 'mainAgent') {
-      newConfig.modelName = '';
-      newConfig.allowDangerousCli = false;
-    }
-    setProjectConfig(newConfig);
-    try {
-      await api.saveProjectConfig(projectPath, newConfig);
-      if (key === 'mainAgent' && typeof value === 'string' && value !== 'none') {
-        const res = await api.detectCliModels(value);
-        if (res.success && res.models && res.models.length > 0) {
-          const models = res.models;
-          const updatedConfig = { ...newConfig, modelName: models[0].value };
-          setProjectConfig(updatedConfig);
-          await api.saveProjectConfig(projectPath, updatedConfig);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to save project settings:', err);
-    }
-  };
 
   const enableTaskRunWriteAccess = async () => {
     if (!projectPath || !codingTaskDeveloperName) return;
