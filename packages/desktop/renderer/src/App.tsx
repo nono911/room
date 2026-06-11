@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 // Imported types for ROOM
 import type {
   ProjectData,
-  ContextPickerItem,
   SkillPreviewResult,
   TaskBoardCard,
   LocalCliPermissionMode,
@@ -14,6 +13,9 @@ import { api } from './shared/ipc/client.js';
 import { useProviders } from './features/providers/context/ProvidersContext.js';
 import { useTaskRun } from './features/task-run/useTaskRun.js';
 import { useDiscussion } from './features/discussions/useDiscussion.js';
+import { useContextPicker } from './shared/hooks/useContextPicker.js';
+import { useOnboarding } from './shared/hooks/useOnboarding.js';
+import { useContentSettings } from './shared/hooks/useContentSettings.js';
 
 // Layout and Onboarding components
 import { Sidebar } from './shared/components/Sidebar.js';
@@ -82,10 +84,6 @@ export default function App() {
   const [newAgentPermissionMode, setNewAgentPermissionMode] = useState<LocalCliPermissionMode>('safe');
   const [showContextPanel, setShowContextPanel] = useState<boolean>(false);
   const [editingAgent, setEditingAgent] = useState<any | null>(null);
-  const [showOnboardingTour, setShowOnboardingTour] = useState<boolean>(false);
-  const [onboardingStep, setOnboardingStep] = useState<number>(0);
-  const [dismissedOnboarding, setDismissedOnboarding] = useState<boolean>(false);
-  const [onboardingSessionDismissed, setOnboardingSessionDismissed] = useState<boolean>(false);
   const [hasCompletedScan, setHasCompletedScan] = useState<boolean>(false);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
@@ -100,20 +98,14 @@ export default function App() {
   const [skillPreview, setSkillPreview] = useState<SkillPreviewResult | null>(null);
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
-  const [contextPickerTarget, setContextPickerTarget] = useState<'discussion' | 'task' | null>(null);
-  const [contextPickerQuery, setContextPickerQuery] = useState<string>('');
-  const [contextPickerTab, setContextPickerTab] = useState<'Suggested' | 'Tasks' | 'Docs' | 'Files'>('Suggested');
-  const [contextPickerItems, setContextPickerItems] = useState<ContextPickerItem[]>([]);
-  const [contextPickerLoading, setContextPickerLoading] = useState<boolean>(false);
-
-
-
   // Main Workspace Agent & Visual Customizer State
   const [projectConfig, setProjectConfig] = useState<ProjectConfigState>({ mainAgent: 'none', allowDangerousCli: false });
-  const [contentTheme, setContentTheme] = useState<string>(() => localStorage.getItem('room_theme') || 'default');
-  const [contentFontFamily, setContentFontFamily] = useState<string>(() => localStorage.getItem('room_font_family') || 'system-ui');
-  const [contentFontSize, setContentFontSize] = useState<string>(() => localStorage.getItem('room_font_size') || '16px');
-  const [contentLineHeight, setContentLineHeight] = useState<string>(() => localStorage.getItem('room_line_height') || '1.6');
+  const {
+    contentTheme, setContentTheme,
+    contentFontFamily, setContentFontFamily,
+    contentFontSize, setContentFontSize,
+    contentLineHeight, setContentLineHeight
+  } = useContentSettings();
   const {
     codingTaskInput, setCodingTaskInput,
     taskRunType,
@@ -174,51 +166,42 @@ export default function App() {
     setLoading,
     setErrorMsg
   });
+  const {
+    contextPickerTarget,
+    contextPickerQuery, setContextPickerQuery,
+    contextPickerTab, setContextPickerTab,
+    contextPickerLoading,
+    openContextPicker,
+    closeContextPicker,
+    resetContextPicker,
+    getContextSelection,
+    setContextSelection,
+    toggleContextSelection,
+    getContextLabel,
+    getFilteredContextItems,
+    estimateContextTokens
+  } = useContextPicker({
+    projectPath,
+    selectedDiscussionContextRefs,
+    setSelectedDiscussionContextRefs,
+    selectedCodingTaskContextRefs,
+    setSelectedCodingTaskContextRefs,
+    setErrorMsg
+  });
+  const {
+    showOnboardingTour, setShowOnboardingTour,
+    onboardingStep, setOnboardingStep,
+    dismissedOnboarding,
+    markOnboardingSeen,
+    resetOnboarding,
+    startOnboardingTour
+  } = useOnboarding({
+    projectPath,
+    isRoomProject,
+    projectData
+  });
   const [aiMembersSidebarExpanded, setAiMembersSidebarExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_members_sidebar_expanded') === 'true');
   const [aiMemberDetailsExpanded, setAiMemberDetailsExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_member_details_expanded') !== 'false');
-
-  useEffect(() => {
-    if (!projectPath || !contextPickerTarget) return;
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setContextPickerLoading(true);
-      try {
-        const res = await api.searchContextItems(projectPath, contextPickerQuery);
-        if (cancelled) return;
-        if (res.success) {
-          setContextPickerItems(res.items || []);
-        } else {
-          setContextPickerItems([]);
-          setErrorMsg(res.error || 'Failed to search context.');
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setContextPickerItems([]);
-          setErrorMsg(err.message || 'Failed to search context.');
-        }
-      } finally {
-        if (!cancelled) {
-          setContextPickerLoading(false);
-        }
-      }
-    }, contextPickerQuery.trim() ? 180 : 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [projectPath, contextPickerTarget, contextPickerQuery]);
-
-  useEffect(() => {
-    if (!projectPath || !isRoomProject || !projectData || onboardingSessionDismissed) return;
-    const key = `room_onboarding_seen:${projectPath}`;
-    const seen = localStorage.getItem(key) === 'true';
-    setDismissedOnboarding(seen);
-    if (!seen) {
-      setOnboardingStep(0);
-      setShowOnboardingTour(true);
-    }
-  }, [projectPath, isRoomProject, projectData, onboardingSessionDismissed]);
 
   useEffect(() => {
     if (!scanStartedAt) return;
@@ -271,11 +254,8 @@ export default function App() {
     setLastCodingTaskResult(null);
     resetDiscussion();
     setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
-    setContextPickerTarget(null);
-    setContextPickerItems([]);
-    setShowOnboardingTour(false);
-    setDismissedOnboarding(false);
-    setOnboardingSessionDismissed(false);
+    resetContextPicker();
+    resetOnboarding();
     setHasCompletedScan(false);
     setScanStatus('');
     setScanStartedAt(null);
@@ -791,72 +771,6 @@ export default function App() {
     }
   };
 
-  const openContextPicker = (target: 'discussion' | 'task') => {
-    setContextPickerTarget(target);
-    setContextPickerQuery('');
-    setContextPickerTab('Suggested');
-  };
-
-  const closeContextPicker = () => {
-    setContextPickerTarget(null);
-  };
-
-  const getContextSelection = (target: 'discussion' | 'task') => (
-    target === 'discussion' ? selectedDiscussionContextRefs : selectedCodingTaskContextRefs
-  );
-
-  const setContextSelection = (target: 'discussion' | 'task', refs: string[]) => {
-    if (target === 'discussion') {
-      setSelectedDiscussionContextRefs(refs);
-    } else {
-      setSelectedCodingTaskContextRefs(refs);
-    }
-  };
-
-  const toggleContextSelection = (target: 'discussion' | 'task', ref: string) => {
-    const selectedRefs = getContextSelection(target);
-    setContextSelection(
-      target,
-      selectedRefs.includes(ref)
-        ? selectedRefs.filter(item => item !== ref)
-        : [...selectedRefs, ref]
-    );
-  };
-
-  const getContextLabel = (ref: string) => {
-    if (ref === 'workspace:overview') return 'Workspace Overview';
-    if (ref === 'workspace:structure') return 'Workspace Structure';
-    const known = contextPickerItems.find(item => item.ref === ref);
-    if (known) return known.label;
-    if (ref.startsWith('task:')) return `Task: ${ref.slice('task:'.length)}`;
-    if (ref.startsWith('document:')) return `Doc: ${ref.slice('document:'.length)}`;
-    if (ref.startsWith('discussion:')) return `Chat: ${ref.slice('discussion:'.length)}`;
-    if (ref.startsWith('file:')) return `File: ${ref.slice('file:'.length)}`;
-    return ref;
-  };
-
-  const getFilteredContextItems = () => {
-    if (contextPickerTab === 'Tasks') {
-      return contextPickerItems.filter(item => item.type === 'task' || /task|todo|plan|issue|bug|ticket|backlog/i.test(`${item.label} ${item.path || ''}`));
-    }
-    if (contextPickerTab === 'Docs') {
-      return contextPickerItems.filter(item => item.type === 'doc' || item.type === 'workspace');
-    }
-    if (contextPickerTab === 'Files') {
-      return contextPickerItems.filter(item => item.type === 'file');
-    }
-    return contextPickerItems;
-  };
-
-  const estimateContextTokens = (target: 'discussion' | 'task') => {
-    const selectedRefs = getContextSelection(target);
-    const bytes = selectedRefs.reduce((total, ref) => {
-      const item = contextPickerItems.find(candidate => candidate.ref === ref);
-      return total + (item?.size || 12000);
-    }, 0);
-    return Math.max(selectedRefs.length * 80, Math.round(bytes / 4));
-  };
-
   const handleAddCustomSkill = async () => {
     if (!projectPath || !customSkillName.trim()) return;
     const rawName = customSkillName.trim();
@@ -970,15 +884,6 @@ export default function App() {
       run: () => setActiveTab('Task Run')
     }
   ];
-
-  const markOnboardingSeen = () => {
-    if (projectPath) {
-      localStorage.setItem(`room_onboarding_seen:${projectPath}`, 'true');
-    }
-    setDismissedOnboarding(true);
-    setOnboardingSessionDismissed(true);
-    setShowOnboardingTour(false);
-  };
 
   const isPlaceholderContext = (content?: string) => {
     const normalized = (content || '').trim();
@@ -1586,13 +1491,10 @@ export default function App() {
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        setOnboardingStep(0);
-                        setShowOnboardingTour(true);
-                      }}
+	                    <button
+	                      className="btn-secondary"
+	                      type="button"
+	                      onClick={startOnboardingTour}
                       style={{
                         padding: '8px 12px',
                         fontSize: '0.85rem',
