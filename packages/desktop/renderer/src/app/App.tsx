@@ -13,6 +13,7 @@ import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
 import { useProjectSettings } from '../features/providers/useProjectSettings.js';
+import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
 import { AppThemeStyles } from './components/AppThemeStyles.js';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
 
@@ -45,24 +46,26 @@ import {
 } from '../shared/data/staticData.js';
 
 export default function App() {
-  const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [isRoomProject, setIsRoomProject] = useState<boolean>(false);
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Discussions');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Recent projects state loaded from localStorage
-  const [recentProjects, setRecentProjects] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('recentProjects');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-      return [];
-    } catch {
-      return [];
-    }
+  const {
+    projectPath,
+    isRoomProject,
+    newWorkspaceName,
+    setNewWorkspaceName,
+    recentProjects,
+    handleOpenProject,
+    handleCreateWorkspace,
+    handleSelectRecentProject,
+    handleInitProject,
+    handleCloseProjectWorkspace
+  } = useWorkspaceLifecycle({
+    clearWorkspaceDerivedState,
+    loadProjectData: (pathStr: string) => loadProjectData(pathStr),
+    setLoading,
+    setErrorMsg
   });
 
   const [showContextPanel, setShowContextPanel] = useState<boolean>(false);
@@ -200,9 +203,7 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [scanStartedAt, projectConfig.mainAgent]);
 
-  const [newWorkspaceName, setNewWorkspaceName] = useState<string>('');
-
-  const clearWorkspaceDerivedState = () => {
+  function clearWorkspaceDerivedState() {
     setProjectData(null);
     setCodingTaskMessages([]);
     setOpenRounds({});
@@ -217,125 +218,7 @@ export default function App() {
     setScanStatus('');
     setScanStartedAt(null);
     setActiveTab('Discussions');
-  };
-
-  const addRecentProject = (pathStr: string) => {
-    setRecentProjects(prev => {
-      const filtered = prev.filter(p => p !== pathStr);
-      const updated = [pathStr, ...filtered].slice(0, 5); // Keep up to 5 unique paths
-      localStorage.setItem('recentProjects', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const handleOpenProject = async () => {
-    setErrorMsg(null);
-    try {
-      const result = await api.selectProjectDir();
-      if (!result) return;
-
-      clearWorkspaceDerivedState();
-      setProjectPath(result.path);
-      setIsRoomProject(result.isRoomProject);
-
-      addRecentProject(result.path);
-
-      if (result.isRoomProject) {
-        await loadProjectData(result.path);
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to open project.');
-    }
-  };
-
-  const handleCreateWorkspace = async () => {
-    const workspaceName = newWorkspaceName.trim();
-    if (!workspaceName) {
-      setErrorMsg('Workspace name is required.');
-      return;
-    }
-
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const result = await api.createWorkspace(workspaceName);
-      if (!result) return;
-      if (!result.success || !result.path) {
-        setErrorMsg(result.error || 'Failed to create workspace.');
-        return;
-      }
-
-      clearWorkspaceDerivedState();
-      setProjectPath(result.path);
-      setIsRoomProject(true);
-      setNewWorkspaceName('');
-      addRecentProject(result.path);
-      await loadProjectData(result.path);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to create workspace.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectRecentProject = async (pathStr: string) => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const result = await api.openProjectDir(pathStr);
-      if (!result) {
-        throw new Error('Project directory could not be accessed.');
-      }
-
-      clearWorkspaceDerivedState();
-      setProjectPath(result.path);
-      setIsRoomProject(result.isRoomProject);
-
-      addRecentProject(result.path);
-
-      if (result.isRoomProject) {
-        await loadProjectData(result.path);
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to open recent project. It might have been deleted or moved.');
-      // Remove stale path from the list
-      setRecentProjects(prev => {
-        const filtered = prev.filter(p => p !== pathStr);
-        localStorage.setItem('recentProjects', JSON.stringify(filtered));
-        return filtered;
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInitProject = async () => {
-    if (!projectPath) return;
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const res = await api.roomInit(projectPath);
-      if (res.success) {
-        clearWorkspaceDerivedState();
-        setIsRoomProject(true);
-        addRecentProject(projectPath);
-        setProjectPath(projectPath);
-        await loadProjectData(projectPath);
-      } else {
-        setErrorMsg(res.error || 'Failed to initialize .room.');
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to initialize project.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCloseProjectWorkspace = () => {
-    setProjectPath(null);
-    setIsRoomProject(false);
-    clearWorkspaceDerivedState();
-  };
+  }
 
   const loadWorkspaceCoreData = async (pathStr: string) => {
     const data = await api.getProjectData(pathStr);
