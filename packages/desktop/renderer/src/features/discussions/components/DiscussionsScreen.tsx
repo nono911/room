@@ -1,7 +1,7 @@
 import React from 'react';
-import type { ProjectData, UIMessage } from '../../types/domain.js';
-import { renderMarkdownContent } from '../../shared/lib/markdown/MarkdownContent.js';
-import { ContextControl } from '../context/ContextControl.js';
+import type { ProjectData, UIMessage } from '../../../types/domain.js';
+import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
+import { ContextControl } from '../../../components/context/ContextControl.js';
 
 interface DiscussionsScreenProps {
   projectData: ProjectData | null;
