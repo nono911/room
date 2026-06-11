@@ -16,6 +16,7 @@ import { useWorkspaceData } from './hooks/useWorkspaceData.js';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
 import { AppThemeStyles } from './components/AppThemeStyles.js';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
+import { WorkspaceRoutes } from './components/WorkspaceRoutes.js';
 
 // Layout and Onboarding components
 import { Sidebar } from '../shared/components/Sidebar.js';
@@ -24,26 +25,6 @@ import { ErrorBanner } from '../shared/components/ErrorBanner.js';
 import { SetupChecklist } from '../components/onboarding/SetupChecklist.js';
 import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
 import { ContextPickerPanel } from '../components/context/ContextPickerPanel.js';
-
-// Screens
-import { OverviewScreen } from '../components/screens/OverviewScreen.js';
-import { FilesScreen } from '../features/workspace-files/components/FilesScreen.js';
-import { AIMembersScreen } from '../features/ai-members/components/AIMembersScreen.js';
-import { AgentEditorScreen } from '../features/ai-members/components/AgentEditorScreen.js';
-import { DiscussionsScreen } from '../features/discussions/components/DiscussionsScreen.js';
-import { TaskRunScreen } from '../features/task-run/components/TaskRunScreen.js';
-import { DocumentsScreen } from '../features/workspace-files/components/DocumentsScreen.js';
-import { TaskArchiveScreen } from '../features/workspace-files/components/TaskArchiveScreen.js';
-import { ContextScreen } from '../features/workspace-files/components/ContextScreen.js';
-import { DecisionsScreen } from '../features/workspace-files/components/DecisionsScreen.js';
-import { McpServersScreen } from '../features/mcp/components/McpServersScreen.js';
-import { SettingsScreen } from '../features/providers/components/SettingsScreen.js';
-
-import {
-  taskTypeOptions,
-  agentPersonaTemplates,
-  teamPresets
-} from '../shared/data/staticData.js';
 
 export default function App() {
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
@@ -379,276 +360,6 @@ export default function App() {
     openContextPicker
   });
 
-  const renderMainTab = () => {
-    if (activeTab === 'Discussions') {
-      return (
-        <DiscussionsScreen
-          projectData={projectData}
-          activeDiscussionId={activeDiscussionId}
-          summarizeActiveDiscussion={summarizeActiveDiscussion}
-          startNewDiscussion={startNewDiscussion}
-          loading={loading}
-          loadDiscussionSession={loadDiscussionSession}
-          discussionMessages={discussionMessages}
-          openContextPicker={openContextPicker}
-          highlightedDiscussionMessage={highlightedDiscussionMessage}
-          scrollToDiscussionMessage={scrollToDiscussionMessage}
-          loadRoomFilePreview={loadRoomFilePreview}
-          setActiveTab={setActiveTab}
-          selectedDiscussionContextRefs={selectedDiscussionContextRefs}
-          estimateContextTokens={estimateContextTokens}
-          setContextSelection={setContextSelection}
-          toggleContextSelection={toggleContextSelection}
-          getContextLabel={getContextLabel}
-          selectedDiscussionAgents={selectedDiscussionAgents}
-          setSelectedDiscussionAgents={setSelectedDiscussionAgents}
-          discussionReviewMode={discussionReviewMode}
-          setDiscussionReviewMode={setDiscussionReviewMode}
-          discussionMaxRounds={discussionMaxRounds}
-          setDiscussionMaxRounds={setDiscussionMaxRounds}
-          discussionQualityGate={discussionQualityGate}
-          setDiscussionQualityGate={setDiscussionQualityGate}
-          discussionModeratorName={discussionModeratorName}
-          setDiscussionModeratorName={setDiscussionModeratorName}
-          discussionAutoSummary={discussionAutoSummary}
-          setDiscussionAutoSummary={setDiscussionAutoSummary}
-          discussionSummaryAgentName={discussionSummaryAgentName}
-          setDiscussionSummaryAgentName={setDiscussionSummaryAgentName}
-          projectConfig={projectConfig}
-          userInputTopic={userInputTopic}
-          setUserInputTopic={setUserInputTopic}
-          handleKeyDown={handleKeyDown}
-          handleSendDiscussion={handleSendDiscussion}
-          lastDiscussionLog={lastDiscussionLog}
-          saveDiscussionOutput={saveDiscussionOutput}
-          generateTasksFromActiveDiscussion={generateTasksFromActiveDiscussion}
-          showInspector={showInspector}
-          setShowInspector={setShowInspector}
-        />
-      );
-    }
-
-    if (activeTab === 'Task Run') {
-      return (
-        <TaskRunScreen
-          projectData={projectData}
-          codingTaskMessages={codingTaskMessages}
-          codingTaskDeveloperName={codingTaskDeveloperName}
-          setCodingTaskDeveloperName={setCodingTaskDeveloperName}
-          taskRunType={taskRunType}
-          applyTaskTypePreset={applyTaskTypePreset}
-          taskTypeOptions={taskTypeOptions}
-          codingTaskInput={codingTaskInput}
-          setCodingTaskInput={setCodingTaskInput}
-          projectConfig={projectConfig}
-          enableTaskRunWriteAccess={enableTaskRunWriteAccess}
-          codingTaskReviewerNames={codingTaskReviewerNames}
-          setCodingTaskReviewerNames={setCodingTaskReviewerNames}
-          codingTaskMaxCycles={codingTaskMaxCycles}
-          setCodingTaskMaxCycles={setCodingTaskMaxCycles}
-          selectedCodingTaskContextRefs={selectedCodingTaskContextRefs}
-          estimateContextTokens={estimateContextTokens}
-          openContextPicker={openContextPicker}
-          setContextSelection={setContextSelection}
-          toggleContextSelection={toggleContextSelection}
-          getContextLabel={getContextLabel}
-          handleRunCodingTask={handleRunCodingTask}
-          lastCodingTaskResult={lastCodingTaskResult}
-          setLastCodingTaskResult={setLastCodingTaskResult}
-          setCodingTaskMessages={setCodingTaskMessages}
-          openRounds={openRounds}
-          setOpenRounds={setOpenRounds}
-          expandedMsgKeys={expandedMsgKeys}
-          setExpandedMsgKeys={setExpandedMsgKeys}
-          scrollToDiscussionMessage={scrollToDiscussionMessage}
-          setActiveTab={setActiveTab}
-          loadRoomFilePreview={loadRoomFilePreview}
-          loading={loading}
-          taskRunView={taskRunView}
-          setTaskRunView={setTaskRunView}
-        />
-      );
-    }
-
-    if (activeTab === 'AI Members' || activeTab === 'Agents') {
-      return (
-        <AIMembersScreen
-          projectData={projectData}
-          aiMemberDetailsExpanded={aiMemberDetailsExpanded}
-          setAiMemberDetailsExpanded={setAiMemberDetailsExpanded}
-          resetAgentForm={resetAgentForm}
-          setActiveTab={setActiveTab}
-          teamPresets={teamPresets}
-          loading={loading}
-          setLoading={setLoading}
-          handleAddTeamPreset={handleAddTeamPreset}
-          startEditAgent={startEditAgent}
-          handleDeleteAgent={handleDeleteAgent}
-        />
-      );
-    }
-
-    if (activeTab.startsWith('Agent:')) {
-      return (
-        <AgentEditorScreen
-          activeTab={activeTab}
-          projectData={projectData}
-          newAgentProvider={newAgentProvider}
-          newAgentPreset={newAgentPreset}
-          newAgentModel={newAgentModel}
-          newAgentName={newAgentName}
-          setNewAgentName={setNewAgentName}
-          editingAgent={editingAgent}
-          resetAgentForm={resetAgentForm}
-          setActiveTab={setActiveTab}
-          handleDeleteAgent={handleDeleteAgent}
-          handleSaveAgent={handleSaveAgent}
-          errorMsg={errorMsg}
-          setErrorMsg={setErrorMsg}
-          agentPersonaTemplates={agentPersonaTemplates}
-          setNewAgentRole={setNewAgentRole}
-          setNewAgentPrompt={setNewAgentPrompt}
-          ensureTemplateSkills={ensureTemplateSkills}
-          setNewAgentSkills={setNewAgentSkills}
-          projectPath={projectPath}
-          loadProjectData={loadProjectData}
-          newAgentRole={newAgentRole}
-          handleRoleChange={handleRoleChange}
-          setNewAgentProvider={setNewAgentProvider}
-          setNewAgentPreset={setNewAgentPreset}
-          setNewAgentPermissionMode={setNewAgentPermissionMode}
-          setNewAgentModelCustom={setNewAgentModelCustom}
-          setNewAgentModel={setNewAgentModel}
-          setSkillPreview={setSkillPreview}
-          newAgentModelCustom={newAgentModelCustom}
-          newAgentCommand={newAgentCommand}
-          setNewAgentCommand={setNewAgentCommand}
-          newAgentStdinFormat={newAgentStdinFormat}
-          setNewAgentStdinFormat={setNewAgentStdinFormat}
-          newAgentPermissionMode={newAgentPermissionMode}
-          newAgentSkills={newAgentSkills}
-          editingSkillFile={editingSkillFile}
-          setEditingSkillFile={setEditingSkillFile}
-          loadRoomFilePreview={loadRoomFilePreview}
-          skillPreview={skillPreview}
-          handlePreviewAgentSkills={handlePreviewAgentSkills}
-          editingSkillContent={editingSkillContent}
-          setEditingSkillContent={setEditingSkillContent}
-          editingSkillSource={editingSkillSource}
-          setEditingSkillSource={setEditingSkillSource}
-          handleSaveEditingSkill={handleSaveEditingSkill}
-          customSkillName={customSkillName}
-          setCustomSkillName={setCustomSkillName}
-          customSkillDesc={customSkillDesc}
-          setCustomSkillDesc={setCustomSkillDesc}
-          handleAddCustomSkill={handleAddCustomSkill}
-          newAgentPrompt={newAgentPrompt}
-          loading={loading}
-        />
-      );
-    }
-
-    if (activeTab === 'Context' || activeTab === 'Architecture') {
-      return (
-        <ContextScreen
-          projectPath={projectPath}
-          projectData={projectData}
-          loadWorkspaceCoreData={loadWorkspaceCoreData}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Decisions') {
-      return (
-        <DecisionsScreen
-          projectPath={projectPath}
-          projectData={projectData}
-          initialSelectedFile={initialSelectedFile}
-          setInitialSelectedFile={setInitialSelectedFile}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Tasks') {
-      return (
-        <TaskArchiveScreen
-          projectPath={projectPath}
-          projectData={projectData}
-          taskBoardCards={taskBoardCards}
-          initialSelectedFile={initialSelectedFile}
-          setInitialSelectedFile={setInitialSelectedFile}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Documents' || activeTab === 'Reviews') {
-      return (
-        <DocumentsScreen
-          projectPath={projectPath}
-          projectData={projectData}
-          initialSelectedFile={initialSelectedFile}
-          setInitialSelectedFile={setInitialSelectedFile}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Files') {
-      return (
-        <FilesScreen
-          projectPath={projectPath}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Overview') {
-      return (
-        <OverviewScreen
-          projectData={projectData}
-        />
-      );
-    }
-
-    if (activeTab === 'MCP Servers') {
-      return (
-        <McpServersScreen
-          projectPath={projectPath}
-          setErrorMsg={setErrorMsg}
-        />
-      );
-    }
-
-    if (activeTab === 'Settings') {
-      return (
-        <SettingsScreen
-          loading={loading}
-          projectConfig={projectConfig}
-          handleUpdateProjectConfig={handleUpdateProjectConfig}
-          contentTheme={contentTheme}
-          setContentTheme={setContentTheme}
-          contentFontFamily={contentFontFamily}
-          setContentFontFamily={setContentFontFamily}
-          contentFontSize={contentFontSize}
-          setContentFontSize={setContentFontSize}
-          contentLineHeight={contentLineHeight}
-          setContentLineHeight={setContentLineHeight}
-          projectAgents={projectData?.agents || []}
-        />
-      );
-    }
-
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
-        <h3>{activeTab} Workspace Module</h3>
-        <p style={{ marginTop: '12px', fontSize: '0.9rem' }}>This component is scheduled to be wired in a subsequent sprint.</p>
-      </div>
-    );
-  };
-
   return (
     <>
       <AppThemeStyles
@@ -798,7 +509,138 @@ export default function App() {
                     setOnboardingStep={setOnboardingStep}
                     setShowOnboardingTour={setShowOnboardingTour}
                   />
-                  {renderMainTab()}
+                  <WorkspaceRoutes
+                    activeTab={activeTab}
+                    projectPath={projectPath}
+                    projectData={projectData}
+                    loading={loading}
+                    errorMsg={errorMsg}
+                    setErrorMsg={setErrorMsg}
+                    setActiveTab={setActiveTab}
+                    loadProjectData={loadProjectData}
+                    loadWorkspaceCoreData={loadWorkspaceCoreData}
+                    loadRoomFilePreview={loadRoomFilePreview}
+                    openContextPicker={openContextPicker}
+                    estimateContextTokens={estimateContextTokens}
+                    setContextSelection={setContextSelection}
+                    toggleContextSelection={toggleContextSelection}
+                    getContextLabel={getContextLabel}
+                    scrollToDiscussionMessage={scrollToDiscussionMessage}
+                    initialSelectedFile={initialSelectedFile}
+                    setInitialSelectedFile={setInitialSelectedFile}
+                    taskBoardCards={taskBoardCards}
+                    aiMemberDetailsExpanded={aiMemberDetailsExpanded}
+                    setAiMemberDetailsExpanded={setAiMemberDetailsExpanded}
+                    resetAgentForm={resetAgentForm}
+                    setLoading={setLoading}
+                    handleAddTeamPreset={handleAddTeamPreset}
+                    startEditAgent={startEditAgent}
+                    handleDeleteAgent={handleDeleteAgent}
+                    newAgentProvider={newAgentProvider}
+                    newAgentPreset={newAgentPreset}
+                    newAgentModel={newAgentModel}
+                    newAgentName={newAgentName}
+                    setNewAgentName={setNewAgentName}
+                    editingAgent={editingAgent}
+                    handleSaveAgent={handleSaveAgent}
+                    setNewAgentRole={setNewAgentRole}
+                    setNewAgentPrompt={setNewAgentPrompt}
+                    ensureTemplateSkills={ensureTemplateSkills}
+                    setNewAgentSkills={setNewAgentSkills}
+                    newAgentRole={newAgentRole}
+                    handleRoleChange={handleRoleChange}
+                    setNewAgentProvider={setNewAgentProvider}
+                    setNewAgentPreset={setNewAgentPreset}
+                    setNewAgentPermissionMode={setNewAgentPermissionMode}
+                    setNewAgentModelCustom={setNewAgentModelCustom}
+                    setNewAgentModel={setNewAgentModel}
+                    setSkillPreview={setSkillPreview}
+                    newAgentModelCustom={newAgentModelCustom}
+                    newAgentCommand={newAgentCommand}
+                    setNewAgentCommand={setNewAgentCommand}
+                    newAgentStdinFormat={newAgentStdinFormat}
+                    setNewAgentStdinFormat={setNewAgentStdinFormat}
+                    newAgentPermissionMode={newAgentPermissionMode}
+                    newAgentSkills={newAgentSkills}
+                    editingSkillFile={editingSkillFile}
+                    setEditingSkillFile={setEditingSkillFile}
+                    skillPreview={skillPreview}
+                    handlePreviewAgentSkills={handlePreviewAgentSkills}
+                    editingSkillContent={editingSkillContent}
+                    setEditingSkillContent={setEditingSkillContent}
+                    editingSkillSource={editingSkillSource}
+                    setEditingSkillSource={setEditingSkillSource}
+                    handleSaveEditingSkill={handleSaveEditingSkill}
+                    customSkillName={customSkillName}
+                    setCustomSkillName={setCustomSkillName}
+                    customSkillDesc={customSkillDesc}
+                    setCustomSkillDesc={setCustomSkillDesc}
+                    handleAddCustomSkill={handleAddCustomSkill}
+                    newAgentPrompt={newAgentPrompt}
+                    activeDiscussionId={activeDiscussionId}
+                    summarizeActiveDiscussion={summarizeActiveDiscussion}
+                    startNewDiscussion={startNewDiscussion}
+                    loadDiscussionSession={loadDiscussionSession}
+                    discussionMessages={discussionMessages}
+                    highlightedDiscussionMessage={highlightedDiscussionMessage}
+                    selectedDiscussionContextRefs={selectedDiscussionContextRefs}
+                    selectedDiscussionAgents={selectedDiscussionAgents}
+                    setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+                    discussionReviewMode={discussionReviewMode}
+                    setDiscussionReviewMode={setDiscussionReviewMode}
+                    discussionMaxRounds={discussionMaxRounds}
+                    setDiscussionMaxRounds={setDiscussionMaxRounds}
+                    discussionQualityGate={discussionQualityGate}
+                    setDiscussionQualityGate={setDiscussionQualityGate}
+                    discussionModeratorName={discussionModeratorName}
+                    setDiscussionModeratorName={setDiscussionModeratorName}
+                    discussionAutoSummary={discussionAutoSummary}
+                    setDiscussionAutoSummary={setDiscussionAutoSummary}
+                    discussionSummaryAgentName={discussionSummaryAgentName}
+                    setDiscussionSummaryAgentName={setDiscussionSummaryAgentName}
+                    projectConfig={projectConfig}
+                    userInputTopic={userInputTopic}
+                    setUserInputTopic={setUserInputTopic}
+                    handleKeyDown={handleKeyDown}
+                    handleSendDiscussion={handleSendDiscussion}
+                    lastDiscussionLog={lastDiscussionLog}
+                    saveDiscussionOutput={saveDiscussionOutput}
+                    generateTasksFromActiveDiscussion={generateTasksFromActiveDiscussion}
+                    showInspector={showInspector}
+                    setShowInspector={setShowInspector}
+                    codingTaskMessages={codingTaskMessages}
+                    codingTaskDeveloperName={codingTaskDeveloperName}
+                    setCodingTaskDeveloperName={setCodingTaskDeveloperName}
+                    taskRunType={taskRunType}
+                    applyTaskTypePreset={applyTaskTypePreset}
+                    codingTaskInput={codingTaskInput}
+                    setCodingTaskInput={setCodingTaskInput}
+                    enableTaskRunWriteAccess={enableTaskRunWriteAccess}
+                    codingTaskReviewerNames={codingTaskReviewerNames}
+                    setCodingTaskReviewerNames={setCodingTaskReviewerNames}
+                    codingTaskMaxCycles={codingTaskMaxCycles}
+                    setCodingTaskMaxCycles={setCodingTaskMaxCycles}
+                    selectedCodingTaskContextRefs={selectedCodingTaskContextRefs}
+                    handleRunCodingTask={handleRunCodingTask}
+                    lastCodingTaskResult={lastCodingTaskResult}
+                    setLastCodingTaskResult={setLastCodingTaskResult}
+                    setCodingTaskMessages={setCodingTaskMessages}
+                    openRounds={openRounds}
+                    setOpenRounds={setOpenRounds}
+                    expandedMsgKeys={expandedMsgKeys}
+                    setExpandedMsgKeys={setExpandedMsgKeys}
+                    taskRunView={taskRunView}
+                    setTaskRunView={setTaskRunView}
+                    handleUpdateProjectConfig={handleUpdateProjectConfig}
+                    contentTheme={contentTheme}
+                    setContentTheme={setContentTheme}
+                    contentFontFamily={contentFontFamily}
+                    setContentFontFamily={setContentFontFamily}
+                    contentFontSize={contentFontSize}
+                    setContentFontSize={setContentFontSize}
+                    contentLineHeight={contentLineHeight}
+                    setContentLineHeight={setContentLineHeight}
+                  />
                 </div>
               </>
             )}
