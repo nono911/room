@@ -108,8 +108,12 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 ```text
 packages/
   desktop/                 Electron main process + React renderer
-    main/                  IPC handlers, scan/discussion orchestration
+    main/                  Electron shell plus feature-oriented IPC handlers
+      ipc/                 Workspace, discussion, task, provider, MCP, file, and config IPC modules
     renderer/              Vite React UI
+      src/app/             App shell, workspace routes, and cross-feature hooks
+      src/features/        Feature modules such as discussions, task-run, AI members, providers, MCP, workspace files
+      src/shared/          Shared UI components, hooks, IPC client, static data, and pure helpers
   engine/                  Core ROOM engine and CLI
     src/providers/         API and local CLI providers
     src/discussion/        Multi-agent discussion/review loop, context compiler, task board
@@ -120,6 +124,41 @@ packages/
     src/cli.ts             CLI entrypoint
 .room/                     ROOM memory for this repository
 ```
+
+## Architecture
+
+ROOM is moving toward a feature-based desktop architecture. The renderer keeps the app shell thin and places feature state, screens, and workflow handlers near the feature that owns them.
+
+Current renderer boundaries:
+
+- `packages/desktop/renderer/src/app/`: application shell, workspace lifecycle, workspace data hydration, route composition, setup guidance, and theme/style injection.
+- `packages/desktop/renderer/src/app/components/WorkspaceRoutes.tsx`: maps workspace tabs to feature screens. New tabs should usually be registered here, not directly inside `App.tsx`.
+- `packages/desktop/renderer/src/features/discussions/`: discussion state, streaming, and discussion UI.
+- `packages/desktop/renderer/src/features/task-run/`: task run state, streaming, and task run UI.
+- `packages/desktop/renderer/src/features/ai-members/`: AI member screens and management hook.
+- `packages/desktop/renderer/src/features/providers/`: provider settings, project settings, and provider context.
+- `packages/desktop/renderer/src/features/workspace-files/`: files, documents, tasks, decisions, and context screens.
+- `packages/desktop/renderer/src/shared/`: reusable components, hooks, IPC client, static data, markdown rendering, and pure helpers.
+
+Current main-process boundaries:
+
+- `packages/desktop/main/main.ts`: Electron window, app protocol, and IPC registration only.
+- `packages/desktop/main/ipc/*.ts`: feature-oriented IPC modules.
+- `packages/desktop/main/ipc/provider-store.ts`: provider and API key persistence.
+- `packages/desktop/main/ipc/config-store.ts`: `.room/config.json` and `.room/mcp.json` validation/loading.
+- `packages/desktop/main/ipc/workspace-context.ts` and `workspace-files.ts`: context search and workspace file listing helpers.
+
+When adding a desktop feature, prefer this shape:
+
+```text
+packages/desktop/renderer/src/features/<feature>/
+  components/
+  use<Feature>.ts
+
+packages/desktop/main/ipc/<feature>.ts
+```
+
+Then wire the feature through `WorkspaceRoutes` and `main/ipc/index.ts`. Avoid adding business logic back into `App.tsx`; keep it for shell layout and cross-feature orchestration only.
 
 ## Run the Desktop App
 
@@ -157,7 +196,19 @@ The engine package has a Vitest suite covering the context compiler, reference t
 npm test -w packages/engine
 ```
 
-The desktop package has no automated tests yet; validate desktop changes with `npm run build:desktop`.
+The desktop package has a small Vitest suite for app/runtime behavior:
+
+```bash
+npm test -w packages/desktop
+```
+
+For desktop changes, run:
+
+```bash
+npm run typecheck -w packages/desktop
+npm test -w packages/desktop
+npm run build:desktop
+```
 
 ## Desktop Usage
 
@@ -406,8 +457,11 @@ Important files:
 ## Development Notes
 
 - Build engine changes with `npm run build:engine`.
-- Build desktop changes with `npm run build:desktop`.
+- Validate desktop changes with `npm run typecheck -w packages/desktop`, `npm test -w packages/desktop`, and `npm run build:desktop`.
 - Package the desktop app with `npm run package:desktop`.
+- Keep renderer feature code in `packages/desktop/renderer/src/features/<feature>/` and shared app orchestration in `packages/desktop/renderer/src/app/`.
+- Register new workspace tabs in `WorkspaceRoutes` and keep feature state in a `use<Feature>` hook where practical.
+- Keep Electron main-process additions in focused `packages/desktop/main/ipc/<feature>.ts` modules and export registration through `main/ipc/index.ts`.
 - Keep generated desktop artifacts such as `packages/desktop/dist/` and `packages/desktop/dist-packaged/` out of review context unless packaging is the task.
 - For agent review flows, prefer reviewer agents that clearly report `OPEN_FINDINGS`, `RESOLVED_FINDINGS`, `REQUIRED_CHANGES`, and `APPROVAL_STATUS`.
 
