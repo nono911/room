@@ -9,6 +9,7 @@ import {
 } from './shared.js';
 import { readProjectConfigFromDisk, type ProjectConfig } from './config-store.js';
 import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
+import { finishControlledRun, getRunInterruptMessage, startControlledRun } from './run-control.js';
 
 function normalizeContextRef(rawRef: unknown): string | null {
   if (typeof rawRef !== 'string') return null;
@@ -130,6 +131,7 @@ export function registerDiscussionsIpc(): void {
     const sendDiscussionEvent = (payload: any) => {
       event.sender.send('discussion-event', payload);
     };
+    startControlledRun(discussionId);
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
@@ -144,13 +146,14 @@ export function registerDiscussionsIpc(): void {
         {
           onEvent: sendDiscussionEvent,
           reviewMode: !!reviewMode,
-          additionalContext
+          additionalContext,
+          getInterruptMessage: () => getRunInterruptMessage(discussionId)
         }
       );
 
       const moderatorActions: Array<{ type: 'task' | 'adr'; id?: string; title?: string; filename?: string }> = [];
 
-      if (qualityGate) {
+      if (qualityGate && log.status !== 'interrupted') {
         const verdict = await engine.evaluateDiscussion(discussionId, moderatorName);
         if (verdict.executed) {
           moderatorActions.push(
@@ -167,7 +170,7 @@ export function registerDiscussionsIpc(): void {
       }
 
       let summary: { filename: string; content: string } | undefined;
-      if (autoSummary) {
+      if (autoSummary && log.status !== 'interrupted') {
         const projectConfig = await readProjectConfigFromDisk(projectRoot);
         const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
         const summaryAgentNames = summaryAgentName
@@ -188,6 +191,8 @@ export function registerDiscussionsIpc(): void {
         error: error.message
       });
       return { success: false, error: error.message };
+    } finally {
+      finishControlledRun(discussionId);
     }
   });
 

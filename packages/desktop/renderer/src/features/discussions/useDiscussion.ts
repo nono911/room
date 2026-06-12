@@ -45,13 +45,19 @@ export function useDiscussion({
   const [highlightedDiscussionMessage, setHighlightedDiscussionMessage] = useState<number | null>(null);
   const [userInputTopic, setUserInputTopic] = useState<string>('');
   const [discussionMessages, setDiscussionMessages] = useState<UIMessage[]>([]);
+  const [activeDiscussionRunId, setActiveDiscussionRunId] = useState<string | null>(null);
+  const [discussionInterruptMessage, setDiscussionInterruptMessage] = useState<string>('');
+  const [discussionInterruptPending, setDiscussionInterruptPending] = useState<boolean>(false);
 
   const resetDiscussion = () => {
     setDiscussionMessages([]);
     setActiveDiscussionId(null);
+    setActiveDiscussionRunId(null);
     setLastDiscussionLog(null);
     setLastDiscussionTopic('');
     setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
+    setDiscussionInterruptMessage('');
+    setDiscussionInterruptPending(false);
   };
 
   const selectDefaultDiscussionAgents = (agents: any[]) => {
@@ -132,6 +138,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setLastDiscussionLog(null);
     setLastDiscussionTopic('');
     setDiscussionMessages([]);
+    setActiveDiscussionRunId(null);
+    setDiscussionInterruptMessage('');
+    setDiscussionInterruptPending(false);
   };
 
   const loadTaskBoardCards = async (dirPath: string) => {
@@ -265,6 +274,19 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     }
   };
 
+  const continueActiveDiscussionFromPivot = () => {
+    if (!lastDiscussionLog || lastDiscussionLog.status !== 'interrupted') return;
+    const messages = Array.isArray(lastDiscussionLog.messages) ? lastDiscussionLog.messages : [];
+    const pivotMessage = [...messages]
+      .reverse()
+      .find((message: any) => message.type === 'user' && String(message.content || '').startsWith('Interrupt & Pivot:'));
+    const pivotText = String(pivotMessage?.content || '').replace(/^Interrupt & Pivot:\s*/i, '').trim();
+    setUserInputTopic(pivotText
+      ? `Continue from the Interrupt & Pivot direction:\n\n${pivotText}`
+      : 'Continue from the Interrupt & Pivot direction above.'
+    );
+  };
+
   const handleSendDiscussion = async () => {
     if (!userInputTopic.trim() || !projectPath) return;
     const availableAgentNames = new Set((projectData?.agents || []).map((agent: any) => agent.name));
@@ -305,6 +327,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     const messageId = (discussionId: string, round: number, agentName: string) => `${discussionId}:${round}:${agentName}`;
     const unsubscribe = api.onDiscussionEvent((event) => {
       if (event.discussionId.startsWith('task-')) return;
+
+      if (event.type === 'discussion_started') {
+        setActiveDiscussionRunId(event.discussionId);
+        setActiveDiscussionId(event.discussionId);
+        return;
+      }
 
       if (event.type === 'agent_started') {
         const id = messageId(event.discussionId, event.round, event.agentName);
@@ -356,8 +384,14 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       if (event.type === 'message_completed') {
         const id = messageId(event.discussionId, event.round, event.message.agentName);
         const contextCount = event.message.contextMessages?.length || 0;
+        const contextMetrics = event.message.contextMetrics;
+        const estimatedTokens = contextMetrics
+          ? (contextMetrics.estimatedHistoryTokens || 0) + (contextMetrics.estimatedProjectContextTokens || 0)
+          : 0;
         const contextSummary = contextCount > 0
-          ? `Context: topic + ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
+          ? contextMetrics
+            ? `Context: topic + ${contextCount} prior message${contextCount === 1 ? '' : 's'} • ~${estimatedTokens.toLocaleString()} tokens${contextMetrics.summaryUsed ? ' • summary used' : ''}`
+            : `Context: topic + ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
           : 'Context: topic only';
         setDiscussionMessages(prev => {
           let found = false;
@@ -370,7 +404,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               time: event.message.timestamp,
               streaming: false,
               progressStep: undefined,
-              contextSummary
+              contextSummary,
+              contextMetrics
             };
           });
 
@@ -386,7 +421,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
               text: event.message.content,
               streaming: false,
               progressStep: undefined,
-              contextSummary
+              contextSummary,
+              contextMetrics
             }
           ];
         });
@@ -398,7 +434,36 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         return;
       }
 
+      if (event.type === 'discussion_interrupted') {
+        setDiscussionMessages(prev => [
+          ...prev,
+          {
+            id: `${event.discussionId}:interrupt`,
+            author: event.message.agentName,
+            role: 'user',
+            time: event.message.timestamp,
+            text: event.message.content
+          },
+          {
+            author: 'System Engine',
+            role: 'system',
+            time: new Date().toLocaleTimeString(),
+            text: 'Interrupted after the current agent turn. Continue this chat with the pivot direction when ready.'
+          }
+        ]);
+        setDiscussionInterruptPending(false);
+        return;
+      }
+
+      if (event.type === 'discussion_completed') {
+        setActiveDiscussionRunId(null);
+        setDiscussionInterruptPending(false);
+        return;
+      }
+
       if (event.type === 'discussion_failed') {
+        setActiveDiscussionRunId(null);
+        setDiscussionInterruptPending(false);
         setErrorMsg(event.error);
       }
     });
@@ -453,7 +518,27 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       setErrorMsg(err.message || 'Failed to run agent workflow.');
     } finally {
       unsubscribe();
+      setActiveDiscussionRunId(null);
+      setDiscussionInterruptPending(false);
       setLoading(false);
+    }
+  };
+
+  const interruptActiveDiscussion = async () => {
+    if (!activeDiscussionRunId || !discussionInterruptMessage.trim()) return;
+    setErrorMsg(null);
+    setDiscussionInterruptPending(true);
+    try {
+      const res = await api.interruptRun(activeDiscussionRunId, discussionInterruptMessage);
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to interrupt the active chat.');
+        setDiscussionInterruptPending(false);
+        return;
+      }
+      setDiscussionInterruptMessage('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to interrupt the active chat.');
+      setDiscussionInterruptPending(false);
     }
   };
 
@@ -479,6 +564,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     highlightedDiscussionMessage,
     userInputTopic, setUserInputTopic,
     discussionMessages,
+    activeDiscussionRunId,
+    discussionInterruptMessage, setDiscussionInterruptMessage,
+    discussionInterruptPending,
     resetDiscussion,
     selectDefaultDiscussionAgents,
     scrollToDiscussionMessage,
@@ -488,6 +576,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     saveDiscussionOutput,
     summarizeActiveDiscussion,
     generateTasksFromActiveDiscussion,
+    continueActiveDiscussionFromPivot,
+    interruptActiveDiscussion,
     handleSendDiscussion,
     handleKeyDown
   };

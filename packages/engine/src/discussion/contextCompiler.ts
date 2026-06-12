@@ -1,3 +1,5 @@
+import { estimateTokenCount, trimTextToTokenBudget } from './tokenBudget.js';
+
 export interface PromptHistoryMessage {
   id?: string;
   type?: 'user' | 'agent';
@@ -18,7 +20,10 @@ export interface PromptContextMessage {
 }
 
 export interface DiscussionContextOptions {
-  maxRecentMessages: number;
+  maxRecentMessages?: number;
+  maxProjectContextTokens: number;
+  maxHistoryTokens: number;
+  maxMessageTokens: number;
   keepFirstUserMessage: boolean;
   keepLatestUserMessage: boolean;
   summary?: string;
@@ -40,11 +45,20 @@ export interface CompiledDiscussionContext {
     compiledHistoryChars: number;
     rawProjectContextChars: number;
     compiledProjectContextChars: number;
+    estimatedHistoryTokens: number;
+    estimatedProjectContextTokens: number;
+    maxProjectContextTokens: number;
+    maxHistoryTokens: number;
+    maxMessageTokens: number;
+    projectContextTrimmed: boolean;
   };
 }
 
 export const DEFAULT_DISCUSSION_CONTEXT_OPTIONS: DiscussionContextOptions = {
-  maxRecentMessages: 12,
+  maxRecentMessages: undefined,
+  maxProjectContextTokens: 12000,
+  maxHistoryTokens: 10000,
+  maxMessageTokens: 3500,
   keepFirstUserMessage: true,
   keepLatestUserMessage: true,
   summary: undefined
@@ -59,6 +73,12 @@ export function compileDiscussionContext(
     ...DEFAULT_DISCUSSION_CONTEXT_OPTIONS,
     ...options
   };
+  resolvedOptions.maxProjectContextTokens = Math.max(1, Math.floor(resolvedOptions.maxProjectContextTokens || DEFAULT_DISCUSSION_CONTEXT_OPTIONS.maxProjectContextTokens));
+  resolvedOptions.maxHistoryTokens = Math.max(1, Math.floor(resolvedOptions.maxHistoryTokens || DEFAULT_DISCUSSION_CONTEXT_OPTIONS.maxHistoryTokens));
+  resolvedOptions.maxMessageTokens = Math.max(1, Math.min(
+    Math.floor(resolvedOptions.maxMessageTokens || DEFAULT_DISCUSSION_CONTEXT_OPTIONS.maxMessageTokens),
+    resolvedOptions.maxHistoryTokens
+  ));
   const includedIndexes = selectPromptHistoryIndexes(messages, resolvedOptions);
   const includedMessagesForHistory = includedIndexes.map(index => messages[index]);
   const includedMessages = includedMessagesForHistory.map((message, promptIndex) => (
@@ -71,7 +91,7 @@ export function compileDiscussionContext(
   const omittedMessageCount = omittedIndexes.length;
   const rawHistory = messages.map((message, index) => formatMessageForPromptHistory(message, index + 1)).join('\n\n');
   const historyBody = includedMessagesForHistory
-    .map((message, promptIndex) => formatMessageForPromptHistory(message, promptIndex + 1))
+    .map((message, promptIndex) => formatMessageForPromptHistory(message, promptIndex + 1, resolvedOptions.maxMessageTokens))
     .join('\n\n');
   const omissionNote = omittedMessageCount > 0
     ? `The full discussion log has ${messages.length} message(s). This prompt includes ${includedIndexes.length} message(s); ${omittedMessageCount} older message(s) are omitted from this prompt.`
@@ -80,7 +100,13 @@ export function compileDiscussionContext(
     ? `\n\n=== Summary of Omitted Messages ===\n${resolvedOptions.summary.trim()}\n\n=== Included Messages ===`
     : '';
   const historyBlock = `${omissionNote}${summaryBlock}\n\n${historyBody}`.trim();
-  const compiledProjectContext = dedupeExactBlocks(projectContext) || '(No workspace context provided.)';
+  const rawProjectContext = dedupeExactBlocks(projectContext);
+  const fittedProjectContext = rawProjectContext
+    ? trimTextToTokenBudget(rawProjectContext, resolvedOptions.maxProjectContextTokens)
+    : { text: '', truncated: false };
+  const compiledProjectContext = fittedProjectContext.text
+    ? `${fittedProjectContext.text}${fittedProjectContext.truncated ? '\n\n[Project context trimmed to fit the prompt budget.]' : ''}`
+    : '(No workspace context provided.)';
   const projectContextBlock = `=== Project Context ===\n${compiledProjectContext}`;
   const priorMessageInstruction = buildPriorMessageInstruction(includedMessages.length, omittedMessageCount);
 
@@ -99,7 +125,13 @@ export function compileDiscussionContext(
       rawHistoryChars: rawHistory.length,
       compiledHistoryChars: historyBlock.length,
       rawProjectContextChars: projectContext.length,
-      compiledProjectContextChars: projectContextBlock.length
+      compiledProjectContextChars: projectContextBlock.length,
+      estimatedHistoryTokens: estimateTokenCount(historyBlock),
+      estimatedProjectContextTokens: estimateTokenCount(projectContextBlock),
+      maxProjectContextTokens: resolvedOptions.maxProjectContextTokens,
+      maxHistoryTokens: resolvedOptions.maxHistoryTokens,
+      maxMessageTokens: resolvedOptions.maxMessageTokens,
+      projectContextTrimmed: fittedProjectContext.truncated
     }
   };
 }
@@ -109,26 +141,43 @@ function selectPromptHistoryIndexes(
   options: DiscussionContextOptions
 ): number[] {
   const indexes = new Set<number>();
-  const recentStart = Math.max(0, messages.length - Math.max(1, options.maxRecentMessages));
+  const maxHistoryTokens = Math.max(1, options.maxHistoryTokens);
+  const maxMessageTokens = Math.max(1, Math.min(options.maxMessageTokens, maxHistoryTokens));
+  let usedTokens = 0;
 
-  for (let index = recentStart; index < messages.length; index++) {
+  const addIndex = (index: number, force = false): boolean => {
+    if (index < 0 || index >= messages.length || indexes.has(index)) return false;
+    const tokenCost = estimatePromptHistoryMessageTokens(messages[index], maxMessageTokens);
+    if (!force && usedTokens + tokenCost > maxHistoryTokens) {
+      return false;
+    }
     indexes.add(index);
-  }
+    usedTokens += tokenCost;
+    return true;
+  };
 
   if (options.keepFirstUserMessage) {
     const firstUserIndex = messages.findIndex(message => message.type === 'user');
     if (firstUserIndex >= 0) {
-      indexes.add(firstUserIndex);
+      addIndex(firstUserIndex);
     }
   }
 
   if (options.keepLatestUserMessage) {
     for (let index = messages.length - 1; index >= 0; index--) {
       if (messages[index].type === 'user') {
-        indexes.add(index);
+        addIndex(index, true);
         break;
       }
     }
+  }
+
+  const recentStart = typeof options.maxRecentMessages === 'number'
+    ? Math.max(0, messages.length - Math.max(1, options.maxRecentMessages))
+    : 0;
+
+  for (let index = messages.length - 1; index >= recentStart; index--) {
+    addIndex(index);
   }
 
   return [...indexes].sort((a, b) => a - b);
@@ -157,16 +206,28 @@ function toPromptContextMessage(message: PromptHistoryMessage, promptNumber: num
   };
 }
 
-function formatMessageForPromptHistory(message: PromptHistoryMessage, promptNumber: number): string {
+function estimatePromptHistoryMessageTokens(message: PromptHistoryMessage, maxMessageTokens: number): number {
+  return estimateTokenCount(formatMessageForPromptHistory(message, 9999, maxMessageTokens));
+}
+
+function formatMessageForPromptHistory(message: PromptHistoryMessage, promptNumber: number, maxMessageTokens?: number): string {
   if (message.type === 'user') {
-    return `--- Message ${promptNumber}: ${message.agentName} ---\n${message.content}`;
+    const content = fitMessageContentToBudget(message.content, maxMessageTokens);
+    return `--- Message ${promptNumber}: ${message.agentName} ---\n${content}`;
   }
 
   const cleanedContent = cleanAgentUserContent(message.content);
-  const content = isOnlyOmissionNotes(cleanedContent)
+  const content = fitMessageContentToBudget(isOnlyOmissionNotes(cleanedContent)
     ? '[Previous Local CLI action narration omitted.]'
-    : cleanedContent;
+    : cleanedContent, maxMessageTokens);
   return `--- Message ${promptNumber}: ${message.agentName} (${message.providerName}) ---\n${content}`;
+}
+
+function fitMessageContentToBudget(content: string, maxMessageTokens?: number): string {
+  if (!maxMessageTokens) return content;
+  const fitted = trimTextToTokenBudget(content, maxMessageTokens);
+  if (!fitted.truncated) return fitted.text;
+  return `${fitted.text}\n\n[Message trimmed to fit the context budget.]`;
 }
 
 function isSummaryCandidateMessage(message: PromptHistoryMessage): boolean {
@@ -178,7 +239,20 @@ function cleanAgentUserContent(content: string): string {
   const lines = content.split('\n');
   let omitted = 0;
   let actionNarration = 0;
+  let inCodeBlock = false;
   const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      return true;
+    }
+    if (inCodeBlock) {
+      if (isLikelyGeneratedArtifactLine(line)) {
+        omitted += 1;
+        return false;
+      }
+      return true;
+    }
     if (isLikelyGeneratedArtifactLine(line)) {
       omitted += 1;
       return false;

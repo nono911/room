@@ -43,13 +43,19 @@ export interface DiscussionMessage {
     providerName: string;
     timestamp: string;
   }[];
+  contextMetrics?: CompiledDiscussionContext['metrics'] & {
+    summaryUsed: boolean;
+    omittedMessageCount: number;
+    includedMessageCount: number;
+    totalLogMessages: number;
+  };
 }
 
 export interface DiscussionLog {
   id: string;
   title: string;
   topic?: string;
-  status: 'active' | 'completed' | 'approved' | 'needs_revision' | 'blocked';
+  status: 'active' | 'completed' | 'approved' | 'needs_revision' | 'blocked' | 'interrupted';
   messages: DiscussionMessage[];
 }
 
@@ -97,6 +103,12 @@ export type DiscussionEvent =
       type: 'discussion_completed';
       discussionId: string;
       log: DiscussionLog;
+    }
+  | {
+      type: 'discussion_interrupted';
+      discussionId: string;
+      message: DiscussionMessage;
+      reason: string;
     };
 
 export interface DiscussionRunOptions {
@@ -104,6 +116,7 @@ export interface DiscussionRunOptions {
   reviewMode?: boolean;
   additionalContext?: string;
   userLabel?: string;
+  getInterruptMessage?: () => string | null;
 }
 
 export interface QualityGateResult {
@@ -118,7 +131,7 @@ export interface CodingTaskResult {
   title: string;
   task: string;
   taskType?: string;
-  status: 'approved' | 'needs_revision' | 'blocked';
+  status: 'approved' | 'needs_revision' | 'blocked' | 'interrupted';
   cycles: number;
   messages: DiscussionMessage[];
   markdownFilename: string;
@@ -132,6 +145,7 @@ export interface CodingTaskRunOptions {
   onEvent?: (event: DiscussionEvent) => void;
   additionalContext?: string;
   taskType?: string;
+  getInterruptMessage?: () => string | null;
 }
 
 const LANGUAGE_POLICY = `=== Language Policy ===
@@ -475,6 +489,19 @@ export class DiscussionEngine {
           reason: reference.reason
         }
       })));
+  }
+
+  private async appendInterruptEvent(scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage): Promise<void> {
+    await this.appendEvent({
+      type: 'run.interrupted',
+      actor: message.agentName,
+      source: { type: scopeType, id: scopeId },
+      target: message.id ? { type: 'message', id: message.id } : undefined,
+      data: {
+        messageType: 'user',
+        providerName: message.providerName
+      }
+    });
   }
 
   private async appendActionEvents(sourceDiscussionId: string, executed: ActionExecutionResult): Promise<void> {
@@ -1087,9 +1114,40 @@ You convert finished ROOM chats into actionable task plans for the project task 
     discussionLog.messages.push(userMessage);
     await this.appendMessageCreatedEvent('discussion', discussionId, userMessage);
 
+    const saveDiscussionLog = async () => {
+      await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
+      await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
+    };
+    const applyInterruptIfRequested = async (): Promise<boolean> => {
+      const interruptMessage = options.getInterruptMessage?.()?.trim();
+      if (!interruptMessage) return false;
+
+      const pivotMessage: DiscussionMessage = {
+        id: nextStableMessageId(discussionId, discussionLog.messages),
+        type: 'user',
+        agentName: options.userLabel || 'You',
+        providerName: 'User',
+        content: `Interrupt & Pivot:\n\n${interruptMessage}`,
+        timestamp: new Date().toLocaleTimeString()
+      };
+      discussionLog.messages.push(pivotMessage);
+      discussionLog.status = 'interrupted';
+      await this.appendMessageCreatedEvent('discussion', discussionId, pivotMessage);
+      await this.appendInterruptEvent('discussion', discussionId, pivotMessage);
+      await saveDiscussionLog();
+      options.onEvent?.({
+        type: 'discussion_interrupted',
+        discussionId,
+        message: pivotMessage,
+        reason: interruptMessage
+      });
+      return true;
+    };
+
     let approved = false;
     let successfulAgentRuns = 0;
     let failedAgentRuns = 0;
+    let interrupted = false;
     const reviewerAgents = options.reviewMode
       ? workflowAgents.filter(agent => this.isReviewerAgent(agent))
       : [];
@@ -1098,6 +1156,9 @@ You convert finished ROOM chats into actionable task plans for the project task 
       const roundReviewerApprovals = new Map<string, boolean>();
 
       for (const agent of workflowAgents) {
+        interrupted = await applyInterruptIfRequested();
+        if (interrupted) break;
+
         console.log(`[Discussion Engine] Running Agent: ${agent.name} (Round ${round})...`);
         await this.assertAgentExecutionAllowed(agent);
         const provider = this.getProvider(agent);
@@ -1205,6 +1266,13 @@ You convert finished ROOM chats into actionable task plans for the project task 
           content: response,
           timestamp: new Date().toLocaleTimeString(),
           contextMessages,
+          contextMetrics: {
+            ...compiledContext.metrics,
+            summaryUsed: compiledContext.summaryUsed,
+            omittedMessageCount: compiledContext.omittedMessageCount,
+            includedMessageCount: compiledContext.includedMessages.length,
+            totalLogMessages: compiledContext.totalLogMessages
+          },
           ...(messageReferences.length > 0 ? { references: messageReferences } : {})
         };
 
@@ -1218,19 +1286,32 @@ You convert finished ROOM chats into actionable task plans for the project task 
           round
         });
 
-        await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
-        await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
+        await saveDiscussionLog();
+
+        interrupted = await applyInterruptIfRequested();
+        if (interrupted) break;
 
         if (options.reviewMode && this.isReviewerAgent(agent)) {
           roundReviewerApprovals.set(agent.name, !agentFailed && this.isExplicitlyApproved(response));
         }
       }
 
+      if (interrupted) break;
+
       if (reviewerAgents.length > 0 && reviewerAgents.every(agent => roundReviewerApprovals.get(agent.name) === true)) {
         approved = true;
         console.log('[Discussion Engine] All reviewer agents approved the design. Workflow finished.');
         break;
       }
+    }
+
+    if (interrupted) {
+      options.onEvent?.({
+        type: 'discussion_completed',
+        discussionId,
+        log: discussionLog
+      });
+      return discussionLog;
     }
 
     if (options.reviewMode) {
@@ -1240,8 +1321,7 @@ You convert finished ROOM chats into actionable task plans for the project task 
     } else {
       discussionLog.status = successfulAgentRuns === 0 && failedAgentRuns > 0 ? 'blocked' : 'completed';
     }
-    await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
-    await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
+    await saveDiscussionLog();
     options.onEvent?.({
       type: 'discussion_completed',
       discussionId,
@@ -1356,15 +1436,46 @@ You convert finished ROOM chats into actionable task plans for the project task 
       await fs.writeFile(jsonPath, JSON.stringify(result, null, 2), 'utf-8');
       await fs.writeFile(markdownPath, renderCodingTaskMarkdown(result), 'utf-8');
     };
+    const applyInterruptIfRequested = async (): Promise<boolean> => {
+      const interruptMessage = options.getInterruptMessage?.()?.trim();
+      if (!interruptMessage) return false;
+
+      const pivotMessage: DiscussionMessage = {
+        id: nextStableMessageId(taskId, result.messages),
+        type: 'user',
+        agentName: 'You',
+        providerName: 'User',
+        content: `Interrupt & Pivot:\n\n${interruptMessage}`,
+        timestamp: new Date().toLocaleTimeString(),
+        round: result.cycles
+      };
+      result.messages.push(pivotMessage);
+      result.status = 'interrupted';
+      result.statusSummary = 'Interrupted by the user. Use the pivot message as the next direction before continuing this task.';
+      await this.appendMessageCreatedEvent('coding-task', taskId, pivotMessage);
+      await this.appendInterruptEvent('coding-task', taskId, pivotMessage);
+      await saveResult();
+      options.onEvent?.({
+        type: 'discussion_interrupted',
+        discussionId: taskId,
+        message: pivotMessage,
+        reason: interruptMessage
+      });
+      return true;
+    };
 
     options.onEvent?.({ type: 'discussion_started', discussionId: taskId, title });
     await saveResult();
     await this.appendMessageCreatedEvent('coding-task', taskId, result.messages[0]);
 
     let reviewerFeedback = '';
+    let interrupted = false;
     const cycleLimit = Math.max(1, Math.min(5, Math.floor(maxCycles || 1)));
     for (let cycle = 1; cycle <= cycleLimit; cycle++) {
       result.cycles = cycle;
+      interrupted = await applyInterruptIfRequested();
+      if (interrupted) break;
+
       await this.assertAgentExecutionAllowed(developer);
       const developerProvider = this.getProvider(developer);
       options.onEvent?.({
@@ -1463,6 +1574,13 @@ ${doerWorkInstructions}
         timestamp: new Date().toLocaleTimeString(),
         round: cycle,
         contextMessages: developerContext.includedMessages,
+        contextMetrics: {
+          ...developerContext.metrics,
+          summaryUsed: developerContext.summaryUsed,
+          omittedMessageCount: developerContext.omittedMessageCount,
+          includedMessageCount: developerContext.includedMessages.length,
+          totalLogMessages: developerContext.totalLogMessages
+        },
         ...(developerReferences.length > 0 ? { references: developerReferences } : {})
       };
       result.messages.push(developerMessage);
@@ -1472,8 +1590,14 @@ ${doerWorkInstructions}
       options.onEvent?.({ type: 'message_completed', discussionId: taskId, message: developerMessage, round: cycle });
       await saveResult();
 
+      interrupted = await applyInterruptIfRequested();
+      if (interrupted) break;
+
       const reviewerOutputs: string[] = [];
       for (const reviewer of reviewers) {
+        interrupted = await applyInterruptIfRequested();
+        if (interrupted) break;
+
         await this.assertAgentExecutionAllowed(reviewer);
         const reviewerProvider = this.getProvider(reviewer);
         options.onEvent?.({
@@ -1581,6 +1705,13 @@ Output format:
           timestamp: new Date().toLocaleTimeString(),
           round: cycle,
           contextMessages: reviewerContext.includedMessages,
+          contextMetrics: {
+            ...reviewerContext.metrics,
+            summaryUsed: reviewerContext.summaryUsed,
+            omittedMessageCount: reviewerContext.omittedMessageCount,
+            includedMessageCount: reviewerContext.includedMessages.length,
+            totalLogMessages: reviewerContext.totalLogMessages
+          },
           ...(reviewerReferences.length > 0 ? { references: reviewerReferences } : {})
         };
         result.messages.push(reviewerMessage);
@@ -1588,7 +1719,12 @@ Output format:
         await this.appendReferenceEvents('coding-task', taskId, reviewerMessage);
         options.onEvent?.({ type: 'message_completed', discussionId: taskId, message: reviewerMessage, round: cycle });
         await saveResult();
+
+        interrupted = await applyInterruptIfRequested();
+        if (interrupted) break;
       }
+
+      if (interrupted) break;
 
       if (this.parseCodingApproval(reviewerOutputs)) {
         result.status = 'approved';
@@ -1602,7 +1738,7 @@ Output format:
       result.statusSummary = `Needs revision after cycle ${cycle}.\n${this.extractTaskReviewSummary(reviewerOutputs)}`;
     }
 
-    if (result.status !== 'approved' && result.cycles >= cycleLimit) {
+    if (!interrupted && result.status !== 'approved' && result.cycles >= cycleLimit) {
       result.status = 'needs_revision';
       if (!result.statusSummary || result.statusSummary === 'Task is queued.') {
         result.statusSummary = `Stopped after ${result.cycles} cycle(s) without approval.`;

@@ -24,6 +24,7 @@ export const api = {
     task: string,
     options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[] }
   ) => window.electronAPI.runTask(dirPath, task, options),
+  interruptRun: (runId: string, message: string) => window.electronAPI.interruptRun(runId, message),
   summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>
     window.electronAPI.summarizeDiscussion(dirPath, discussionId, options),
   generateTasksFromDiscussion: (dirPath: string, discussionId: string, options?: { moderatorName?: string }) =>

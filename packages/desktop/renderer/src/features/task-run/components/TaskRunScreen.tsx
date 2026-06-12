@@ -33,6 +33,12 @@ interface TaskRunScreenProps {
   setOpenRounds: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
   expandedMsgKeys: Record<string, boolean>;
   setExpandedMsgKeys: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  activeTaskRunId: string | null;
+  taskInterruptMessage: string;
+  setTaskInterruptMessage: (value: string) => void;
+  taskInterruptPending: boolean;
+  interruptActiveTaskRun: () => void;
+  continueTaskRunFromPivot: () => void;
   scrollToDiscussionMessage: (messageNumber: number) => void;
   setActiveTab: (tab: string) => void;
   loadRoomFilePreview: (section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions' | 'skills', file: string) => void;
@@ -71,6 +77,12 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   setOpenRounds,
   expandedMsgKeys,
   setExpandedMsgKeys,
+  activeTaskRunId,
+  taskInterruptMessage,
+  setTaskInterruptMessage,
+  taskInterruptPending,
+  interruptActiveTaskRun,
+  continueTaskRunFromPivot,
   scrollToDiscussionMessage,
   setActiveTab,
   loadRoomFilePreview,
@@ -113,6 +125,24 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
       : loading
         ? 'hsl(var(--accent-purple))'
         : 'hsl(var(--text-muted))';
+  const traceMessages = Array.isArray(lastCodingTaskResult?.messages)
+    ? lastCodingTaskResult.messages
+    : codingTaskMessages.map(message => ({
+        type: message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'agent',
+        agentName: message.author,
+        providerName: '',
+        content: message.text,
+        timestamp: message.time,
+        round: message.round,
+        contextMetrics: message.contextMetrics
+      }));
+  const latestContextMetrics = [...traceMessages]
+    .reverse()
+    .find((message: any) => message.contextMetrics)?.contextMetrics;
+  const estimatedTraceTokens = latestContextMetrics
+    ? (latestContextMetrics.estimatedHistoryTokens || 0) + (latestContextMetrics.estimatedProjectContextTokens || 0)
+    : 0;
+  const formatMetric = (value: unknown) => typeof value === 'number' ? value.toLocaleString() : '0';
 
   const setupPanel = (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(280px, 0.95fr)', gap: '18px', alignItems: 'start' }}>
@@ -201,7 +231,8 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '112px', overflowY: 'auto' }}>
               {agents.map((agent: any) => {
-                const selected = codingTaskReviewerNames.includes(agent.name);
+                const selectedIndex = codingTaskReviewerNames.indexOf(agent.name);
+                const selected = selectedIndex !== -1;
                 const disabled = loading || agent.name === codingTaskDeveloperName;
                 return (
                   <label
@@ -222,12 +253,129 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                         );
                       }}
                     />
-                    {selected ? '✓ ' : '+ '}
+                    {selected ? `✓ ${selectedIndex + 1}. ` : '+ '}
                     {agent.name}
                   </label>
                 );
               })}
             </div>
+
+            {codingTaskReviewerNames.length > 0 && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                marginTop: '4px',
+                padding: '10px',
+                background: 'hsl(var(--bg-sidebar) / 0.5)',
+                border: '1px solid hsl(var(--border-dim))',
+                borderRadius: '8px',
+              }}>
+                <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                  Review Sequence Order
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  {codingTaskReviewerNames.map((name, index) => {
+                    const agent = agents.find((a: any) => a.name === name);
+                    return (
+                      <div
+                        key={name}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 10px',
+                          background: 'hsl(var(--bg-sidebar))',
+                          border: '1px solid hsl(var(--border-dim) / 0.8)',
+                          borderRadius: '6px',
+                          fontSize: '0.76rem'
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'white' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '50%',
+                            background: 'hsl(var(--accent-purple) / 0.15)',
+                            border: '1px solid hsl(var(--accent-purple) / 0.35)',
+                            color: 'hsl(var(--accent-purple))',
+                            fontSize: '0.7rem',
+                            fontWeight: 700
+                          }}>
+                            {index + 1}
+                          </span>
+                          <span style={{ fontWeight: 500 }}>{name}</span>
+                          {agent?.role && (
+                            <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.7rem' }}>
+                              ({agent.role})
+                            </span>
+                          )}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading || index === 0}
+                            onClick={() => {
+                              setCodingTaskReviewerNames(prev => {
+                                const next = [...prev];
+                                const temp = next[index];
+                                next[index] = next[index - 1];
+                                next[index - 1] = temp;
+                                return next;
+                              });
+                            }}
+                            style={{
+                              padding: '0 6px',
+                              fontSize: '0.7rem',
+                              height: '22px',
+                              minWidth: '22px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px'
+                            }}
+                            title="Move Up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading || index === codingTaskReviewerNames.length - 1}
+                            onClick={() => {
+                              setCodingTaskReviewerNames(prev => {
+                                const next = [...prev];
+                                const temp = next[index];
+                                next[index] = next[index + 1];
+                                next[index + 1] = temp;
+                                return next;
+                              });
+                            }}
+                            style={{
+                              padding: '0 6px',
+                              fontSize: '0.7rem',
+                              height: '22px',
+                              minWidth: '22px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '4px'
+                            }}
+                            title="Move Down"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))' }}>
@@ -430,7 +578,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         )}
       </div>
 
-      {lastCodingTaskResult?.markdownFilename && (
+          {lastCodingTaskResult?.markdownFilename && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button
             className="btn-secondary"
@@ -472,7 +620,18 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         </div>
         <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
           <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Messages</div>
-          <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{codingTaskMessages.length}</div>
+          <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>{traceMessages.length}</div>
+        </div>
+        <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
+          <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Prompt Budget</div>
+          <div style={{ marginTop: '4px', color: 'white', fontWeight: 600 }}>
+            {latestContextMetrics ? `~${estimatedTraceTokens.toLocaleString()} tokens` : 'Pending'}
+          </div>
+          {latestContextMetrics && (
+            <div style={{ marginTop: '4px', color: 'hsl(var(--text-muted))', fontSize: '0.72rem', lineHeight: 1.4 }}>
+              history {formatMetric(latestContextMetrics.estimatedHistoryTokens)}/{formatMetric(latestContextMetrics.maxHistoryTokens)} · project {formatMetric(latestContextMetrics.estimatedProjectContextTokens)}/{formatMetric(latestContextMetrics.maxProjectContextTokens)}
+            </div>
+          )}
         </div>
         <div style={{ padding: '10px 12px', background: 'hsl(var(--bg-sidebar))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px' }}>
           <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', textTransform: 'uppercase', fontWeight: 700 }}>Output</div>
@@ -482,20 +641,35 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', color: 'hsl(var(--text-secondary))', lineHeight: 1.5, fontSize: '0.86rem' }}>
-        <div style={{ color: 'white', fontWeight: 700 }}>Current Run Evidence</div>
-        <div>
-          This panel is scoped to the active run. It surfaces the selected context, run transcript, and final artifact links that the engine already records.
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {selectedCodingTaskContextRefs.map(ref => (
-            <div key={ref} style={{ display: 'flex', gap: '8px', alignItems: 'center', minWidth: 0 }}>
-              <span style={{ width: '6px', height: '6px', borderRadius: '999px', background: 'hsl(var(--accent-purple))', flex: '0 0 auto' }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref}</span>
-            </div>
-          ))}
-          {selectedCodingTaskContextRefs.length === 0 && (
-            <div style={{ color: 'hsl(var(--text-muted))' }}>No explicit context selected.</div>
-          )}
+        <div style={{ color: 'white', fontWeight: 700 }}>Trace Timeline</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {traceMessages.map((message: any, index: number) => {
+            const metrics = message.contextMetrics;
+            const contextTokens = metrics ? (metrics.estimatedHistoryTokens || 0) + (metrics.estimatedProjectContextTokens || 0) : 0;
+            const isInterrupt = message.type === 'user' && String(message.content || '').startsWith('Interrupt & Pivot:');
+            const label = message.type === 'user'
+              ? isInterrupt ? 'Human interrupt' : 'User prompt'
+              : message.type === 'system'
+                ? 'System'
+                : `${message.agentName || 'Agent'}${message.providerName ? ` (${message.providerName})` : ''}`;
+            return (
+              <div key={`${label}-${index}`} style={{ display: 'grid', gridTemplateColumns: '24px 1fr', gap: '8px', alignItems: 'start' }}>
+                <div style={{ width: '20px', height: '20px', borderRadius: '999px', background: isInterrupt ? 'hsl(var(--accent-orange))' : message.type === 'agent' ? 'hsl(var(--accent-purple))' : 'hsl(var(--bg-input))', border: '1px solid hsl(var(--border-dim))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700 }}>
+                  {index + 1}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: 'white', fontWeight: 650, fontSize: '0.84rem' }}>{label}</div>
+                  <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.74rem' }}>
+                    {message.round !== undefined ? `Cycle ${message.round} · ` : ''}{message.timestamp || ''}
+                    {metrics ? ` · context ~${contextTokens.toLocaleString()} tokens · ${metrics.includedMessageCount || 0}/${metrics.totalLogMessages || 0} messages` : ''}
+                    {metrics?.summaryUsed ? ' · summary used' : ''}
+                    {metrics?.omittedMessageCount > 0 ? ` · ${metrics.omittedMessageCount} omitted` : ''}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {traceMessages.length === 0 && <div style={{ color: 'hsl(var(--text-muted))' }}>No trace messages yet.</div>}
         </div>
       </div>
     </div>
@@ -544,10 +718,21 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                 }}
                 style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto' }}
               >
-                Transcript
-              </button>
-            )}
+              Transcript
+            </button>
+          )}
+          {lastCodingTaskResult?.status === 'interrupted' && (
             <button
+              className="btn-secondary"
+              type="button"
+              disabled={loading}
+              onClick={continueTaskRunFromPivot}
+              style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto', borderColor: 'hsl(var(--accent-orange) / 0.55)' }}
+            >
+              Continue from Pivot
+            </button>
+          )}
+          <button
               className="btn-primary"
               type="button"
               disabled={loading}
@@ -586,6 +771,42 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
             </button>
           ))}
         </div>
+
+        {loading && activeTaskRunId && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'center', padding: '10px 12px', background: 'hsl(var(--accent-orange) / 0.08)', border: '1px solid hsl(var(--accent-orange) / 0.38)', borderRadius: '8px', flex: '0 0 auto' }}>
+            <input
+              type="text"
+              value={taskInterruptMessage}
+              onChange={(e) => setTaskInterruptMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && taskInterruptMessage.trim() && !taskInterruptPending) {
+                  interruptActiveTaskRun();
+                }
+              }}
+              disabled={taskInterruptPending}
+              placeholder="Interrupt & Pivot: tell the Doer what to change after the current agent finishes..."
+              style={{
+                minWidth: 0,
+                backgroundColor: 'hsl(var(--bg-input))',
+                border: '1px solid hsl(var(--border-dim))',
+                borderRadius: '6px',
+                padding: '9px 12px',
+                color: 'white',
+                fontFamily: 'inherit',
+                outline: 'none'
+              }}
+            />
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={taskInterruptPending || !taskInterruptMessage.trim()}
+              onClick={interruptActiveTaskRun}
+              style={{ padding: '9px 12px', fontSize: '0.78rem', borderColor: 'hsl(var(--accent-orange) / 0.55)' }}
+            >
+              {taskInterruptPending ? 'Interrupting...' : 'Interrupt & Pivot'}
+            </button>
+          </div>
+        )}
 
         <div style={{ flex: 1, minHeight: 0, overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
           {taskRunView === 'setup' && setupPanel}

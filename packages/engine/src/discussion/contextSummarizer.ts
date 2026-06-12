@@ -1,5 +1,6 @@
 import { Provider } from '../providers/provider.js';
 import { PromptHistoryMessage } from './contextCompiler.js';
+import { trimTextToCharBoundary } from './tokenBudget.js';
 
 export interface ContextSummaryPolicy {
   minSummaryCandidateMessages: number;
@@ -45,6 +46,7 @@ Preserve:
 
 Do not summarize recent messages that will be provided separately.
 Keep it concise and avoid restating every message.
+Keep the final summary under ${policy.maxSummaryChars} characters. If the source is large, prioritize decisions, constraints, unresolved findings, and concrete next steps over chronology.
 
 Omitted messages:
 ${transcript}`;
@@ -57,7 +59,8 @@ export function truncateSummary(summary: string, maxSummaryChars: number): strin
   if (summary.length <= maxSummaryChars) {
     return summary;
   }
-  return `${summary.slice(0, maxSummaryChars).trimEnd()}\n\n[Summary truncated to ${maxSummaryChars} characters.]`;
+  const fitted = trimTextToCharBoundary(summary, maxSummaryChars);
+  return `${fitted.text}\n\n[Summary truncated to ${maxSummaryChars} characters at the nearest readable boundary.]`;
 }
 
 function formatSummaryInputMessage(index: number, message: PromptHistoryMessage): string {

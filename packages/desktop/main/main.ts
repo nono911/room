@@ -9,7 +9,8 @@ import {
   registerAgentsIpc,
   registerProvidersIpc,
   registerMcpIpc,
-  registerFilesIpc
+  registerFilesIpc,
+  registerRunControlIpc
 } from './ipc/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -78,6 +79,7 @@ registerAgentsIpc();
 registerProvidersIpc();
 registerMcpIpc();
 registerFilesIpc();
+registerRunControlIpc();
 
 app.whenReady().then(async () => {
   await applyApiKeysToEnvironment();

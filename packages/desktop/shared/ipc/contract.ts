@@ -60,6 +60,18 @@ export interface ElectronAPI {
           providerName: string;
           timestamp: string;
         }[];
+        contextMetrics?: {
+          estimatedHistoryTokens?: number;
+          estimatedProjectContextTokens?: number;
+          maxProjectContextTokens?: number;
+          maxHistoryTokens?: number;
+          maxMessageTokens?: number;
+          projectContextTrimmed?: boolean;
+          summaryUsed?: boolean;
+          omittedMessageCount?: number;
+          includedMessageCount?: number;
+          totalLogMessages?: number;
+        };
         references?: { author: string; reason?: string }[];
       }[];
     };
@@ -91,6 +103,18 @@ export interface ElectronAPI {
           providerName: string;
           timestamp: string;
         }[];
+        contextMetrics?: {
+          estimatedHistoryTokens?: number;
+          estimatedProjectContextTokens?: number;
+          maxProjectContextTokens?: number;
+          maxHistoryTokens?: number;
+          maxMessageTokens?: number;
+          projectContextTrimmed?: boolean;
+          summaryUsed?: boolean;
+          omittedMessageCount?: number;
+          includedMessageCount?: number;
+          totalLogMessages?: number;
+        };
       }[];
       markdownFilename: string;
       jsonFilename: string;
@@ -100,6 +124,7 @@ export interface ElectronAPI {
     };
     error?: string;
   }>;
+  interruptRun: (runId: string, message: string) => Promise<{ success: boolean; error?: string }>;
   summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => Promise<{ success: boolean; filename?: string; content?: string; error?: string }>;
   generateTasksFromDiscussion: (dirPath: string, discussionId: string, options?: { moderatorName?: string }) => Promise<{ success: boolean; createdTaskCards?: TaskBoardCard[]; errors?: string[]; error?: string }>;
   loadTaskBoard: (dirPath: string) => Promise<{ success: boolean; cards?: TaskBoardCard[]; error?: string }>;

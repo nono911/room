@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { shouldGenerateContextSummary, truncateSummary } from './contextSummarizer.js';
 
 describe('contextSummarizer', () => {
-  it('truncates long summaries with an explicit note', () => {
-    const summary = truncateSummary('abcdefghij', 6);
+  it('truncates long summaries at a readable boundary with an explicit note', () => {
+    const summary = truncateSummary('First sentence. Second sentence keeps going.', 24);
 
-    expect(summary).toBe('abcdef\n\n[Summary truncated to 6 characters.]');
+    expect(summary).toBe('First sentence.\n\n[Summary truncated to 24 characters at the nearest readable boundary.]');
   });
 
   it('generates summaries only after message or character thresholds', () => {

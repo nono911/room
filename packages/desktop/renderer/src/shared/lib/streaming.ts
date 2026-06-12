@@ -40,15 +40,22 @@ export const formatDiscussionLogMessages = (log: any): UIMessage[] => {
     }
 
     const contextCount = Array.isArray(message.contextMessages) ? message.contextMessages.length : 0;
+    const contextMetrics = message.contextMetrics;
+    const estimatedTokens = contextMetrics
+      ? (contextMetrics.estimatedHistoryTokens || 0) + (contextMetrics.estimatedProjectContextTokens || 0)
+      : 0;
     return {
       author: formatAgentDisplayName(message.agentName, message.providerName, message.modelName),
       role: String(message.agentName || 'agent').toLowerCase(),
       time: message.timestamp || '',
       text: message.content || '',
       round: msgRound,
-      contextSummary: contextCount > 0
-        ? `Context: ${contextCount} chat message${contextCount === 1 ? '' : 's'}`
-        : 'Context: current message only'
+      contextSummary: contextMetrics
+        ? `Context: ${contextCount} message${contextCount === 1 ? '' : 's'} • ~${estimatedTokens.toLocaleString()} tokens${contextMetrics.summaryUsed ? ' • summary used' : ''}`
+        : contextCount > 0
+          ? `Context: ${contextCount} chat message${contextCount === 1 ? '' : 's'}`
+          : 'Context: current message only',
+      contextMetrics
     };
   });
 };

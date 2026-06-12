@@ -7,6 +7,7 @@ import {
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile
 } from './shared.js';
 import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
+import { finishControlledRun, getRunInterruptMessage, startControlledRun } from './run-control.js';
 
 function normalizeContextRef(rawRef: unknown): string | null {
   if (typeof rawRef !== 'string') return null;
@@ -104,6 +105,7 @@ export function registerTasksIpc(): void {
     const sendDiscussionEvent = (payload: any) => {
       event.sender.send('discussion-event', payload);
     };
+    startControlledRun(taskId);
 
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
@@ -132,7 +134,8 @@ export function registerTasksIpc(): void {
         {
           onEvent: sendDiscussionEvent,
           additionalContext,
-          taskType
+          taskType,
+          getInterruptMessage: () => getRunInterruptMessage(taskId)
         }
       );
 
@@ -144,6 +147,8 @@ export function registerTasksIpc(): void {
         error: error.message
       });
       return { success: false, error: error.message };
+    } finally {
+      finishControlledRun(taskId);
     }
   });
 

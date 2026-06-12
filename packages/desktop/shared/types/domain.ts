@@ -81,6 +81,18 @@ export interface UIMessage {
   streaming?: boolean;
   progressStep?: number;
   contextSummary?: string;
+  contextMetrics?: {
+    estimatedHistoryTokens?: number;
+    estimatedProjectContextTokens?: number;
+    maxProjectContextTokens?: number;
+    maxHistoryTokens?: number;
+    maxMessageTokens?: number;
+    projectContextTrimmed?: boolean;
+    summaryUsed?: boolean;
+    omittedMessageCount?: number;
+    includedMessageCount?: number;
+    totalLogMessages?: number;
+  };
   round?: number;
 }
 
@@ -124,6 +136,7 @@ export type DiscussionIpcEvent =
           providerName: string;
           timestamp: string;
         }[];
+        contextMetrics?: UIMessage['contextMetrics'];
       };
     }
   | {
@@ -139,6 +152,18 @@ export type DiscussionIpcEvent =
       type: 'discussion_completed';
       discussionId: string;
       log: any;
+    }
+  | {
+      type: 'discussion_interrupted';
+      discussionId: string;
+      message: {
+        agentName: string;
+        providerName: string;
+        content: string;
+        timestamp: string;
+        round?: number;
+      };
+      reason: string;
     }
   | {
       type: 'discussion_failed';

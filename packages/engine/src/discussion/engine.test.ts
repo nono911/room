@@ -1,5 +1,33 @@
-import { describe, expect, it } from 'vitest';
-import { safeDocumentSlug, stripExternalFileLinks } from './engine.js';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LocalCliProvider } from '../providers/localCli.js';
+import { DiscussionEngine, safeDocumentSlug, stripExternalFileLinks } from './engine.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+async function createWorkspaceWithAgents(agents: unknown[]): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-engine-interrupt-'));
+  const membersDir = path.join(dir, '.room', 'members');
+  await fs.mkdir(membersDir, { recursive: true });
+  await Promise.all(agents.map((agent: any) =>
+    fs.writeFile(path.join(membersDir, `${agent.name}.json`), JSON.stringify(agent, null, 2), 'utf-8')
+  ));
+  return dir;
+}
+
+const localCliAgent = (name: string, role: string) => ({
+  name,
+  role,
+  provider: 'Local CLI',
+  systemPrompt: `${name} system prompt.`,
+  cliPreset: 'claude',
+  stdinFormat: 'text',
+  permissionMode: 'safe'
+});
 
 describe('safeDocumentSlug', () => {
   it('preserves Thai vowels and tone marks in document filenames', () => {
@@ -35,5 +63,75 @@ describe('stripExternalFileLinks', () => {
     );
 
     expect(content).toBe('See [external file path removed] for details.');
+  });
+});
+
+describe('DiscussionEngine interrupt checkpoints', () => {
+  it('stops a discussion after the current agent turn and records the pivot message', async () => {
+    const dir = await createWorkspaceWithAgents([
+      localCliAgent('Doer', 'Doer'),
+      localCliAgent('Reviewer', 'Reviewer')
+    ]);
+    vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValue('Doer output');
+    let shouldInterrupt = false;
+    const events: string[] = [];
+
+    const engine = new DiscussionEngine(dir);
+    const log = await engine.runDiscussion(
+      'discussion-100',
+      'Test discussion',
+      'Original direction',
+      ['Doer', 'Reviewer'],
+      2,
+      {
+        onEvent: event => {
+          events.push(event.type);
+          if (event.type === 'message_completed') {
+            shouldInterrupt = true;
+          }
+        },
+        reviewMode: true,
+        getInterruptMessage: () => shouldInterrupt ? 'Change direction now.' : null
+      }
+    );
+
+    expect(log.status).toBe('interrupted');
+    expect(log.messages.map(message => message.agentName)).toEqual(['You', 'Doer', 'You']);
+    expect(log.messages.at(-1)?.content).toContain('Change direction now.');
+    expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
+    expect(events).toContain('discussion_interrupted');
+  });
+
+  it('stops a task run before reviewer execution when the user pivots after the doer turn', async () => {
+    const dir = await createWorkspaceWithAgents([
+      localCliAgent('Doer', 'Doer'),
+      localCliAgent('Reviewer', 'Reviewer')
+    ]);
+    vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValue('Doer output');
+    let shouldInterrupt = false;
+
+    const engine = new DiscussionEngine(dir);
+    const result = await engine.runCodingTask(
+      'task-100',
+      'Test task',
+      'Original task',
+      'Doer',
+      ['Reviewer'],
+      2,
+      {
+        onEvent: event => {
+          if (event.type === 'message_completed' && event.message.agentName === 'Doer') {
+            shouldInterrupt = true;
+          }
+        },
+        taskType: 'general',
+        getInterruptMessage: () => shouldInterrupt ? 'Pivot the task before review.' : null
+      }
+    );
+
+    expect(result.status).toBe('interrupted');
+    expect(result.messages.map(message => message.agentName)).toEqual(['You', 'Doer', 'You']);
+    expect(result.messages.at(-1)?.content).toContain('Pivot the task before review.');
+    expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
   });
 });

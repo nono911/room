@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runScan: (dirPath, mainAgent, modelName, allowDangerousCli) => ipcRenderer.invoke('run-scan', { dirPath, mainAgent, modelName, allowDangerousCli }),
   runDiscussion: (dirPath, topic, agentNames, options = {}) => ipcRenderer.invoke('run-discussion', { dirPath, topic, agentNames, ...options }),
   runTask: (dirPath, task, options = {}) => ipcRenderer.invoke('run-task', { dirPath, task, ...options }),
+  interruptRun: (runId, message) => ipcRenderer.invoke('interrupt-run', { runId, message }),
   summarizeDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('summarize-discussion', { dirPath, discussionId, ...options }),
   generateTasksFromDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('generate-tasks-from-discussion', { dirPath, discussionId, ...options }),
   loadTaskBoard: (dirPath) => ipcRenderer.invoke('load-task-board', { dirPath }),

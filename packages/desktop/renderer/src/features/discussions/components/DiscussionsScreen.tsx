@@ -38,11 +38,17 @@ interface DiscussionsScreenProps {
   projectConfig: { mainAgent: string };
   userInputTopic: string;
   setUserInputTopic: (value: string) => void;
+  activeDiscussionRunId: string | null;
+  discussionInterruptMessage: string;
+  setDiscussionInterruptMessage: (value: string) => void;
+  discussionInterruptPending: boolean;
+  interruptActiveDiscussion: () => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   handleSendDiscussion: () => void;
   lastDiscussionLog: any;
   saveDiscussionOutput: (target: 'documents' | 'tasks') => void;
   generateTasksFromActiveDiscussion: () => void;
+  continueActiveDiscussionFromPivot: () => void;
   showInspector: boolean;
   setShowInspector: React.Dispatch<React.SetStateAction<boolean>>;
 }
@@ -89,11 +95,17 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   projectConfig,
   userInputTopic,
   setUserInputTopic,
+  activeDiscussionRunId,
+  discussionInterruptMessage,
+  setDiscussionInterruptMessage,
+  discussionInterruptPending,
+  interruptActiveDiscussion,
   handleKeyDown,
   handleSendDiscussion,
   lastDiscussionLog,
   saveDiscussionOutput,
   generateTasksFromActiveDiscussion,
+  continueActiveDiscussionFromPivot,
   showInspector,
   setShowInspector
 }) => {
@@ -118,6 +130,14 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   const openDocumentFromBubble = async (filename: string) => {
     await loadRoomFilePreview('documents', filename);
     setActiveTab('Documents');
+  };
+
+  const formatMetric = (value: unknown) => typeof value === 'number' ? value.toLocaleString() : '0';
+  const getTraceLabel = (message: any) => {
+    if (message.type === 'user') {
+      return String(message.content || '').startsWith('Interrupt & Pivot:') ? 'Human interrupt' : 'User prompt';
+    }
+    return `${message.agentName} response`;
   };
 
   return (
@@ -255,12 +275,21 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
         ) : (
           (projectData?.agents || []).map((agent: any) => {
-            const isSelected = selectedDiscussionAgents.includes(agent.name);
+            const agentIndex = selectedDiscussionAgents.indexOf(agent.name);
+            const isSelected = agentIndex !== -1;
             return (
               <label 
                 key={agent.name} 
                 className={`skill-checkbox-chip ${isSelected ? 'selected' : ''}`}
-                style={{ fontSize: '0.75rem', padding: '4px 12px', borderRadius: '16px' }}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer'
+                }}
               >
                 <input 
                   type="checkbox"
@@ -273,13 +302,202 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                     );
                   }}
                 />
-                {isSelected ? '✓ ' : '+ '}
+                {isSelected ? (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'hsl(var(--accent-purple))',
+                    color: 'white',
+                    borderRadius: '50%',
+                    width: '15px',
+                    height: '15px',
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    marginRight: '2px',
+                    lineHeight: 1
+                  }}>
+                    {agentIndex + 1}
+                  </span>
+                ) : '+ '}
                 {agent.name}
               </label>
             );
           })
         )}
       </div>
+
+      {/* Workflow Sequence */}
+      {selectedDiscussionAgents.length > 0 && (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          padding: '14px 16px',
+          background: 'linear-gradient(135deg, hsl(var(--bg-sidebar)) 0%, hsl(var(--bg-card)) 100%)',
+          borderRadius: '12px',
+          border: '1px solid hsl(var(--border-dim))',
+          marginTop: '8px',
+          marginBottom: '8px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+          position: 'relative'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase' }}>
+              Discussion Workflow Sequence (Order: 1 ➔ 2 ➔ 3):
+            </span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setSelectedDiscussionAgents([])}
+              style={{ padding: '3px 8px', fontSize: '0.68rem', height: 'auto', borderRadius: '4px' }}
+            >
+              Clear Workflow
+            </button>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            marginTop: '2px'
+          }}>
+            {selectedDiscussionAgents.map((agentName, index) => {
+              const isFirst = index === 0;
+              const isLast = index === selectedDiscussionAgents.length - 1;
+              return (
+                <React.Fragment key={agentName}>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: 'hsl(var(--bg-input))',
+                      border: '1px solid hsl(var(--accent-purple) / 0.3)',
+                      borderRadius: '8px',
+                      padding: '6px 12px',
+                      fontSize: '0.78rem',
+                      color: 'white',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)'
+                    }}
+                  >
+                    {/* Index badge */}
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'hsl(var(--accent-purple))',
+                      color: 'white',
+                      fontSize: '0.68rem',
+                      fontWeight: 700
+                    }}>
+                      {index + 1}
+                    </span>
+
+                    <span style={{ fontWeight: 500 }}>{agentName}</span>
+
+                    {/* Move controls */}
+                    <div style={{ display: 'inline-flex', gap: '4px', marginLeft: '6px', borderLeft: '1px solid hsl(var(--border-dim))', paddingLeft: '6px' }}>
+                      <button
+                        type="button"
+                        disabled={isFirst}
+                        onClick={() => {
+                          setSelectedDiscussionAgents(prev => {
+                            const next = [...prev];
+                            const temp = next[index];
+                            next[index] = next[index - 1];
+                            next[index - 1] = temp;
+                            return next;
+                          });
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: isFirst ? 'hsl(var(--text-muted) / 0.3)' : 'hsl(var(--text-secondary))',
+                          cursor: isFirst ? 'default' : 'pointer',
+                          padding: '2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.75rem'
+                        }}
+                        title="Move Up/Left"
+                      >
+                        ◀
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isLast}
+                        onClick={() => {
+                          setSelectedDiscussionAgents(prev => {
+                            const next = [...prev];
+                            const temp = next[index];
+                            next[index] = next[index + 1];
+                            next[index + 1] = temp;
+                            return next;
+                          });
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: isLast ? 'hsl(var(--text-muted) / 0.3)' : 'hsl(var(--text-secondary))',
+                          cursor: isLast ? 'default' : 'pointer',
+                          padding: '2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.75rem'
+                        }}
+                        title="Move Down/Right"
+                      >
+                        ▶
+                      </button>
+                    </div>
+
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDiscussionAgents(prev => prev.filter(name => name !== agentName));
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'hsl(var(--text-muted))',
+                        cursor: 'pointer',
+                        padding: '0 2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        marginLeft: '2px'
+                      }}
+                      title="Remove from workflow"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {!isLast && (
+                    <span style={{
+                      color: 'hsl(var(--accent-purple) / 0.5)',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      userSelect: 'none'
+                    }}>
+                      ➔
+                    </span>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '10px 16px', background: 'hsl(var(--bg-input))', borderRadius: '8px', border: '1px solid hsl(var(--border-dim))', marginBottom: '8px', alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
@@ -383,6 +601,42 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         </button>
       </div>
 
+      {loading && activeDiscussionRunId && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'center', marginTop: '10px', padding: '10px 12px', background: 'hsl(var(--accent-orange) / 0.08)', border: '1px solid hsl(var(--accent-orange) / 0.38)', borderRadius: '8px' }}>
+          <input
+            type="text"
+            value={discussionInterruptMessage}
+            onChange={(e) => setDiscussionInterruptMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && discussionInterruptMessage.trim() && !discussionInterruptPending) {
+                interruptActiveDiscussion();
+              }
+            }}
+            disabled={discussionInterruptPending}
+            placeholder="Interrupt & Pivot: tell the room what to change after the current agent finishes..."
+            style={{
+              minWidth: 0,
+              backgroundColor: 'hsl(var(--bg-input))',
+              border: '1px solid hsl(var(--border-dim))',
+              borderRadius: '6px',
+              padding: '9px 12px',
+              color: 'white',
+              fontFamily: 'inherit',
+              outline: 'none'
+            }}
+          />
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={discussionInterruptPending || !discussionInterruptMessage.trim()}
+            onClick={interruptActiveDiscussion}
+            style={{ padding: '9px 12px', fontSize: '0.78rem', borderColor: 'hsl(var(--accent-orange) / 0.55)' }}
+          >
+            {discussionInterruptPending ? 'Interrupting...' : 'Interrupt & Pivot'}
+          </button>
+        </div>
+      )}
+
       {lastDiscussionLog && !loading && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', justifyContent: 'flex-end', marginTop: '12px' }}>
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginRight: '4px' }}>
@@ -397,6 +651,11 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           <button className="btn-secondary" type="button" onClick={generateTasksFromActiveDiscussion} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
             Generate Tasks (AI)
           </button>
+          {lastDiscussionLog.status === 'interrupted' && (
+            <button className="btn-secondary" type="button" onClick={continueActiveDiscussionFromPivot} style={{ padding: '8px 12px', fontSize: '0.78rem', borderColor: 'hsl(var(--accent-orange) / 0.55)' }}>
+              Continue from Pivot
+            </button>
+          )}
           <button className="btn-secondary" type="button" onClick={() => setShowInspector(prev => !prev)} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
             {showInspector ? 'Hide Inspector' : 'Inspector'}
           </button>
@@ -406,13 +665,17 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
       {showInspector && lastDiscussionLog && !loading && (
         <div style={{ marginTop: '12px', background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '8px', padding: '14px 16px', maxHeight: '320px', overflowY: 'auto' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>
-            Discussion Inspector — who used what
+            Discussion Inspector — context and trace
           </div>
           {(lastDiscussionLog.messages || []).map((message: any, index: number) => {
+            const metrics = message.contextMetrics;
+            const estimatedTokens = metrics
+              ? (metrics.estimatedHistoryTokens || 0) + (metrics.estimatedProjectContextTokens || 0)
+              : 0;
             if (message.type === 'user') {
               return (
-                <div key={index} style={{ fontSize: '0.85rem', fontWeight: 600, padding: '4px 0' }}>
-                  ● {message.agentName} (user)
+                <div key={index} style={{ fontSize: '0.85rem', fontWeight: 600, padding: '5px 0' }}>
+                  {index + 1}. {getTraceLabel(message)}
                 </div>
               );
             }
@@ -421,8 +684,19 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
             return (
               <div key={index} style={{ marginLeft: '14px', padding: '4px 0' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                  {message.agentName} ({message.providerName})
+                  {index + 1}. {message.agentName} ({message.providerName})
                 </div>
+                {metrics && (
+                  <div style={{ marginLeft: '14px', display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>
+                    <span>~{estimatedTokens.toLocaleString()} tokens</span>
+                    <span>history {formatMetric(metrics.estimatedHistoryTokens)}/{formatMetric(metrics.maxHistoryTokens)}</span>
+                    <span>project {formatMetric(metrics.estimatedProjectContextTokens)}/{formatMetric(metrics.maxProjectContextTokens)}</span>
+                    <span>{metrics.includedMessageCount || contextCount}/{metrics.totalLogMessages || contextCount} messages</span>
+                    {metrics.omittedMessageCount > 0 && <span>{metrics.omittedMessageCount} omitted</span>}
+                    {metrics.summaryUsed && <span>summary used</span>}
+                    {metrics.projectContextTrimmed && <span>project trimmed</span>}
+                  </div>
+                )}
                 {refs.length > 0 ? (
                   refs.map((ref: any, refIndex: number) => (
                     <div key={refIndex} style={{ marginLeft: '14px', fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>

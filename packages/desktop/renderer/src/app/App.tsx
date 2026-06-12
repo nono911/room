@@ -82,7 +82,12 @@ export default function App() {
     openRounds, setOpenRounds,
     expandedMsgKeys, setExpandedMsgKeys,
     setLastMaxRound,
+    activeTaskRunId,
+    taskInterruptMessage, setTaskInterruptMessage,
+    taskInterruptPending,
     handleRunCodingTask,
+    interruptActiveTaskRun,
+    continueTaskRunFromPivot,
     applyTaskTypePreset
   } = useTaskRun({
     projectPath,
@@ -108,6 +113,9 @@ export default function App() {
     highlightedDiscussionMessage,
     userInputTopic, setUserInputTopic,
     discussionMessages,
+    activeDiscussionRunId,
+    discussionInterruptMessage, setDiscussionInterruptMessage,
+    discussionInterruptPending,
     resetDiscussion,
     selectDefaultDiscussionAgents,
     scrollToDiscussionMessage,
@@ -117,6 +125,8 @@ export default function App() {
     saveDiscussionOutput,
     summarizeActiveDiscussion,
     generateTasksFromActiveDiscussion,
+    continueActiveDiscussionFromPivot,
+    interruptActiveDiscussion,
     handleSendDiscussion,
     handleKeyDown
   } = useDiscussion({
@@ -601,11 +611,17 @@ export default function App() {
                     projectConfig={projectConfig}
                     userInputTopic={userInputTopic}
                     setUserInputTopic={setUserInputTopic}
+                    activeDiscussionRunId={activeDiscussionRunId}
+                    discussionInterruptMessage={discussionInterruptMessage}
+                    setDiscussionInterruptMessage={setDiscussionInterruptMessage}
+                    discussionInterruptPending={discussionInterruptPending}
+                    interruptActiveDiscussion={interruptActiveDiscussion}
                     handleKeyDown={handleKeyDown}
                     handleSendDiscussion={handleSendDiscussion}
                     lastDiscussionLog={lastDiscussionLog}
                     saveDiscussionOutput={saveDiscussionOutput}
                     generateTasksFromActiveDiscussion={generateTasksFromActiveDiscussion}
+                    continueActiveDiscussionFromPivot={continueActiveDiscussionFromPivot}
                     showInspector={showInspector}
                     setShowInspector={setShowInspector}
                     codingTaskMessages={codingTaskMessages}
@@ -629,6 +645,12 @@ export default function App() {
                     setOpenRounds={setOpenRounds}
                     expandedMsgKeys={expandedMsgKeys}
                     setExpandedMsgKeys={setExpandedMsgKeys}
+                    activeTaskRunId={activeTaskRunId}
+                    taskInterruptMessage={taskInterruptMessage}
+                    setTaskInterruptMessage={setTaskInterruptMessage}
+                    taskInterruptPending={taskInterruptPending}
+                    interruptActiveTaskRun={interruptActiveTaskRun}
+                    continueTaskRunFromPivot={continueTaskRunFromPivot}
                     taskRunView={taskRunView}
                     setTaskRunView={setTaskRunView}
                     handleUpdateProjectConfig={handleUpdateProjectConfig}

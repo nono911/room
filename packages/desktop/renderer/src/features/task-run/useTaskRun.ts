@@ -34,6 +34,9 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
   const [openRounds, setOpenRounds] = useState<Record<number, boolean>>({});
   const [expandedMsgKeys, setExpandedMsgKeys] = useState<Record<string, boolean>>({});
   const [lastMaxRound, setLastMaxRound] = useState<number>(-1);
+  const [activeTaskRunId, setActiveTaskRunId] = useState<string | null>(null);
+  const [taskInterruptMessage, setTaskInterruptMessage] = useState<string>('');
+  const [taskInterruptPending, setTaskInterruptPending] = useState<boolean>(false);
 
   // Auto-expand the newest cycle when a new one starts
   const maxRound = codingTaskMessages.length > 0 ? Math.max(...codingTaskMessages.map(m => m.round ?? 0)) : 0;
@@ -50,6 +53,9 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     setExpandedMsgKeys({});
     setLastMaxRound(-1);
     setLastCodingTaskResult(null);
+    setActiveTaskRunId(null);
+    setTaskInterruptMessage('');
+    setTaskInterruptPending(false);
   };
 
   const handleRunCodingTask = async () => {
@@ -91,6 +97,11 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     const messageId = (taskId: string, round: number, agentName: string) => `${taskId}:${round}:${agentName}`;
     const unsubscribe = api.onDiscussionEvent((event) => {
       if (!event.discussionId.startsWith('task-')) return;
+
+      if (event.type === 'discussion_started') {
+        setActiveTaskRunId(event.discussionId);
+        return;
+      }
 
       if (event.type === 'agent_started') {
         const id = messageId(event.discussionId, event.round, event.agentName);
@@ -141,6 +152,13 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
       if (event.type === 'message_completed') {
         const id = messageId(event.discussionId, event.round, event.message.agentName);
         const contextCount = event.message.contextMessages?.length || 0;
+        const contextMetrics = event.message.contextMetrics;
+        const estimatedTokens = contextMetrics
+          ? (contextMetrics.estimatedHistoryTokens || 0) + (contextMetrics.estimatedProjectContextTokens || 0)
+          : 0;
+        const contextSummary = contextMetrics
+          ? `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'} • ~${estimatedTokens.toLocaleString()} tokens${contextMetrics.summaryUsed ? ' • summary used' : ''}`
+          : `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`;
         setCodingTaskMessages(prev => {
           let found = false;
           const updated = prev.map(msg => {
@@ -153,7 +171,8 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
               streaming: false,
               progressStep: undefined,
               round: event.round,
-              contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
+              contextSummary,
+              contextMetrics
             };
           });
           if (found) return updated;
@@ -168,7 +187,8 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
               streaming: false,
               progressStep: undefined,
               round: event.round,
-              contextSummary: `Cycle ${event.round} • Context: ${contextCount} prior message${contextCount === 1 ? '' : 's'}`
+              contextSummary,
+              contextMetrics
             }
           ];
         });
@@ -180,7 +200,39 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
         return;
       }
 
+      if (event.type === 'discussion_interrupted') {
+        const round = event.message.round ?? 0;
+        setCodingTaskMessages(prev => [
+          ...prev,
+          {
+            id: `${event.discussionId}:interrupt`,
+            author: event.message.agentName,
+            role: 'user',
+            time: event.message.timestamp,
+            text: event.message.content,
+            round
+          },
+          {
+            author: 'System Engine',
+            role: 'system',
+            time: new Date().toLocaleTimeString(),
+            text: 'Interrupted after the current agent turn. Adjust the task direction before running another pass.',
+            round
+          }
+        ]);
+        setTaskInterruptPending(false);
+        return;
+      }
+
+      if (event.type === 'discussion_completed') {
+        setActiveTaskRunId(null);
+        setTaskInterruptPending(false);
+        return;
+      }
+
       if (event.type === 'discussion_failed') {
+        setActiveTaskRunId(null);
+        setTaskInterruptPending(false);
         setErrorMsg(event.error);
       }
     });
@@ -208,7 +260,9 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
           round: res.result.cycles,
           text: res.result.status === 'approved'
             ? `Task approved after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}. Artifact: ${res.result.artifactFilename || 'none'}`
-            : `Task still needs revision after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}. Artifact: ${res.result.artifactFilename || 'none'}`
+            : res.result.status === 'interrupted'
+              ? `Task interrupted after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}.`
+              : `Task still needs revision after ${res.result.cycles} cycle(s). Transcript: ${res.result.markdownFilename}. Artifact: ${res.result.artifactFilename || 'none'}`
         }
       ]);
       await loadProjectData(projectPath);
@@ -216,8 +270,43 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
       setErrorMsg(err.message || 'Failed to run task.');
     } finally {
       unsubscribe();
+      setActiveTaskRunId(null);
+      setTaskInterruptPending(false);
       setLoading(false);
     }
+  };
+
+  const interruptActiveTaskRun = async () => {
+    if (!activeTaskRunId || !taskInterruptMessage.trim()) return;
+    setErrorMsg(null);
+    setTaskInterruptPending(true);
+    try {
+      const res = await api.interruptRun(activeTaskRunId, taskInterruptMessage);
+      if (!res.success) {
+        setErrorMsg(res.error || 'Failed to interrupt the active task run.');
+        setTaskInterruptPending(false);
+        return;
+      }
+      setTaskInterruptMessage('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to interrupt the active task run.');
+      setTaskInterruptPending(false);
+    }
+  };
+
+  const continueTaskRunFromPivot = () => {
+    if (!lastCodingTaskResult || lastCodingTaskResult.status !== 'interrupted') return;
+    const messages = Array.isArray(lastCodingTaskResult.messages) ? lastCodingTaskResult.messages : [];
+    const pivotMessage = [...messages]
+      .reverse()
+      .find((message: any) => message.type === 'user' && String(message.content || '').startsWith('Interrupt & Pivot:'));
+    const pivotText = String(pivotMessage?.content || '').replace(/^Interrupt & Pivot:\s*/i, '').trim();
+    const originalTask = String(lastCodingTaskResult.task || '').trim();
+    setCodingTaskInput([
+      originalTask ? `Original task:\n${originalTask}` : '',
+      pivotText ? `Interrupt & Pivot direction:\n${pivotText}` : 'Continue from the Interrupt & Pivot direction above.'
+    ].filter(Boolean).join('\n\n'));
+    setTaskRunView('setup');
   };
 
   const applyTaskTypePreset = (taskType: string) => {
@@ -289,7 +378,12 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     openRounds, setOpenRounds,
     expandedMsgKeys, setExpandedMsgKeys,
     lastMaxRound, setLastMaxRound,
+    activeTaskRunId,
+    taskInterruptMessage, setTaskInterruptMessage,
+    taskInterruptPending,
     handleRunCodingTask,
+    interruptActiveTaskRun,
+    continueTaskRunFromPivot,
     applyTaskTypePreset,
     resetTaskRun
   };

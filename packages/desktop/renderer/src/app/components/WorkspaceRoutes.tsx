@@ -108,11 +108,17 @@ interface WorkspaceRoutesProps {
   projectConfig: any;
   userInputTopic: string;
   setUserInputTopic: (value: string) => void;
+  activeDiscussionRunId: string | null;
+  discussionInterruptMessage: string;
+  setDiscussionInterruptMessage: (value: string) => void;
+  discussionInterruptPending: boolean;
+  interruptActiveDiscussion: () => void;
   handleKeyDown: (event: any) => void;
   handleSendDiscussion: () => void;
   lastDiscussionLog: string;
   saveDiscussionOutput: any;
   generateTasksFromActiveDiscussion: () => void;
+  continueActiveDiscussionFromPivot: () => void;
   showInspector: boolean;
   setShowInspector: any;
   codingTaskMessages: any[];
@@ -136,6 +142,12 @@ interface WorkspaceRoutesProps {
   setOpenRounds: (value: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void;
   expandedMsgKeys: Record<string, boolean>;
   setExpandedMsgKeys: (value: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void;
+  activeTaskRunId: string | null;
+  taskInterruptMessage: string;
+  setTaskInterruptMessage: (value: string) => void;
+  taskInterruptPending: boolean;
+  interruptActiveTaskRun: () => void;
+  continueTaskRunFromPivot: () => void;
   taskRunView: any;
   setTaskRunView: (value: any) => void;
   handleUpdateProjectConfig: any;
@@ -242,11 +254,17 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     projectConfig,
     userInputTopic,
     setUserInputTopic,
+    activeDiscussionRunId,
+    discussionInterruptMessage,
+    setDiscussionInterruptMessage,
+    discussionInterruptPending,
+    interruptActiveDiscussion,
     handleKeyDown,
     handleSendDiscussion,
     lastDiscussionLog,
     saveDiscussionOutput,
     generateTasksFromActiveDiscussion,
+    continueActiveDiscussionFromPivot,
     showInspector,
     setShowInspector,
     codingTaskMessages,
@@ -270,6 +288,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setOpenRounds,
     expandedMsgKeys,
     setExpandedMsgKeys,
+    activeTaskRunId,
+    taskInterruptMessage,
+    setTaskInterruptMessage,
+    taskInterruptPending,
+    interruptActiveTaskRun,
+    continueTaskRunFromPivot,
     taskRunView,
     setTaskRunView,
     handleUpdateProjectConfig,
@@ -320,11 +344,17 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         projectConfig={projectConfig}
         userInputTopic={userInputTopic}
         setUserInputTopic={setUserInputTopic}
+        activeDiscussionRunId={activeDiscussionRunId}
+        discussionInterruptMessage={discussionInterruptMessage}
+        setDiscussionInterruptMessage={setDiscussionInterruptMessage}
+        discussionInterruptPending={discussionInterruptPending}
+        interruptActiveDiscussion={interruptActiveDiscussion}
         handleKeyDown={handleKeyDown}
         handleSendDiscussion={handleSendDiscussion}
         lastDiscussionLog={lastDiscussionLog}
         saveDiscussionOutput={saveDiscussionOutput}
         generateTasksFromActiveDiscussion={generateTasksFromActiveDiscussion}
+        continueActiveDiscussionFromPivot={continueActiveDiscussionFromPivot}
         showInspector={showInspector}
         setShowInspector={setShowInspector}
       />
@@ -363,6 +393,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setOpenRounds={setOpenRounds}
         expandedMsgKeys={expandedMsgKeys}
         setExpandedMsgKeys={setExpandedMsgKeys}
+        activeTaskRunId={activeTaskRunId}
+        taskInterruptMessage={taskInterruptMessage}
+        setTaskInterruptMessage={setTaskInterruptMessage}
+        taskInterruptPending={taskInterruptPending}
+        interruptActiveTaskRun={interruptActiveTaskRun}
+        continueTaskRunFromPivot={continueTaskRunFromPivot}
         scrollToDiscussionMessage={scrollToDiscussionMessage}
         setActiveTab={setActiveTab}
         loadRoomFilePreview={loadRoomFilePreview}
