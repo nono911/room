@@ -1,0 +1,52 @@
+{
+  "sheet": "/assets/pixel-scenes/room-office-scenes-sheet.png",
+  "sourceGrid": {
+    "columns": 4,
+    "rows": 2
+  },
+  "sceneWidth": 418,
+  "sceneHeight": 468,
+  "style": "modern pixel-art office backgrounds",
+  "scenes": [
+    {
+      "id": "team_workspace",
+      "title": "Team Workspace",
+      "image": "/assets/pixel-scenes/01-team_workspace.png"
+    },
+    {
+      "id": "focus_pod",
+      "title": "Focus Pod",
+      "image": "/assets/pixel-scenes/02-focus_pod.png"
+    },
+    {
+      "id": "review_room",
+      "title": "Review Room",
+      "image": "/assets/pixel-scenes/03-review_room.png"
+    },
+    {
+      "id": "standup_area",
+      "title": "Standup Area",
+      "image": "/assets/pixel-scenes/04-standup_area.png"
+    },
+    {
+      "id": "research_library",
+      "title": "Research Library",
+      "image": "/assets/pixel-scenes/05-research_library.png"
+    },
+    {
+      "id": "data_lab",
+      "title": "Data Lab",
+      "image": "/assets/pixel-scenes/06-data_lab.png"
+    },
+    {
+      "id": "design_studio",
+      "title": "Design Studio",
+      "image": "/assets/pixel-scenes/07-design_studio.png"
+    },
+    {
+      "id": "presentation_room",
+      "title": "Presentation Room",
+      "image": "/assets/pixel-scenes/08-presentation_room.png"
+    }
+  ]
+}

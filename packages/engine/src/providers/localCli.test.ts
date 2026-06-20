@@ -43,6 +43,15 @@ describe('LocalCliProvider JSON stream parsing', () => {
     ])).toBe('CodeWhale answer.');
   });
 
+  it('extracts CodeWhale content events without leaking session metadata', () => {
+    expect(parseOutput('codewhale', [
+      '{"type":"content","content":"CodeWhale answer."}',
+      '{"type":"session_capture","content":"528a822c-7be8-44e3-a125-f68965dbf779"}',
+      '{"type":"metadata","meta":{"status":"completed"}}',
+      '{"type":"done"}'
+    ])).toBe('CodeWhale answer.');
+  });
+
   it('extracts Copilot message deltas', () => {
     expect(parseOutput('copilot', [
       '{"type":"metadata","id":"run-1"}',

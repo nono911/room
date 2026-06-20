@@ -2,6 +2,7 @@ import React from 'react';
 import type { ProjectData, UIMessage } from '../../../types/domain.js';
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { ContextControl } from '../../../components/context/ContextControl.js';
+import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
 
 interface DiscussionsScreenProps {
   projectData: ProjectData | null;
@@ -109,6 +110,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   showInspector,
   setShowInspector
 }) => {
+  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
   const getAlignment = (role: string, idx: number) => {
     if (role === 'system') return 'center';
     if (role.includes('architect')) return 'flex-start';
@@ -126,6 +128,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
       }
     })
     .sort((a, b) => b.localeCompare(a));
+  const activeDiscussionFile = discussionFiles.find(file => getDiscussionIdFromFile(file) === activeDiscussionId) || '';
 
   const openDocumentFromBubble = async (filename: string) => {
     await loadRoomFilePreview('documents', filename);
@@ -142,63 +145,55 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px 16px', background: 'hsl(var(--bg-sidebar))', borderRadius: '12px', border: '1px solid hsl(var(--border-dim))', marginBottom: '18px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-          <div>
-            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', fontWeight: 700, textTransform: 'uppercase' }}>
-              Chat History
-            </div>
-            <div style={{ fontSize: '0.76rem', color: 'hsl(var(--text-secondary))', marginTop: '3px' }}>
-              {activeDiscussionId ? `Continuing ${activeDiscussionId}` : 'New chat'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button className="btn-secondary" type="button" onClick={summarizeActiveDiscussion} disabled={loading || !activeDiscussionId} style={{ padding: '7px 12px', fontSize: '0.78rem' }}>
-              Summarize Chat
-            </button>
-            <button className="btn-secondary" type="button" onClick={startNewDiscussion} disabled={loading} style={{ padding: '7px 12px', fontSize: '0.78rem' }}>
-              New Chat
-            </button>
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '74px', overflowY: 'auto' }}>
-          {discussionFiles.length === 0 ? (
-            <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-muted))' }}>No saved chats yet.</span>
-          ) : (
-            discussionFiles.slice(0, 12).map(file => {
-              const discussionId = getDiscussionIdFromFile(file);
-              const selected = activeDiscussionId === discussionId;
-              return (
-                <button
-                  key={file}
-                  type="button"
-                  className="btn-secondary"
-                  disabled={loading}
-                  onClick={() => loadDiscussionSession(file)}
-                  title={file}
-                  style={{
-                    padding: '5px 10px',
-                    fontSize: '0.72rem',
-                    height: 'auto',
-                    borderRadius: '14px',
-                    maxWidth: '240px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    borderColor: selected ? 'hsl(var(--accent-purple))' : undefined,
-                    background: selected ? 'hsl(var(--accent-purple) / 0.14)' : undefined
-                  }}
-                >
-                  {selected ? '✓ ' : ''}
-                  {file}
-                </button>
-              );
-            })
-          )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+        <select
+          value={activeDiscussionFile}
+          onChange={(e) => {
+            if (e.target.value) loadDiscussionSession(e.target.value);
+          }}
+          disabled={loading || discussionFiles.length === 0}
+          title={activeDiscussionId ? `Continuing ${activeDiscussionId}` : 'New chat'}
+          style={{
+            minWidth: 0,
+            height: '34px',
+            backgroundColor: 'hsl(var(--bg-input))',
+            border: '1px solid hsl(var(--border-dim))',
+            borderRadius: '6px',
+            padding: '0 10px',
+            color: activeDiscussionFile ? 'white' : 'hsl(var(--text-muted))',
+            fontFamily: 'inherit',
+            fontSize: '0.76rem',
+            outline: 'none'
+          }}
+        >
+          <option value="">{discussionFiles.length === 0 ? 'No saved chats yet' : 'New chat'}</option>
+          {discussionFiles.map(file => (
+            <option key={file} value={file}>{file}</option>
+          ))}
+        </select>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button className="btn-secondary" type="button" onClick={summarizeActiveDiscussion} disabled={loading || !activeDiscussionId} style={{ padding: '7px 12px', fontSize: '0.78rem' }}>
+            Summarize Chat
+          </button>
+          <button className="btn-secondary" type="button" onClick={startNewDiscussion} disabled={loading} style={{ padding: '7px 12px', fontSize: '0.78rem' }}>
+            New Chat
+          </button>
         </div>
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {discussionMessages.length === 0 ? (
+        <PixelAgentStage
+          title="Discussion room"
+          agents={projectData?.agents || []}
+          selectedAgentNames={selectedDiscussionAgents}
+          messages={discussionMessages}
+          loading={loading}
+          activeRunId={activeDiscussionRunId}
+          fill={pixelAgentViewMode === 'animated'}
+          viewMode={pixelAgentViewMode}
+          onViewModeChange={setPixelAgentViewMode}
+        />
+
+        {pixelAgentViewMode === 'classic' && discussionMessages.length === 0 && (
           <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
             <div style={{ color: 'white', fontWeight: 700 }}>Start with a question, plan, or review request.</div>
             <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
@@ -208,7 +203,9 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
               Add Context
             </button>
           </div>
-        ) : discussionMessages.map((msg, idx) => {
+        )}
+
+        {pixelAgentViewMode === 'classic' && discussionMessages.length > 0 && discussionMessages.map((msg, idx) => {
           const alignment = getAlignment(msg.role, idx);
           const savedDocumentFilename = msg.role === 'system' ? getSavedDocumentFilename(msg.text) : null;
           return (

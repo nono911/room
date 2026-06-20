@@ -1,0 +1,21 @@
+{
+  "name": "meeting-room-stage-v2",
+  "width": 1672,
+  "height": 941,
+  "background": "/assets/pixel-meeting-rooms/meeting-room-stage-v2.png",
+  "foreground": "/assets/pixel-meeting-rooms/meeting-room-stage-v2-foreground.png",
+  "anchors": [
+    { "id": "seated_back_1", "x": 33, "y": 58, "scale": 1.18, "facing": 1, "pose": "sit", "z": 520 },
+    { "id": "seated_back_2", "x": 44, "y": 58, "scale": 1.18, "facing": -1, "pose": "sit", "z": 522 },
+    { "id": "seated_back_3", "x": 56, "y": 58, "scale": 1.18, "facing": 1, "pose": "sit", "z": 524 },
+    { "id": "seated_back_4", "x": 67, "y": 58, "scale": 1.18, "facing": -1, "pose": "sit", "z": 526 },
+    { "id": "seated_front_1", "x": 31, "y": 77, "scale": 1.34, "facing": 1, "pose": "sit", "z": 652 },
+    { "id": "seated_front_2", "x": 42, "y": 79, "scale": 1.38, "facing": -1, "pose": "sit", "z": 654 },
+    { "id": "seated_front_3", "x": 56, "y": 79, "scale": 1.38, "facing": 1, "pose": "sit", "z": 656 },
+    { "id": "seated_front_4", "x": 69, "y": 77, "scale": 1.34, "facing": -1, "pose": "sit", "z": 658 },
+    { "id": "standing_left", "x": 23, "y": 67, "scale": 1.2, "facing": 1, "pose": "stand", "z": 610 },
+    { "id": "standing_right", "x": 79, "y": 67, "scale": 1.2, "facing": -1, "pose": "stand", "z": 612 },
+    { "id": "presenter_left", "x": 73, "y": 47, "scale": 1.05, "facing": -1, "pose": "stand", "z": 500 },
+    { "id": "presenter_right", "x": 85, "y": 56, "scale": 1.08, "facing": -1, "pose": "stand", "z": 560 }
+  ]
+}

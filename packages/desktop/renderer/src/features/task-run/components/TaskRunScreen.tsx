@@ -2,6 +2,7 @@ import React from 'react';
 import type { ProjectData, UIMessage } from '../../../types/domain.js';
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { ContextControl } from '../../../components/context/ContextControl.js';
+import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
 
 interface TaskRunScreenProps {
   projectData: ProjectData | null;
@@ -90,6 +91,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   taskRunView,
   setTaskRunView
 }) => {
+  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
   const agents = projectData?.agents || [];
   const savedTaskRuns = (projectData?.taskRuns || []).slice(0, 12);
   const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
@@ -110,6 +112,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   const selectedTaskTypeLabel = taskTypeOptions.find(option => option.value === taskRunType)?.label || 'Custom';
   const currentRunTitle = codingTaskInput.trim() || 'Draft run';
   const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0 && !selectedDoerNeedsWriteAccess;
+  const taskRunPixelAgents = [codingTaskDeveloperName, ...codingTaskReviewerNames].filter(Boolean);
   const taskRunTabs: Array<{ id: 'setup' | 'timeline' | 'artifact' | 'trace'; label: string; count?: number }> = [
     { id: 'setup', label: 'Setup' },
     { id: 'timeline', label: 'Timeline', count: codingTaskMessages.length || undefined },
@@ -772,6 +775,19 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
           ))}
         </div>
 
+        <PixelAgentStage
+          title="Task run office"
+          agents={agents}
+          selectedAgentNames={taskRunPixelAgents}
+          messages={codingTaskMessages}
+          loading={loading}
+          activeRunId={activeTaskRunId}
+          compact={taskRunView !== 'timeline'}
+          fill={taskRunView === 'timeline' && pixelAgentViewMode === 'animated'}
+          viewMode={pixelAgentViewMode}
+          onViewModeChange={setPixelAgentViewMode}
+        />
+
         {loading && activeTaskRunId && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'center', padding: '10px 12px', background: 'hsl(var(--accent-orange) / 0.08)', border: '1px solid hsl(var(--accent-orange) / 0.38)', borderRadius: '8px', flex: '0 0 auto' }}>
             <input
@@ -808,12 +824,14 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
-          {taskRunView === 'setup' && setupPanel}
-          {taskRunView === 'timeline' && timelinePanel}
-          {taskRunView === 'artifact' && artifactPanel}
-          {taskRunView === 'trace' && tracePanel}
-        </div>
+        {!(taskRunView === 'timeline' && pixelAgentViewMode === 'animated') && (
+          <div style={{ flex: 1, minHeight: 0, overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
+            {taskRunView === 'setup' && setupPanel}
+            {taskRunView === 'timeline' && timelinePanel}
+            {taskRunView === 'artifact' && artifactPanel}
+            {taskRunView === 'trace' && tracePanel}
+          </div>
+        )}
       </section>
     </div>
   );

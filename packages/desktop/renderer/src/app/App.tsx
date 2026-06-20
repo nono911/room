@@ -20,7 +20,6 @@ import { WorkspaceRoutes } from './components/WorkspaceRoutes.js';
 
 // Layout and Onboarding components
 import { Sidebar } from '../shared/components/Sidebar.js';
-import { ContextPanel } from '../shared/components/ContextPanel.js';
 import { ErrorBanner } from '../shared/components/ErrorBanner.js';
 import { SetupChecklist } from '../components/onboarding/SetupChecklist.js';
 import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
@@ -49,7 +48,6 @@ export default function App() {
     setErrorMsg
   });
 
-  const [showContextPanel, setShowContextPanel] = useState<boolean>(false);
   const [hasCompletedScan, setHasCompletedScan] = useState<boolean>(false);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
@@ -166,8 +164,7 @@ export default function App() {
     onboardingStep, setOnboardingStep,
     dismissedOnboarding,
     markOnboardingSeen,
-    resetOnboarding,
-    startOnboardingTour
+    resetOnboarding
   } = useOnboarding({
     projectPath,
     isRoomProject,
@@ -419,8 +416,7 @@ export default function App() {
         <div className="app-container" style={{
           gridTemplateColumns: [
             sidebarExpanded ? '240px' : '64px',
-            '1fr',
-            showContextPanel ? '340px' : ''
+            '1fr'
           ].filter(Boolean).join(' ')
         }}>
           {/* Left Sidebar */}
@@ -454,60 +450,7 @@ export default function App() {
               </div>
             ) : (
               <>
-                <header className="timeline-header">
-                  <div className="project-title-bar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>{activeTab}</h3>
-                      <span className="project-badge">Active Workspace</span>
-                    </div>
-                    {projectPath && (
-                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                        {projectPath}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-	                    <button
-	                      className="btn-secondary"
-	                      type="button"
-	                      onClick={startOnboardingTour}
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: '0.85rem',
-                        height: '36px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      ?
-                      Tour
-                    </button>
-                    <button 
-                      className="btn-secondary" 
-                      onClick={() => setShowContextPanel(!showContextPanel)} 
-                      style={{ 
-                        padding: '8px 14px', 
-                        fontSize: '0.85rem', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        height: '36px',
-                        borderColor: showContextPanel ? 'hsl(var(--accent-purple))' : undefined,
-                        background: showContextPanel ? 'hsl(var(--accent-purple) / 0.12)' : undefined,
-                        color: showContextPanel ? 'white' : undefined,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
-                      </svg>
-                      {showContextPanel ? 'Hide Context' : 'Show Context'}
-                    </button>
-                  </div>
-                </header>
-
-                <div style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
+                <div style={{ flex: 1, padding: '24px 32px 32px', overflowY: 'auto' }}>
                   <ErrorBanner errorMsg={errorMsg} onClear={() => setErrorMsg(null)} />
                   <SetupChecklist
                     dismissedOnboarding={dismissedOnboarding}
@@ -667,14 +610,6 @@ export default function App() {
               </>
             )}
           </main>
-
-          {/* Right Panel - Project Context */}
-          {showContextPanel && (
-            <ContextPanel
-              projectData={projectData}
-              setActiveTab={setActiveTab}
-            />
-          )}
         </div>
       )}
     </>

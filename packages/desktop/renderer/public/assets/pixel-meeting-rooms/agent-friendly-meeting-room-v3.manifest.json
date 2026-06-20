@@ -1,0 +1,35 @@
+{
+  "name": "agent-friendly-meeting-room-v3",
+  "width": 1536,
+  "height": 864,
+  "tileSize": 48,
+  "spriteFrame": {
+    "width": 32,
+    "height": 48
+  },
+  "background": "/assets/pixel-meeting-rooms/agent-friendly-meeting-room-v3.png",
+  "foreground": "/assets/pixel-meeting-rooms/agent-friendly-meeting-room-v3-foreground.png",
+  "walkLanes": [
+    { "id": "back_lane", "x1": 9, "y1": 47, "x2": 91, "y2": 55 },
+    { "id": "front_lane", "x1": 9, "y1": 78, "x2": 91, "y2": 89 },
+    { "id": "center_lane", "x1": 45, "y1": 50, "x2": 55, "y2": 90 }
+  ],
+  "anchors": [
+    { "id": "seat_back_1", "x": 29.3, "y": 53.5, "scale": 1.35, "facing": 1, "pose": "sit", "z": 510 },
+    { "id": "seat_back_2", "x": 40.2, "y": 53.5, "scale": 1.35, "facing": -1, "pose": "sit", "z": 512 },
+    { "id": "seat_back_3", "x": 50, "y": 53.5, "scale": 1.35, "facing": 1, "pose": "sit", "z": 514 },
+    { "id": "seat_back_4", "x": 60.9, "y": 53.5, "scale": 1.35, "facing": -1, "pose": "sit", "z": 516 },
+    { "id": "seat_back_5", "x": 71.5, "y": 53.5, "scale": 1.35, "facing": -1, "pose": "sit", "z": 518 },
+    { "id": "seat_front_1", "x": 28.9, "y": 80.5, "scale": 1.45, "facing": 1, "pose": "sit", "z": 720 },
+    { "id": "seat_front_2", "x": 40.4, "y": 80.7, "scale": 1.45, "facing": -1, "pose": "sit", "z": 722 },
+    { "id": "seat_front_3", "x": 50, "y": 80.8, "scale": 1.45, "facing": 1, "pose": "sit", "z": 724 },
+    { "id": "seat_front_4", "x": 61.5, "y": 80.7, "scale": 1.45, "facing": -1, "pose": "sit", "z": 726 },
+    { "id": "seat_front_5", "x": 72.3, "y": 80.5, "scale": 1.45, "facing": -1, "pose": "sit", "z": 728 },
+    { "id": "side_left", "x": 17.8, "y": 69.8, "scale": 1.38, "facing": 1, "pose": "stand", "z": 650 },
+    { "id": "side_right", "x": 82.2, "y": 69.8, "scale": 1.38, "facing": -1, "pose": "stand", "z": 650 },
+    { "id": "walk_left", "x": 13.7, "y": 74, "scale": 1.3, "facing": 1, "pose": "stand", "z": 690 },
+    { "id": "walk_right", "x": 86.3, "y": 74, "scale": 1.3, "facing": -1, "pose": "stand", "z": 690 },
+    { "id": "presenter_back", "x": 50, "y": 44, "scale": 1.22, "facing": 1, "pose": "stand", "z": 470 },
+    { "id": "center_walk", "x": 50, "y": 70, "scale": 1.38, "facing": -1, "pose": "stand", "z": 660 }
+  ]
+}

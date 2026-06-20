@@ -485,6 +485,9 @@ export class LocalCliProvider implements Provider {
       if (parsed.type === 'turn.failed') {
         return this.formatJsonError(parsed.error);
       }
+      if (parsed.type === 'content' && typeof parsed.content === 'string') {
+        return parsed.content;
+      }
 
       const assistantText = this.extractAssistantText(parsed)
         || (parsed.message && typeof parsed.message === 'object'

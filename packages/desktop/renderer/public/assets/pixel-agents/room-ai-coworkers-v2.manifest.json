@@ -1,0 +1,196 @@
+{
+  "image": "/assets/pixel-agents/room-ai-coworkers-v2.png",
+  "frameWidth": 32,
+  "frameHeight": 48,
+  "columns": [
+    "idle",
+    "thinking",
+    "typing",
+    "reviewing",
+    "approved",
+    "blocked",
+    "interrupted",
+    "presenting"
+  ],
+  "rows": [
+    "architect",
+    "developer",
+    "reviewer",
+    "moderator",
+    "researcher",
+    "analyst",
+    "designer",
+    "writer",
+    "legal",
+    "finance",
+    "operations",
+    "sales",
+    "marketing",
+    "product_manager",
+    "customer_support",
+    "qa_auditor"
+  ],
+  "framesBasePath": "/assets/pixel-agents/frames-v2/",
+  "frames": {
+    "architect": {
+      "idle": "/assets/pixel-agents/frames-v2/architect-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/architect-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/architect-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/architect-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/architect-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/architect-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/architect-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/architect-presenting.png"
+    },
+    "developer": {
+      "idle": "/assets/pixel-agents/frames-v2/developer-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/developer-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/developer-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/developer-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/developer-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/developer-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/developer-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/developer-presenting.png"
+    },
+    "reviewer": {
+      "idle": "/assets/pixel-agents/frames-v2/reviewer-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/reviewer-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/reviewer-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/reviewer-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/reviewer-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/reviewer-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/reviewer-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/reviewer-presenting.png"
+    },
+    "moderator": {
+      "idle": "/assets/pixel-agents/frames-v2/moderator-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/moderator-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/moderator-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/moderator-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/moderator-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/moderator-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/moderator-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/moderator-presenting.png"
+    },
+    "researcher": {
+      "idle": "/assets/pixel-agents/frames-v2/researcher-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/researcher-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/researcher-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/researcher-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/researcher-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/researcher-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/researcher-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/researcher-presenting.png"
+    },
+    "analyst": {
+      "idle": "/assets/pixel-agents/frames-v2/analyst-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/analyst-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/analyst-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/analyst-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/analyst-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/analyst-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/analyst-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/analyst-presenting.png"
+    },
+    "designer": {
+      "idle": "/assets/pixel-agents/frames-v2/designer-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/designer-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/designer-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/designer-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/designer-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/designer-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/designer-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/designer-presenting.png"
+    },
+    "writer": {
+      "idle": "/assets/pixel-agents/frames-v2/writer-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/writer-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/writer-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/writer-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/writer-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/writer-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/writer-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/writer-presenting.png"
+    },
+    "legal": {
+      "idle": "/assets/pixel-agents/frames-v2/legal-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/legal-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/legal-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/legal-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/legal-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/legal-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/legal-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/legal-presenting.png"
+    },
+    "finance": {
+      "idle": "/assets/pixel-agents/frames-v2/finance-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/finance-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/finance-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/finance-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/finance-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/finance-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/finance-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/finance-presenting.png"
+    },
+    "operations": {
+      "idle": "/assets/pixel-agents/frames-v2/operations-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/operations-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/operations-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/operations-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/operations-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/operations-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/operations-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/operations-presenting.png"
+    },
+    "sales": {
+      "idle": "/assets/pixel-agents/frames-v2/sales-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/sales-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/sales-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/sales-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/sales-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/sales-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/sales-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/sales-presenting.png"
+    },
+    "marketing": {
+      "idle": "/assets/pixel-agents/frames-v2/marketing-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/marketing-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/marketing-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/marketing-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/marketing-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/marketing-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/marketing-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/marketing-presenting.png"
+    },
+    "product_manager": {
+      "idle": "/assets/pixel-agents/frames-v2/product_manager-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/product_manager-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/product_manager-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/product_manager-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/product_manager-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/product_manager-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/product_manager-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/product_manager-presenting.png"
+    },
+    "customer_support": {
+      "idle": "/assets/pixel-agents/frames-v2/customer_support-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/customer_support-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/customer_support-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/customer_support-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/customer_support-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/customer_support-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/customer_support-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/customer_support-presenting.png"
+    },
+    "qa_auditor": {
+      "idle": "/assets/pixel-agents/frames-v2/qa_auditor-idle.png",
+      "thinking": "/assets/pixel-agents/frames-v2/qa_auditor-thinking.png",
+      "typing": "/assets/pixel-agents/frames-v2/qa_auditor-typing.png",
+      "reviewing": "/assets/pixel-agents/frames-v2/qa_auditor-reviewing.png",
+      "approved": "/assets/pixel-agents/frames-v2/qa_auditor-approved.png",
+      "blocked": "/assets/pixel-agents/frames-v2/qa_auditor-blocked.png",
+      "interrupted": "/assets/pixel-agents/frames-v2/qa_auditor-interrupted.png",
+      "presenting": "/assets/pixel-agents/frames-v2/qa_auditor-presenting.png"
+    }
+  }
+}
