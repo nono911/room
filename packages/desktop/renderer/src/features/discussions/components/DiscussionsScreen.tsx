@@ -4,7 +4,7 @@ import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownCont
 import { ContextControl } from '../../../components/context/ContextControl.js';
 import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
 import { api } from '../../../shared/ipc/client.js';
-import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
+import { agentPersonaTemplates, teamPresets } from '../../../shared/data/staticData.js';
 import { useProviders } from '../../providers/context/ProvidersContext.js';
 
 interface DiscussionsScreenProps {
@@ -281,14 +281,120 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         />
 
         {pixelAgentViewMode === 'classic' && discussionMessages.length === 0 && (
-          <div className="markdown-preview" style={{ maxHeight: 'none', minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem', textAlign: 'center' }}>
-            <div style={{ color: 'white', fontWeight: 700 }}>Start with a question, plan, or review request.</div>
-            <div style={{ maxWidth: '520px', lineHeight: 1.45 }}>
-              Add context when the answer depends on docs, tasks, or specific files. ROOM will preserve the discussion transcript, message references, and moderator-created tasks or ADRs.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px', background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '12px', minHeight: '350px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+              <h3 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>Choose a Workspace Template & Suggest Experts</h3>
+              <p style={{ color: 'hsl(var(--text-muted))', fontSize: '0.8rem', maxWidth: '580px', margin: '0 auto', lineHeight: 1.45 }}>
+                Select what type of project or analysis you are doing. ROOM will automatically configure the workflow with recommended AI specialists.
+              </p>
             </div>
-            <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('discussion')} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>
-              Add Context
-            </button>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
+              {teamPresets.map(preset => {
+                const isSelected = preset.roles.every(role => selectedDiscussionAgents.includes(role)) && selectedDiscussionAgents.length === preset.roles.length;
+                return (
+                  <div
+                    key={preset.name}
+                    onClick={async () => {
+                      if (loading) return;
+                      // Auto-register any unregistered agents in the preset
+                      const registeredAgents = projectData?.agents || [];
+                      const nextSelected: string[] = [];
+
+                      for (const roleName of preset.roles) {
+                        const alreadyRegistered = registeredAgents.find((a: any) => a.name.toLowerCase() === roleName.toLowerCase());
+                        if (alreadyRegistered) {
+                          nextSelected.push(alreadyRegistered.name);
+                        } else {
+                          const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
+                          if (tmpl) {
+                            // Register it
+                            try {
+                              const activeOllama = providers.find(p => p.id === 'ollama');
+                              const activeLMStudio = providers.find(p => p.id === 'lmstudio');
+                              const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
+                              const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
+                              const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
+
+                              let defaultProvider = 'gemini';
+                              if (activeOllama) {
+                                defaultProvider = 'ollama';
+                              } else if (activeLMStudio) {
+                                defaultProvider = 'lmstudio';
+                              } else if (geminiConfigured) {
+                                defaultProvider = 'gemini';
+                              } else if (claudeConfigured) {
+                                defaultProvider = 'anthropic';
+                              } else if (openaiConfigured) {
+                                defaultProvider = 'openai';
+                              }
+
+                              const models = getModelOptions(defaultProvider, 'none');
+                              const defaultModel = models[0]?.value || '';
+                              const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
+
+                              if (projectPath) {
+                                const res = await api.saveAgent(projectPath, {
+                                  name: tmpl.name,
+                                  role: tmpl.role,
+                                  provider: defaultProvider,
+                                  modelName: defaultModel || undefined,
+                                  systemPrompt: tmpl.prompt,
+                                  skills: skillFiles
+                                });
+                                if (res.success) {
+                                  nextSelected.push(tmpl.name);
+                                }
+                              }
+                            } catch (err) {
+                              console.error("Failed to auto-provision preset agent:", err);
+                            }
+                          }
+                        }
+                      }
+                      if (projectPath) {
+                        await loadProjectData(projectPath);
+                      }
+                      setSelectedDiscussionAgents(nextSelected);
+                    }}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '8px',
+                      background: isSelected ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-input))',
+                      border: isSelected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      userSelect: 'none'
+                    }}
+                    className="preset-suggest-card"
+                  >
+                    <div style={{ color: 'white', fontSize: '0.85rem', fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{preset.name}</span>
+                      {isSelected && <span style={{ color: 'hsl(var(--accent-purple))', fontSize: '0.7rem' }}>● Active</span>}
+                    </div>
+                    <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.72rem', lineHeight: 1.35 }}>
+                      {preset.description}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                      {preset.roles.map(r => (
+                        <span key={r} style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', background: 'hsl(var(--bg-sidebar))', color: 'hsl(var(--text-muted))', border: '1px solid hsl(var(--border-dim))' }}>
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px', gap: '12px' }}>
+              <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('discussion')} style={{ padding: '8px 16px', fontSize: '0.78rem' }}>
+                Add Custom Context Files
+              </button>
+            </div>
           </div>
         )}
 

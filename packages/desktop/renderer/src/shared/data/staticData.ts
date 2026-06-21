@@ -459,11 +459,264 @@ export const roleTemplateSkills = {
       filename: 'portfolio-risk-review.md',
       title: 'Portfolio Risk Review',
       content: `Use this skill when reviewing overall portfolio health.
-
+ 
 - Check concentration across assets, sectors, currencies, and single themes.
 - Stress-test the portfolio against rate shocks, THB moves, and crypto drawdowns.
 - Verify that liquidity needs and time horizon match the holdings.
 - Flag positions held for emotional reasons rather than a living thesis.`
+    }
+  ],
+  'API Designer': [
+    {
+      filename: 'api-specification.md',
+      title: 'API Specification Design',
+      content: `Use this skill when designing REST, GraphQL, or WebSocket specifications.
+ 
+- Ensure logical REST endpoint paths and HTTP method verbs.
+- Build detailed JSON schema definitions for request/response payloads.
+- Map validation parameters, data types, and specific error status structures.`
+    }
+  ],
+  'Database Architect': [
+    {
+      filename: 'database-design.md',
+      title: 'Database Schema Design',
+      content: `Use this skill when modeling tables, primary keys, relationships, and indices.
+ 
+- Normalize structure to prevent data duplication.
+- Plan performant indexes on filter, sort, and join fields.
+- Write robust, zero-downtime database migration schema steps.`
+    }
+  ],
+  'DevOps Engineer': [
+    {
+      filename: 'ci-cd-pipelines.md',
+      title: 'CI/CD Pipeline Design',
+      content: `Use this skill when managing deployment scripts, continuous integration builds, or containers.
+ 
+- Keep container images lightweight and safe from vulnerabilities.
+- Structure deployment flows with automated rollback checks.
+- Safeguard pipeline execution logs from leaked passwords or tokens.`
+    }
+  ],
+  'Technical Writer': [
+    {
+      filename: 'technical-writing.md',
+      title: 'Technical Documentation Writing',
+      content: `Use this skill when composing system descriptions, user manuals, and references.
+ 
+- Write in clear, straightforward active voice.
+- Maintain accurate, copyable code snippet patterns.
+- Outline files, links, and directories structure correctly.`
+    }
+  ],
+  'Prompt Engineer': [
+    {
+      filename: 'prompt-engineering.md',
+      title: 'LLM Prompt Optimization',
+      content: `Use this skill when building or refining prompts and instructions.
+ 
+- Utilize clear block separators like markdown headers or XML tags.
+- Provide consistent few-shot input/output examples.
+- Prevent instruction conflict or redundant commands.`
+    }
+  ],
+  'Scrum Master': [
+    {
+      filename: 'backlog-prioritization.md',
+      title: 'Backlog Prioritization & Scoping',
+      content: `Use this skill when defining sprint backlogs, prioritizing user stories, or breaking down tasks.
+
+- Sort items strictly by value and dependency order.
+- Deconstruct complex tasks into small, isolated daily targets.
+- Ensure each ticket has clear, actionable next steps and a defined owner.`
+    }
+  ],
+  'Copywriter': [
+    {
+      filename: 'copywriting-tone.md',
+      title: 'Copywriting & Tone Consistency',
+      content: `Use this skill when drafting public communications, web headlines, and interface texts.
+
+- Align tone of voice with user expectations (professional, active, helpful).
+- Maximize readability, using clear headers, bullet points, and clean syntax.
+- Refine headlines to be punchy and clear, removing passive voice verbs.`
+    }
+  ],
+  'Marketing': [
+    {
+      filename: 'marketing-positioning.md',
+      title: 'Marketing & Brand Positioning',
+      content: `Use this skill when defining product messaging, launch plans, and positioning strategy.
+
+- Build target profiles mapping directly to primary user problems.
+- Create distinct product differentiation angles relative to market alternatives.
+- Pick measurable launch metrics for campaign effectiveness.`
+    }
+  ],
+  'Sales': [
+    {
+      filename: 'sales-packaging.md',
+      title: 'Sales Packaging & Objection Handling',
+      content: `Use this skill when proposing monetization tiers, licensing models, or script outlines.
+
+- Formulate logical pricing tiers aligned with usage value brackets.
+- Standardize scripts resolving cost, security, or effort concerns.
+- Identify B2B expansion indicators for existing clients.`
+    }
+  ],
+  'HR': [
+    {
+      filename: 'hr-hiring-onboarding.md',
+      title: 'Hiring Scopes & Cultural Roadmaps',
+      content: `Use this skill when drafting new job specifications or onboarding plans.
+
+- Define practical task performance benchmarks for roles.
+- Create detailed onboarding maps covering the first 90 days.
+- Outline soft skills and communication priorities needed in teams.`
+    }
+  ],
+  'Legal': [
+    {
+      filename: 'legal-regulatory-checks.md',
+      title: 'Legal Risks & Compliance Guidelines',
+      content: `Use this skill when analyzing user agreement terms, GDPR/PDPA compliance, or contracts.
+
+- Identify consumer privacy risk exposures in data patterns.
+- Outline core safety rules protecting company intellectual property.
+- Flag local law discrepancies affecting international operations.`
+    }
+  ],
+  'Support': [
+    {
+      filename: 'support-troubleshooting.md',
+      title: 'Support Desk Policies & Troubleshooting',
+      content: `Use this skill when writing FAQ answers, ticket triage models, or support guides.
+
+- Create direct, empathetic, step-by-step FAQ replies.
+- Map troubleshooting paths starting with minimal-complexity diagnoses.
+- Formalize ticket handoff templates to the tech team.`
+    }
+  ],
+  'CEO': [
+    {
+      filename: 'executive-alignment.md',
+      title: 'Executive Vision & Strategic Alignment',
+      content: `Use this skill when evaluating features or policies against long-term organizational vision and strategic goals.
+
+- Challenge the team to focus on the highest value objectives.
+- Frame risk and reward parameters explicitly in strategic decisions.
+- Provide definitive resolution criteria for stalemates.`
+    }
+  ],
+  'CTO': [
+    {
+      filename: 'tech-governance.md',
+      title: 'Technical Governance & Cost Strategy',
+      content: `Use this skill when auditing system architecture choices, computing costs, and scalability risks.
+
+- Enforce standard operational cost envelopes for third-party APIs.
+- Critique excessive structural complexities in plans.
+- Track long-term architectural maintenance risks.`
+    }
+  ],
+  'Graphic Designer': [
+    {
+      filename: 'visual-brand-style.md',
+      title: 'Brand Visual Polish & Style Checks',
+      content: `Use this skill when defining typography, palettes, layout spaces, or polishing UI elements.
+
+- Apply strict visual contrast checks to interfaces.
+- Propose premium glassmorphism layouts and details.
+- Verify modern brand identity matches across assets.`
+    }
+  ],
+  'Data Analyst': [
+    {
+      filename: 'analytics-telemetry.md',
+      title: 'Telemetry Schemas & Metric Formulations',
+      content: `Use this skill when structuring event tracking metrics or designing database pipelines.
+
+- Outline specific telemetry event triggers and parameters.
+- Formulate mathematical definitions for performance metrics.
+- Structure statistical cohorts for testing user behaviors.`
+    }
+  ],
+  'Enterprise Buyer': [
+    {
+      filename: 'enterprise-vetting.md',
+      title: 'Corporate Procurement & Integration Review',
+      content: `Use this skill when auditing features against strict corporate constraints.
+
+- Assess single sign-on (SSO), data residency, and compliance gaps.
+- Map business workflows to verify overall return on investment (ROI).
+- Identify scaling boundaries or employee training constraints.`
+    }
+  ],
+  'End User': [
+    {
+      filename: 'usability-audit.md',
+      title: 'Frictionless Usability Check',
+      content: `Use this skill when testing user-facing layout simplicity, load speeds, and step count.
+
+- Pinpoint steps that feel slow or demand heavy cognitive load.
+- Flag gaps in system feedback, loading states, or microcopy labels.
+- Verify if actions can be successfully completed without tutorials.`
+    }
+  ],
+  'SME Owner': [
+    {
+      filename: 'sme-utility.md',
+      title: 'Small Business Cost-Utility Scopes',
+      content: `Use this skill when analyzing features for minimal setup complexity and direct value.
+
+- Audit setup times and third-party configuration needs.
+- Evaluate direct impact on daily operational tasks or sales.
+- Ensure workflows remain manageable without dedicated technical support.`
+    }
+  ],
+  'FinTech Expert': [
+    {
+      filename: 'fintech-security.md',
+      title: 'Financial Integrity & Payment Standards',
+      content: `Use this skill when evaluating credit ledgers, payment gateways, or regulatory compliance.
+
+- Audit data models for double-entry ledger accuracy.
+- Verify security configurations on user balance transactions.
+- Cross-check KYC/AML compliance constraints on checkout flows.`
+    }
+  ],
+  'HealthTech Expert': [
+    {
+      filename: 'health-compliance.md',
+      title: 'Patient Privacy & Medical Data Rules',
+      content: `Use this skill when auditing medical records handling, patient UI accessibility, or audit logging.
+
+- Assess patient privacy protection protocols relative to GDPR/PDPA.
+- Enforce clinical accuracy checks on diagnostic entry screens.
+- Build detailed transactional log requirements for clinical changes.`
+    }
+  ],
+  'EduTech Expert': [
+    {
+      filename: 'edutech-engagement.md',
+      title: 'Pedagogical Motivation & Lesson Structuring',
+      content: `Use this skill when evaluating learning outcomes, quizzes, or student progress tracking.
+
+- Verify course layout flows against active learning milestones.
+- Propose engaging loops and feedback metrics for students.
+- Check interaction sizing and typography readability for youth or seniors.`
+    }
+  ],
+  'E-Commerce Expert': [
+    {
+      filename: 'ecommerce-conversion.md',
+      title: 'Cart Conversion & Digital Funnel Optimizations',
+      content: `Use this skill when analyzing product searches, checkouts, or retention rules.
+
+- Identify layout triggers that cause checkout abandonment.
+- Build up-sell pricing guidelines or dynamic cart discounts.
+- Propose stock tracking and shipping webhook architectures.`
     }
   ]
 } satisfies Record<string, readonly TemplateSkill[]>;
@@ -494,6 +747,11 @@ export const teamPresets: {
     roles: ['Product', 'UX', 'Architect', 'Implementer', 'Reviewer', 'QA']
   },
   {
+    name: 'Agile Delivery Workspace',
+    description: 'Manage backlog, iterate rapidly, build, refine copy, review codes, and assure high delivery quality.',
+    roles: ['Scrum Master', 'Product', 'Developer', 'Copywriter', 'Reviewer', 'QA']
+  },
+  {
     name: 'Coding Execution',
     description: 'Assign a software developer to edit the workspace, then send the result through senior review and QA.',
     roles: ['Developer', 'Reviewer', 'QA']
@@ -516,12 +774,42 @@ export const teamPresets: {
   {
     name: 'Writing / Editorial',
     description: 'Draft, critique, revise, and prepare written work for a target audience.',
-    roles: ['Screenwriter', 'Story Editor', 'Producer']
+    roles: ['Screenwriter', 'Story Editor', 'Producer', 'Copywriter']
   },
   {
     name: 'Business Planning',
     description: 'Clarify product direction, research assumptions, risks, constraints, and execution tasks.',
     roles: ['Product', 'Researcher', 'Reviewer', 'Producer']
+  },
+  {
+    name: 'Corporate / Startup HQ',
+    description: 'Formulate growth strategy, marketing positions, pricing packages, legal checks, hiring roadmaps, and customer support flows.',
+    roles: ['Marketing', 'Sales', 'HR', 'Legal', 'Support', 'Producer']
+  },
+  {
+    name: 'Executive Board Meeting',
+    description: 'Establish ultimate strategy, review technical overhead costs, decide major business pivots, and break alignment ties.',
+    roles: ['CEO', 'CTO', 'Product', 'Producer']
+  },
+  {
+    name: 'B2B / Enterprise Vetting',
+    description: 'Critique features against corporate security, SSO, compliance, ROI benchmarks, and training hurdles.',
+    roles: ['Enterprise Buyer', 'CEO', 'CTO', 'Sales', 'Product']
+  },
+  {
+    name: 'B2C Customer Experience',
+    description: 'Optimize layout simplicity, funnel dropoffs, brand design aesthetics, and microcopy clarity.',
+    roles: ['End User', 'UX', 'Graphic Designer', 'Marketing', 'Support']
+  },
+  {
+    name: 'FinTech / E-Commerce Strategy',
+    description: 'Align payment security, ledger consistency, cart conversion rates, and checkout optimizations.',
+    roles: ['FinTech Expert', 'E-Commerce Expert', 'SME Owner', 'Sales', 'Product']
+  },
+  {
+    name: 'Health & Education Strategy',
+    description: 'Check healthcare patient privacy (GDPR/PDPA) compliance, learning motivation loops, and cognitive accessibility.',
+    roles: ['HealthTech Expert', 'EduTech Expert', 'End User', 'Product', 'QA']
   },
   {
     name: 'Investing / Trading Desk',

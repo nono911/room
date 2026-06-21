@@ -23,6 +23,7 @@ import {
   summarizeContextMessages
 } from './contextSummarizer.js';
 import { appendRoomEvents, NewRoomEvent } from '../events/eventLog.js';
+import { parseSkillFrontmatter } from '../skills/parser.js';
 
 export interface DiscussionMessage {
   id?: string;
@@ -271,6 +272,28 @@ function isToolNarrationLine(line: string): boolean {
   if (/^I will (list|view|read) the contents of\b/i.test(normalized)) return true;
   if (/^Let's (list|read|view|see|check)\b/i.test(normalized)) return true;
   return false;
+}
+
+/**
+ * Convert a simple glob pattern into a RegExp.
+ * Escapes all regex metacharacters except `*` before converting
+ * glob wildcards to regex equivalents. Handles `**` as zero-or-more
+ * directory segments.
+ */
+export function globToRegex(pattern: string): RegExp {
+  let result = pattern.trim();
+  // Escape regex metacharacters (except * and /)
+  result = result.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  // Replace **/ with a marker (zero-or-more directory segments including the slash)
+  result = result.replace(/\*\*\//g, '<<<GLOBSTAR_SLASH>>>');
+  // Replace remaining ** (e.g. at end) with a marker
+  result = result.replace(/\*\*/g, '<<<GLOBSTAR>>>');
+  // Replace single * with single-segment match
+  result = result.replace(/\*/g, '[^/]*');
+  // Expand markers:  **/ = "(anything/)?" and ** = "anything"
+  result = result.replace(/<<<GLOBSTAR_SLASH>>>/g, '(.*/)?');
+  result = result.replace(/<<<GLOBSTAR>>>/g, '.*');
+  return new RegExp(`^${result}$`, 'i');
 }
 
 function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ...sections: string[]): string {
@@ -638,6 +661,69 @@ export class DiscussionEngine {
       } catch {}
     }
     return '';
+  }
+
+  private async autoMatchSkills(
+    mentionedFilePaths: string[],
+    discussionText: string
+  ): Promise<string[]> {
+    const skillsDir = path.resolve(this.dirPath, '.room', 'skills');
+    const matchedSkillFiles: string[] = [];
+
+    try {
+      const files = await fs.readdir(skillsDir);
+      for (const file of files) {
+        if (!file.toLowerCase().endsWith('.md')) {
+          continue;
+        }
+
+        try {
+          const resolvedPath = path.resolve(skillsDir, file);
+          const rawContent = await fs.readFile(resolvedPath, 'utf-8');
+          const { metadata } = parseSkillFrontmatter(rawContent);
+
+          if (metadata.alwaysApply) {
+            matchedSkillFiles.push(file);
+            continue;
+          }
+
+          // Match by glob patterns on mentioned files
+          let matchesGlob = false;
+          if (metadata.globs && metadata.globs.length > 0 && mentionedFilePaths.length > 0) {
+            for (const pattern of metadata.globs) {
+              const regex = globToRegex(pattern);
+              for (const filePath of mentionedFilePaths) {
+                if (regex.test(filePath)) {
+                  matchesGlob = true;
+                  break;
+                }
+              }
+              if (matchesGlob) break;
+            }
+          }
+
+          // Match by keywords in discussion text
+          let matchesKeyword = false;
+          if (metadata.triggerKeywords && metadata.triggerKeywords.length > 0 && discussionText) {
+            const normalizedText = discussionText.toLowerCase();
+            for (const keyword of metadata.triggerKeywords) {
+              if (normalizedText.includes(keyword.toLowerCase())) {
+                matchesKeyword = true;
+                break;
+              }
+            }
+          }
+
+          if (matchesGlob || matchesKeyword) {
+            matchedSkillFiles.push(file);
+          }
+        } catch (err: any) {
+          console.error(`Error auto-matching skill file ${file}:`, err.message);
+        }
+      }
+    } catch {}
+
+    return matchedSkillFiles;
   }
 
   private async resolveSkillPath(skillFile: string): Promise<string> {
@@ -1172,14 +1258,33 @@ You convert finished ROOM chats into actionable task plans for the project task 
           round,
           timestamp: new Date().toLocaleTimeString()
         });
+        // Collect all file paths mentioned in the discussion log to run glob matching
+        const mentionedPaths: string[] = [];
+        let discussionText = '';
+        for (const msg of discussionLog.messages) {
+          discussionText += `\n${msg.content}`;
+          for (const match of msg.content.matchAll(/file:\/\/\/([^\s#?)]+)/g)) {
+            mentionedPaths.push(match[1]);
+          }
+        }
+
+        // Auto-match additional skills based on context
+        const autoMatchedSkills = await this.autoMatchSkills(mentionedPaths, discussionText);
+        const allSkillFiles = Array.from(new Set([
+          ...(agent.skills || []),
+          ...autoMatchedSkills
+        ]));
+
         let skillsContext = '';
-        if (agent.skills && agent.skills.length > 0) {
+        if (allSkillFiles.length > 0) {
           skillsContext = '\n\n=== Active Skills ===\n';
-          for (const skillFile of agent.skills) {
+          for (const skillFile of allSkillFiles) {
             try {
               const resolvedSkillPath = await this.resolveSkillPath(skillFile);
               const skillContent = await fs.readFile(resolvedSkillPath, 'utf-8');
-              skillsContext += `\n[Skill: ${skillFile}]\n${skillContent}\n`;
+              // Parse YAML frontmatter to omit it from active skills injected to system prompt
+              const parsed = parseSkillFrontmatter(skillContent);
+              skillsContext += `\n[Skill: ${skillFile}]\n${parsed.content.trim()}\n`;
             } catch (err: any) {
               console.error(`Error loading skill ${skillFile}:`, err.message);
             }
@@ -1200,12 +1305,34 @@ You convert finished ROOM chats into actionable task plans for the project task 
         // On the very first turn of a fresh discussion the only included message is
         // the current user prompt, so the room-refs block would always be empty.
         const hasReferableHistory = contextMessages.length > 1;
+        // Load selected reasoning strategy if configured
+        let strategyContext = '';
+        if (agent.strategy) {
+          const sanitizedStrategy = agent.strategy.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          const hasAlphanumeric = /[a-z0-9]/.test(sanitizedStrategy);
+          if (!hasAlphanumeric) {
+            console.warn(`[Discussion Engine] Ignoring invalid strategy name: ${agent.strategy}`);
+          } else {
+            try {
+              const strategyPath = path.resolve(this.dirPath, '.room', 'strategies', `${sanitizedStrategy}.json`);
+              const rawStrat = await fs.readFile(strategyPath, 'utf-8');
+              const stratObj = JSON.parse(rawStrat);
+              if (stratObj && typeof stratObj.prompt === 'string') {
+                strategyContext = `=== Reasoning Strategy: ${stratObj.name || agent.strategy} ===\n${stratObj.prompt}\n`;
+              }
+            } catch (err: any) {
+              console.warn(`[Discussion Engine] Failed to load strategy ${agent.strategy}: ${err.message}`);
+            }
+          }
+        }
+
         const systemPrompt = composeAgentSystemPrompt(
           agent.systemPrompt,
           agent.provider === 'Local CLI',
           DISCUSSION_PROTOCOL,
           hasReferableHistory ? REFERENCE_TRACING_PROTOCOL : '',
           skillsContext,
+          strategyContext,
           reviewProtocol,
           compiledContext.projectContextBlock
         );

@@ -15,6 +15,7 @@ export interface AgentConfig {
   cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
   stdinFormat?: 'text' | 'json';
   permissionMode?: 'safe' | 'dangerous';
+  strategy?: string;
 }
 
 const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
@@ -113,7 +114,8 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
       command,
       cliPreset,
       stdinFormat,
-      permissionMode
+      permissionMode,
+      strategy: typeof rawAgent.strategy === 'string' ? rawAgent.strategy.trim() : undefined
     }
   };
 }

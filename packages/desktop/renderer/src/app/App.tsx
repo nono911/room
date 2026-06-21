@@ -437,15 +437,126 @@ export default function App() {
           {/* Main Content Pane */}
           <main className="main-content">
             {!isRoomProject ? (
-              <div className="welcome-container">
-                <div className="welcome-card" style={{ maxWidth: '480px' }}>
-                  <h2 style={{ marginBottom: '12px' }}>Initialize ROOM Memory</h2>
-                  <p className="welcome-desc" style={{ marginBottom: '24px' }}>
-                    The selected folder <code>{projectPath}</code> does not have a <code>.room/</code> workspace initialized.
-                  </p>
-                  <button className="btn-primary" onClick={handleInitProject} disabled={loading}>
-                    {loading ? 'Initializing...' : 'Initialize .room/ directory'}
-                  </button>
+              <div className="welcome-container" style={{ padding: '40px 20px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100%' }}>
+                <div className="welcome-card" style={{ maxWidth: '680px', width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <h2 style={{ marginBottom: '8px', color: 'white' }}>Initialize ROOM Workspace</h2>
+                    <p className="welcome-desc" style={{ marginBottom: '0' }}>
+                      The folder <code>{projectPath}</code> does not have a <code>.room/</code> workspace initialized.
+                    </p>
+                    <p style={{ color: 'hsl(var(--text-muted))', fontSize: '0.78rem', marginTop: '6px' }}>
+                      Select a workspace template below to automatically initialize the directory and auto-provision recommended AI experts, or start empty.
+                    </p>
+                  </div>
+
+                  {/* Template quick selects for new workspace */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                    {teamPresets.map(preset => (
+                      <div
+                        key={preset.name}
+                        onClick={async () => {
+                          if (loading) return;
+                          setLoading(true);
+                          try {
+                            const res = await api.roomInit(projectPath!);
+                            if (res.success) {
+                              clearWorkspaceDerivedState();
+                              // 1. Mark as room project
+                              // Normally useWorkspaceLifecycle handles this, but since we are bypass-routing,
+                              // we must ensure state updates correctly.
+                              // Let's invoke the handleInitProject logic but custom populated
+                              const activeOllama = providers.find(p => p.id === 'ollama');
+                              const activeLMStudio = providers.find(p => p.id === 'lmstudio');
+                              const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
+                              const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
+                              const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
+
+                              let defaultProvider = 'gemini';
+                              if (activeOllama) {
+                                defaultProvider = 'ollama';
+                              } else if (activeLMStudio) {
+                                defaultProvider = 'lmstudio';
+                              } else if (geminiConfigured) {
+                                defaultProvider = 'gemini';
+                              } else if (claudeConfigured) {
+                                defaultProvider = 'anthropic';
+                              } else if (openaiConfigured) {
+                                defaultProvider = 'openai';
+                              }
+
+                              // 2. Initialize and save selected agents
+                              const nextSelected: string[] = [];
+                              for (const roleName of preset.roles) {
+                                const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
+                                if (tmpl) {
+                                  try {
+                                    const models = getModelOptions(defaultProvider, 'none');
+                                    const defaultModel = models[0]?.value || '';
+                                    const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
+
+                                    await api.saveAgent(projectPath!, {
+                                      name: tmpl.name,
+                                      role: tmpl.role,
+                                      provider: defaultProvider,
+                                      modelName: defaultModel || undefined,
+                                      systemPrompt: tmpl.prompt,
+                                      skills: skillFiles
+                                    });
+                                    nextSelected.push(tmpl.name);
+                                  } catch (err) {
+                                    console.error(err);
+                                  }
+                                }
+                              }
+
+                              // Set selection
+                              setSelectedDiscussionAgents(nextSelected);
+
+                              // Save project state
+                              // Trigger state update
+                              const workspaceState = await api.openProjectDir(projectPath!);
+                              if (workspaceState) {
+                                handleSelectRecentProject(projectPath!);
+                              }
+                            } else {
+                              setErrorMsg(res.error || 'Failed to initialize .room.');
+                            }
+                          } catch (err: any) {
+                            setErrorMsg(err.message || 'Error occurred during workspace initialization.');
+                          } finally {
+                            setLoading(false);
+                          }
+                        }}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          background: 'hsl(var(--bg-input))',
+                          border: '1px solid hsl(var(--border-dim))',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          userSelect: 'none'
+                        }}
+                        className="preset-init-card"
+                      >
+                        <span style={{ color: 'white', fontSize: '0.8rem', fontWeight: 700 }}>{preset.name}</span>
+                        <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.68rem', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
+                          {preset.description}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '10px', justifyContent: 'center' }}>
+                    <button className="btn-primary" onClick={handleInitProject} disabled={loading} style={{ padding: '10px 20px', fontSize: '0.85rem' }}>
+                      {loading ? 'Initializing...' : 'Initialize Empty Workspace'}
+                    </button>
+                    <button className="btn-secondary" onClick={handleCloseProjectWorkspace} disabled={loading} style={{ padding: '10px 20px', fontSize: '0.85rem' }}>
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
