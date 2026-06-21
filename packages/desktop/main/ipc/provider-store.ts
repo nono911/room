@@ -76,21 +76,57 @@ export function withBuiltInProviders(entries: ProviderEntry[]): ProviderEntry[] 
   return result;
 }
 
+async function isLocalServiceRunning(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 800);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function readProvidersFromDisk(): Promise<ProviderEntry[]> {
+  let entries: ProviderEntry[] = [];
   try {
     const content = await fs.readFile(getProvidersPath(), 'utf-8');
     const parsed = JSON.parse(content);
     const rawEntries = isPlainObject(parsed) && Array.isArray(parsed.providers) ? parsed.providers : [];
-    const entries = rawEntries
+    entries = rawEntries
       .map(sanitizeProviderEntry)
       .filter((entry): entry is ProviderEntry => entry !== null);
-    return withBuiltInProviders(entries);
   } catch {
     const legacyKeys = await readApiKeysFromDisk();
-    const seeded = builtInProviderEntries(legacyKeys);
-    await writeProvidersToDisk(seeded);
-    return seeded;
+    entries = builtInProviderEntries(legacyKeys);
+    await writeProvidersToDisk(entries);
   }
+
+  const baseProviders = withBuiltInProviders(entries);
+
+  // Probe Ollama & LM Studio
+  const isOllamaRunning = await isLocalServiceRunning('http://localhost:11434/v1/models');
+  const isLMStudioRunning = await isLocalServiceRunning('http://localhost:1234/v1/models');
+
+  if (isOllamaRunning && !baseProviders.some(p => p.id === 'ollama')) {
+    baseProviders.push({
+      id: 'ollama',
+      label: 'Ollama (local)',
+      kind: 'openai-compatible',
+      baseUrl: 'http://localhost:11434/v1'
+    });
+  }
+  if (isLMStudioRunning && !baseProviders.some(p => p.id === 'lmstudio')) {
+    baseProviders.push({
+      id: 'lmstudio',
+      label: 'LM Studio (local)',
+      kind: 'openai-compatible',
+      baseUrl: 'http://localhost:1234/v1'
+    });
+  }
+
+  return baseProviders;
 }
 
 export async function writeProvidersToDisk(providers: ProviderEntry[]): Promise<void> {

@@ -3,8 +3,14 @@ import type { ProjectData, UIMessage } from '../../../types/domain.js';
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { ContextControl } from '../../../components/context/ContextControl.js';
 import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
+import { api } from '../../../shared/ipc/client.js';
+import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
+import { useProviders } from '../../providers/context/ProvidersContext.js';
 
 interface DiscussionsScreenProps {
+  projectPath: string | null;
+  loadProjectData: (path: string) => Promise<void>;
+  ensureTemplateSkills: (skills: any) => Promise<string[]>;
   projectData: ProjectData | null;
   activeDiscussionId: string | null;
   summarizeActiveDiscussion: () => void;
@@ -62,6 +68,9 @@ const getSavedDocumentFilename = (text: string): string | null => {
 };
 
 export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
+  projectPath,
+  loadProjectData,
+  ensureTemplateSkills,
   projectData,
   activeDiscussionId,
   summarizeActiveDiscussion,
@@ -111,6 +120,84 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   setShowInspector
 }) => {
   const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
+  const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
+  const { providers, getModelOptions } = useProviders();
+  const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
+  const [showAddTemplateDropdown, setShowAddTemplateDropdown] = React.useState<boolean>(false);
+  const [selectedTemplateName, setSelectedTemplateName] = React.useState<string>('');
+
+  const handleRegisterTemplateAgent = async (template: any) => {
+    if (!projectPath) return;
+    setLocalRegistering(true);
+    try {
+      const activeOllama = providers.find(p => p.id === 'ollama');
+      const activeLMStudio = providers.find(p => p.id === 'lmstudio');
+      const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
+      const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
+      const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
+
+      let defaultProvider = 'gemini';
+      if (activeOllama) {
+        defaultProvider = 'ollama';
+      } else if (activeLMStudio) {
+        defaultProvider = 'lmstudio';
+      } else if (geminiConfigured) {
+        defaultProvider = 'gemini';
+      } else if (claudeConfigured) {
+        defaultProvider = 'anthropic';
+      } else if (openaiConfigured) {
+        defaultProvider = 'openai';
+      }
+
+      const models = getModelOptions(defaultProvider, 'none');
+      const defaultModel = models[0]?.value || '';
+      const skillFiles = await ensureTemplateSkills(template.skills || []);
+
+      const res = await api.saveAgent(projectPath, {
+        name: template.name,
+        role: template.role,
+        provider: defaultProvider,
+        modelName: defaultModel || undefined,
+        systemPrompt: template.prompt,
+        skills: skillFiles
+      });
+
+      if (res.success) {
+        await loadProjectData(projectPath);
+        setSelectedDiscussionAgents(prev => [...prev, template.name]);
+      } else {
+        alert(res.error || 'Failed to auto-register template agent.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error occurred while auto-registering template agent.');
+    } finally {
+      setLocalRegistering(false);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('text/plain', String(index));
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const sourceIdx = Number(e.dataTransfer.getData('text/plain'));
+    if (isNaN(sourceIdx) || sourceIdx === targetIndex) return;
+
+    setSelectedDiscussionAgents(prev => {
+      const next = [...prev];
+      const [removed] = next.splice(sourceIdx, 1);
+      next.splice(targetIndex, 0, removed);
+      return next;
+    });
+    setDraggedIndex(null);
+  };
+
   const getAlignment = (role: string, idx: number) => {
     if (role === 'system') return 'center';
     if (role.includes('architect')) return 'flex-start';
@@ -263,7 +350,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         />
       </div>
 
-      {/* Dynamic Agent Selector */}
+      {/* Dynamic Agent Selector with Drag & Drop Reordering */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 16px', background: 'hsl(var(--bg-sidebar))', borderRadius: '12px', border: '1px solid hsl(var(--border-dim))', marginTop: '8px', marginBottom: '8px', alignItems: 'center' }}>
         <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase', marginRight: '4px' }}>
           AI Members:
@@ -271,35 +358,36 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         {(projectData?.agents || []).length === 0 ? (
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
         ) : (
-          (projectData?.agents || []).map((agent: any) => {
-            const agentIndex = selectedDiscussionAgents.indexOf(agent.name);
-            const isSelected = agentIndex !== -1;
-            return (
-              <label 
-                key={agent.name} 
-                className={`skill-checkbox-chip ${isSelected ? 'selected' : ''}`}
-                style={{
-                  fontSize: '0.75rem',
-                  padding: '4px 12px',
-                  borderRadius: '16px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  cursor: 'pointer'
-                }}
-              >
-                <input 
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => {
-                    setSelectedDiscussionAgents(prev => 
-                      prev.includes(agent.name) 
-                        ? prev.filter(name => name !== agent.name) 
-                        : [...prev, agent.name]
-                    );
+          <>
+            {/* 1. Selected & Draggable Agents */}
+            {selectedDiscussionAgents.map((agentName, index) => {
+              const agent = (projectData?.agents || []).find((a: any) => a.name === agentName);
+              if (!agent) return null;
+              return (
+                <div
+                  key={agent.name}
+                  draggable={true}
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDrop={(e) => handleDrop(e, index)}
+                  onDragEnd={() => setDraggedIndex(null)}
+                  className="skill-checkbox-chip selected"
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'grab',
+                    opacity: draggedIndex === index ? 0.5 : 1,
+                    border: '1px solid hsl(var(--accent-purple) / 0.5)',
+                    background: 'hsl(var(--bg-input))',
+                    userSelect: 'none',
+                    transition: 'all 0.15s ease'
                   }}
-                />
-                {isSelected ? (
+                  title="Drag to reorder workflow sequence"
+                >
                   <span style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -307,194 +395,196 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                     background: 'hsl(var(--accent-purple))',
                     color: 'white',
                     borderRadius: '50%',
-                    width: '15px',
-                    height: '15px',
+                    width: '16px',
+                    height: '16px',
                     fontSize: '0.62rem',
                     fontWeight: 700,
-                    marginRight: '2px',
                     lineHeight: 1
                   }}>
-                    {agentIndex + 1}
+                    {index + 1}
                   </span>
-                ) : '+ '}
-                {agent.name}
-              </label>
-            );
-          })
-        )}
-      </div>
-
-      {/* Workflow Sequence */}
-      {selectedDiscussionAgents.length > 0 && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          padding: '14px 16px',
-          background: 'linear-gradient(135deg, hsl(var(--bg-sidebar)) 0%, hsl(var(--bg-card)) 100%)',
-          borderRadius: '12px',
-          border: '1px solid hsl(var(--border-dim))',
-          marginTop: '8px',
-          marginBottom: '8px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          position: 'relative'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase' }}>
-              Discussion Workflow Sequence (Order: 1 ➔ 2 ➔ 3):
-            </span>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setSelectedDiscussionAgents([])}
-              style={{ padding: '3px 8px', fontSize: '0.68rem', height: 'auto', borderRadius: '4px' }}
-            >
-              Clear Workflow
-            </button>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            flexWrap: 'wrap',
-            marginTop: '2px'
-          }}>
-            {selectedDiscussionAgents.map((agentName, index) => {
-              const isFirst = index === 0;
-              const isLast = index === selectedDiscussionAgents.length - 1;
-              return (
-                <React.Fragment key={agentName}>
-                  <div
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      background: 'hsl(var(--bg-input))',
-                      border: '1px solid hsl(var(--accent-purple) / 0.3)',
-                      borderRadius: '8px',
-                      padding: '6px 12px',
-                      fontSize: '0.78rem',
-                      color: 'white',
-                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)'
+                  <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
+                  <span 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedDiscussionAgents(prev => prev.filter(name => name !== agent.name));
                     }}
+                    style={{
+                      cursor: 'pointer',
+                      marginLeft: '4px',
+                      color: 'hsl(var(--text-muted))',
+                      fontSize: '0.85rem',
+                      lineHeight: 1,
+                      fontWeight: 'bold'
+                    }}
+                    title="Deselect member"
                   >
-                    {/* Index badge */}
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      background: 'hsl(var(--accent-purple))',
-                      color: 'white',
-                      fontSize: '0.68rem',
-                      fontWeight: 700
-                    }}>
-                      {index + 1}
-                    </span>
+                    ×
+                  </span>
+                </div>
+              );
+            })}
 
-                    <span style={{ fontWeight: 500 }}>{agentName}</span>
+            {/* 2a. Registered but Unselected Agents */}
+            {(projectData?.agents || [])
+              .filter((agent: any) => !selectedDiscussionAgents.includes(agent.name))
+              .map((agent: any) => (
+                <div 
+                  key={agent.name} 
+                  className="skill-checkbox-chip"
+                  onClick={() => {
+                    setSelectedDiscussionAgents(prev => [...prev, agent.name]);
+                  }}
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    cursor: 'pointer',
+                    border: '1px dashed hsl(var(--border-dim))',
+                    background: 'transparent',
+                    userSelect: 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <span style={{ color: 'hsl(var(--text-muted))' }}>+</span>
+                  <span style={{ color: 'hsl(var(--text-secondary))' }}>{agent.name}</span>
+                </div>
+              ))}
 
-                    {/* Move controls */}
-                    <div style={{ display: 'inline-flex', gap: '4px', marginLeft: '6px', borderLeft: '1px solid hsl(var(--border-dim))', paddingLeft: '6px' }}>
+            {/* 2b. Add Template Dropdown */}
+            {(() => {
+              const unregisteredTemplates = agentPersonaTemplates.filter(
+                tmpl => !(projectData?.agents || []).some((a: any) => a.name.toLowerCase() === tmpl.name.toLowerCase())
+              );
+              if (unregisteredTemplates.length === 0) return null;
+              return (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  {showAddTemplateDropdown ? (
+                    <>
+                      <select
+                        value={selectedTemplateName}
+                        onChange={(e) => setSelectedTemplateName(e.target.value)}
+                        className="form-select"
+                        style={{
+                          fontSize: '0.75rem',
+                          height: '28px',
+                          padding: '0 8px',
+                          borderRadius: '6px',
+                          backgroundColor: 'hsl(var(--bg-input))',
+                          border: '1px solid hsl(var(--border-dim))',
+                          color: 'white',
+                          outline: 'none'
+                        }}
+                      >
+                        <option value="">-- Select Expert --</option>
+                        {unregisteredTemplates.map(tmpl => (
+                          <option key={tmpl.name} value={tmpl.name}>
+                            {tmpl.name} ({tmpl.role})
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
-                        disabled={isFirst}
+                        className="btn-primary"
+                        disabled={!selectedTemplateName || localRegistering}
                         onClick={() => {
-                          setSelectedDiscussionAgents(prev => {
-                            const next = [...prev];
-                            const temp = next[index];
-                            next[index] = next[index - 1];
-                            next[index - 1] = temp;
-                            return next;
-                          });
+                          const tmpl = unregisteredTemplates.find(t => t.name === selectedTemplateName);
+                          if (tmpl) {
+                            handleRegisterTemplateAgent(tmpl).then(() => {
+                              setSelectedTemplateName('');
+                              setShowAddTemplateDropdown(false);
+                            });
+                          }
                         }}
                         style={{
-                          background: 'none',
-                          border: 'none',
-                          color: isFirst ? 'hsl(var(--text-muted) / 0.3)' : 'hsl(var(--text-secondary))',
-                          cursor: isFirst ? 'default' : 'pointer',
-                          padding: '2px',
+                          padding: '0 10px',
+                          fontSize: '0.72rem',
+                          height: '28px',
+                          borderRadius: '6px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: '0.75rem'
+                          cursor: 'pointer'
                         }}
-                        title="Move Up/Left"
                       >
-                        ◀
+                        {localRegistering ? 'Adding...' : 'Add'}
                       </button>
                       <button
                         type="button"
-                        disabled={isLast}
+                        className="btn-secondary"
                         onClick={() => {
-                          setSelectedDiscussionAgents(prev => {
-                            const next = [...prev];
-                            const temp = next[index];
-                            next[index] = next[index + 1];
-                            next[index + 1] = temp;
-                            return next;
-                          });
+                          setSelectedTemplateName('');
+                          setShowAddTemplateDropdown(false);
                         }}
                         style={{
-                          background: 'none',
-                          border: 'none',
-                          color: isLast ? 'hsl(var(--text-muted) / 0.3)' : 'hsl(var(--text-secondary))',
-                          cursor: isLast ? 'default' : 'pointer',
-                          padding: '2px',
+                          padding: '0 8px',
+                          fontSize: '0.72rem',
+                          height: '28px',
+                          borderRadius: '6px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: '0.75rem'
+                          cursor: 'pointer'
                         }}
-                        title="Move Down/Right"
                       >
-                        ▶
+                        Cancel
                       </button>
-                    </div>
-
-                    {/* Remove button */}
+                    </>
+                  ) : (
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedDiscussionAgents(prev => prev.filter(name => name !== agentName));
+                        setShowAddTemplateDropdown(true);
+                        if (unregisteredTemplates.length > 0) {
+                          setSelectedTemplateName(unregisteredTemplates[0].name);
+                        }
                       }}
                       style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'hsl(var(--text-muted))',
+                        fontSize: '0.72rem',
+                        padding: '4px 10px',
+                        borderRadius: '16px',
+                        border: '1px dotted hsl(var(--accent-purple) / 0.5)',
+                        background: 'hsl(var(--accent-purple) / 0.08)',
+                        color: 'hsl(var(--text-secondary))',
                         cursor: 'pointer',
-                        padding: '0 2px',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.75rem',
-                        marginLeft: '2px'
+                        gap: '4px',
+                        transition: 'all 0.15s ease',
+                        userSelect: 'none'
                       }}
-                      title="Remove from workflow"
+                      title="Add a pre-built AI expert role to this discussion"
                     >
-                      ✕
+                      <span>+ Expert</span>
                     </button>
-                  </div>
-
-                  {!isLast && (
-                    <span style={{
-                      color: 'hsl(var(--accent-purple) / 0.5)',
-                      fontWeight: 700,
-                      fontSize: '0.9rem',
-                      userSelect: 'none'
-                    }}>
-                      ➔
-                    </span>
                   )}
-                </React.Fragment>
+                </div>
               );
-            })}
-          </div>
-        </div>
-      )}
+            })()}
+
+            {/* 3. Clear button if any selected */}
+            {selectedDiscussionAgents.length > 0 && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setSelectedDiscussionAgents([])}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '0.68rem',
+                  height: 'auto',
+                  borderRadius: '4px',
+                  marginLeft: 'auto'
+                }}
+              >
+                Clear Workflow
+              </button>
+            )}
+          </>
+        )}
+      </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '10px 16px', background: 'hsl(var(--bg-input))', borderRadius: '8px', border: '1px solid hsl(var(--border-dim))', marginBottom: '8px', alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>

@@ -32,15 +32,16 @@ export function useAgentManagement({
   setErrorMsg
 }: UseAgentManagementOptions) {
   const {
+    providers,
     dynamicCliModels,
     getModelOptions,
     fetchModelsForProvider
   } = useProviders();
   const [newAgentName, setNewAgentName] = useState<string>('');
-  const [newAgentRole, setNewAgentRole] = useState<string>('');
+  const [newAgentRole, setNewAgentRole] = useState<string>('Assistant');
   const [newAgentProvider, setNewAgentProvider] = useState<string>('gemini');
   const [newAgentCommand, setNewAgentCommand] = useState<string>('');
-  const [newAgentPrompt, setNewAgentPrompt] = useState<string>('');
+  const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
   const [newAgentPreset, setNewAgentPreset] = useState<'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none'>('none');
   const [newAgentStdinFormat, setNewAgentStdinFormat] = useState<'text' | 'json'>('text');
@@ -54,6 +55,35 @@ export function useAgentManagement({
   const [skillPreview, setSkillPreview] = useState<SkillPreviewResult | null>(null);
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (providers && providers.length > 0 && !newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
+      const activeOllama = providers.find(p => p.id === 'ollama');
+      const activeLMStudio = providers.find(p => p.id === 'lmstudio');
+      const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
+      const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
+      const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
+
+      let defaultProvider = 'gemini';
+      if (activeOllama) {
+        defaultProvider = 'ollama';
+      } else if (activeLMStudio) {
+        defaultProvider = 'lmstudio';
+      } else if (geminiConfigured) {
+        defaultProvider = 'gemini';
+      } else if (claudeConfigured) {
+        defaultProvider = 'anthropic';
+      } else if (openaiConfigured) {
+        defaultProvider = 'openai';
+      }
+
+      setNewAgentProvider(defaultProvider);
+      const models = getModelOptions(defaultProvider, 'none');
+      if (models && models.length > 0) {
+        setNewAgentModel(models[0].value);
+      }
+    }
+  }, [providers]);
 
   useEffect(() => {
     if (newAgentProvider) {
@@ -103,12 +133,35 @@ export function useAgentManagement({
 
   const resetAgentForm = () => {
     setNewAgentName('');
-    setNewAgentRole('');
-    setNewAgentProvider('gemini');
-    setNewAgentModel('');
+    
+    let defaultProvider = 'gemini';
+    const activeOllama = providers?.find(p => p.id === 'ollama');
+    const activeLMStudio = providers?.find(p => p.id === 'lmstudio');
+    const geminiConfigured = providers?.find(p => p.id === 'gemini')?.hasKey;
+    const claudeConfigured = providers?.find(p => p.id === 'anthropic')?.hasKey;
+    const openaiConfigured = providers?.find(p => p.id === 'openai')?.hasKey;
+    
+    if (activeOllama) {
+      defaultProvider = 'ollama';
+    } else if (activeLMStudio) {
+      defaultProvider = 'lmstudio';
+    } else if (geminiConfigured) {
+      defaultProvider = 'gemini';
+    } else if (claudeConfigured) {
+      defaultProvider = 'anthropic';
+    } else if (openaiConfigured) {
+      defaultProvider = 'openai';
+    }
+
+    setNewAgentProvider(defaultProvider);
+    const models = getModelOptions(defaultProvider, 'none');
+    setNewAgentModel(models[0]?.value || '');
     setNewAgentModelCustom(false);
     setNewAgentCommand('');
-    setNewAgentPrompt('');
+    
+    setNewAgentRole('Assistant');
+    setNewAgentPrompt('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
+    
     setNewAgentSkills([]);
     setNewAgentPreset('none');
     setNewAgentStdinFormat('text');

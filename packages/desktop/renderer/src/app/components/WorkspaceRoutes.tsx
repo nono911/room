@@ -310,6 +310,9 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
   if (activeTab === 'Discussions') {
     return (
       <DiscussionsScreen
+        projectPath={projectPath}
+        loadProjectData={loadProjectData}
+        ensureTemplateSkills={ensureTemplateSkills}
         projectData={projectData}
         activeDiscussionId={activeDiscussionId}
         summarizeActiveDiscussion={summarizeActiveDiscussion}
