@@ -1,5 +1,6 @@
 import { app, BrowserWindow, protocol, net } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { applyApiKeysToEnvironment } from './ipc/provider-store.js';
 import {
@@ -85,12 +86,28 @@ app.whenReady().then(async () => {
   await applyApiKeysToEnvironment();
 
   // Register custom protocol handler to resolve files from renderer output
-  protocol.handle('app', (request) => {
+  protocol.handle('app', async (request) => {
     try {
       const parsedUrl = new URL(request.url);
       const requestPath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
       const safePath = resolveRendererAssetPath(requestPath);
-      return net.fetch(`file://${safePath}`);
+      
+      const fileBuffer = await fs.readFile(safePath);
+      const ext = path.extname(safePath).toLowerCase();
+      let mimeType = 'application/octet-stream';
+      if (ext === '.html') mimeType = 'text/html';
+      else if (ext === '.js') mimeType = 'application/javascript';
+      else if (ext === '.css') mimeType = 'text/css';
+      else if (ext === '.png') mimeType = 'image/png';
+      else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+      else if (ext === '.gif') mimeType = 'image/gif';
+      else if (ext === '.svg') mimeType = 'image/svg+xml';
+      else if (ext === '.json') mimeType = 'application/json';
+      else if (ext === '.ico') mimeType = 'image/x-icon';
+
+      return new Response(fileBuffer, {
+        headers: { 'content-type': mimeType }
+      });
     } catch (error) {
       console.warn('[Electron] Rejected app:// path request:', error);
       return new Response('Forbidden', { status: 403 });
