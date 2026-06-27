@@ -62,7 +62,22 @@ function getContextRef(relPath: string): string {
 function getContextLabel(type: ContextSearchResult['type'], relPath: string, heading?: string): string {
   if (type === 'workspace') return relPath;
   const prefix = type === 'task' ? 'Task' : type === 'doc' ? 'Doc' : type === 'discussion' ? 'Chat' : 'File';
-  return `${prefix}: ${heading || relPath}`;
+
+  if (relPath.startsWith(`${ROOM_DIR}/documents/`) || relPath.startsWith(`${ROOM_DIR}/tasks/`)) {
+    const base = path.basename(relPath);
+    let topicName = base.replace(/\.md$/i, '');
+    topicName = topicName.replace(/-discussion-\d+-summary$/i, '');
+    topicName = topicName.replace(/-discussion-\d+-tasks$/i, '');
+    topicName = topicName.replace(/[-_]+/g, ' ').trim();
+    
+    const suffix = base.toLowerCase().includes('-tasks') ? 'Tasks' : 'Summary';
+    return `${prefix}: ${topicName} (${suffix})`;
+  }
+
+  if (heading) {
+    return `${prefix}: ${heading}`;
+  }
+  return `${prefix}: ${relPath}`;
 }
 
 function scoreContextCandidate(relPath: string, query: string, modifiedAtMs: number): number {

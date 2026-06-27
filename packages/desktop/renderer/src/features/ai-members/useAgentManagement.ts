@@ -21,6 +21,72 @@ interface UseAgentManagementOptions {
   setErrorMsg: (value: string | null) => void;
 }
 
+export interface AgentDefaultSelection {
+  provider: string;
+  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy';
+  modelName?: string;
+}
+
+export const resolveAgentDefaultSelection = (
+  providers: Array<{ id: string; hasKey?: boolean }> | undefined,
+  detectedClis: Array<{ id: string; available: boolean }> | undefined,
+  getModelOptions: (provider: string, preset?: string) => Array<{ value: string }>
+): AgentDefaultSelection => {
+  const installedCli = detectedClis?.find(cli => cli.available);
+  if (installedCli) {
+    return {
+      provider: 'Local CLI',
+      cliPreset: installedCli.id as AgentDefaultSelection['cliPreset'],
+      modelName: ''
+    };
+  }
+
+  const activeOllama = providers?.find(p => p.id === 'ollama');
+  if (activeOllama) {
+    return {
+      provider: 'ollama',
+      modelName: getModelOptions('ollama', 'none')[0]?.value || ''
+    };
+  }
+
+  const activeLMStudio = providers?.find(p => p.id === 'lmstudio');
+  if (activeLMStudio) {
+    return {
+      provider: 'lmstudio',
+      modelName: getModelOptions('lmstudio', 'none')[0]?.value || ''
+    };
+  }
+
+  const geminiConfigured = providers?.find(p => p.id === 'gemini')?.hasKey;
+  if (geminiConfigured) {
+    return {
+      provider: 'gemini',
+      modelName: getModelOptions('gemini', 'none')[0]?.value || ''
+    };
+  }
+
+  const claudeConfigured = providers?.find(p => p.id === 'anthropic')?.hasKey;
+  if (claudeConfigured) {
+    return {
+      provider: 'anthropic',
+      modelName: getModelOptions('anthropic', 'none')[0]?.value || ''
+    };
+  }
+
+  const openaiConfigured = providers?.find(p => p.id === 'openai')?.hasKey;
+  if (openaiConfigured) {
+    return {
+      provider: 'openai',
+      modelName: getModelOptions('openai', 'none')[0]?.value || ''
+    };
+  }
+
+  return {
+    provider: 'gemini',
+    modelName: getModelOptions('gemini', 'none')[0]?.value || ''
+  };
+};
+
 export function useAgentManagement({
   projectPath,
   projectData,
@@ -33,6 +99,7 @@ export function useAgentManagement({
 }: UseAgentManagementOptions) {
   const {
     providers,
+    detectedClis,
     dynamicCliModels,
     getModelOptions,
     fetchModelsForProvider
@@ -57,33 +124,13 @@ export function useAgentManagement({
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
 
   useEffect(() => {
-    if (providers && providers.length > 0 && !newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
-      const activeOllama = providers.find(p => p.id === 'ollama');
-      const activeLMStudio = providers.find(p => p.id === 'lmstudio');
-      const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
-      const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
-      const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
-
-      let defaultProvider = 'gemini';
-      if (activeOllama) {
-        defaultProvider = 'ollama';
-      } else if (activeLMStudio) {
-        defaultProvider = 'lmstudio';
-      } else if (geminiConfigured) {
-        defaultProvider = 'gemini';
-      } else if (claudeConfigured) {
-        defaultProvider = 'anthropic';
-      } else if (openaiConfigured) {
-        defaultProvider = 'openai';
-      }
-
-      setNewAgentProvider(defaultProvider);
-      const models = getModelOptions(defaultProvider, 'none');
-      if (models && models.length > 0) {
-        setNewAgentModel(models[0].value);
-      }
+    if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
+      const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
+      setNewAgentProvider(defaults.provider);
+      setNewAgentPreset(defaults.cliPreset || 'none');
+      setNewAgentModel(defaults.modelName || '');
     }
-  }, [providers]);
+  }, [providers, detectedClis, getModelOptions, newAgentName, newAgentRole, editingAgent]);
 
   useEffect(() => {
     if (newAgentProvider) {
@@ -133,29 +180,11 @@ export function useAgentManagement({
 
   const resetAgentForm = () => {
     setNewAgentName('');
-    
-    let defaultProvider = 'gemini';
-    const activeOllama = providers?.find(p => p.id === 'ollama');
-    const activeLMStudio = providers?.find(p => p.id === 'lmstudio');
-    const geminiConfigured = providers?.find(p => p.id === 'gemini')?.hasKey;
-    const claudeConfigured = providers?.find(p => p.id === 'anthropic')?.hasKey;
-    const openaiConfigured = providers?.find(p => p.id === 'openai')?.hasKey;
-    
-    if (activeOllama) {
-      defaultProvider = 'ollama';
-    } else if (activeLMStudio) {
-      defaultProvider = 'lmstudio';
-    } else if (geminiConfigured) {
-      defaultProvider = 'gemini';
-    } else if (claudeConfigured) {
-      defaultProvider = 'anthropic';
-    } else if (openaiConfigured) {
-      defaultProvider = 'openai';
-    }
 
-    setNewAgentProvider(defaultProvider);
-    const models = getModelOptions(defaultProvider, 'none');
-    setNewAgentModel(models[0]?.value || '');
+    const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
+    setNewAgentProvider(defaults.provider);
+    setNewAgentPreset(defaults.cliPreset || 'none');
+    setNewAgentModel(defaults.modelName || '');
     setNewAgentModelCustom(false);
     setNewAgentCommand('');
     
@@ -163,7 +192,6 @@ export function useAgentManagement({
     setNewAgentPrompt('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
     
     setNewAgentSkills([]);
-    setNewAgentPreset('none');
     setNewAgentStdinFormat('text');
     setNewAgentPermissionMode('safe');
     setCustomSkillName('');
@@ -267,16 +295,33 @@ export function useAgentManagement({
     try {
       for (const template of templatesToAdd) {
         const provider = normalizeProviderId(template.provider);
-        const modelOptions = getModelOptions(provider, 'none');
-        const defaultModel = modelOptions[0]?.value;
+        const hasKey = providers?.find(p => p.id === provider)?.hasKey;
+        const isLocalProvider = provider === 'ollama' || provider === 'lmstudio';
+        const isLocalActive = isLocalProvider && providers?.find(p => p.id === provider);
+
+        let finalProvider = provider;
+        let finalPreset: string | undefined = undefined;
+        let finalModel = '';
+
+        if (!hasKey && !isLocalActive) {
+          const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
+          finalProvider = defaults.provider;
+          finalPreset = defaults.cliPreset;
+          finalModel = defaults.modelName || '';
+        } else {
+          finalModel = getModelOptions(provider, 'none')[0]?.value || '';
+        }
+
         const skillFiles = await ensureTemplateSkills(template.skills);
         const res = await api.saveAgent(projectPath, {
           name: template.name,
           role: template.role,
-          provider,
-          modelName: defaultModel,
+          provider: finalProvider,
+          modelName: finalModel || undefined,
           systemPrompt: template.prompt,
-          skills: skillFiles
+          skills: skillFiles,
+          cliPreset: finalProvider === 'Local CLI' ? finalPreset : undefined,
+          permissionMode: finalProvider === 'Local CLI' ? 'safe' : undefined
         });
 
         if (!res.success) {

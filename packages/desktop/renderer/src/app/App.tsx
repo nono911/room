@@ -5,7 +5,7 @@ import type { ProjectData, TaskBoardCard } from '../types/domain.js';
 import { api } from '../shared/ipc/client.js';
 import { useTaskRun } from '../features/task-run/useTaskRun.js';
 import { useDiscussion } from '../features/discussions/useDiscussion.js';
-import { useAgentManagement } from '../features/ai-members/useAgentManagement.js';
+import { useAgentManagement, resolveAgentDefaultSelection } from '../features/ai-members/useAgentManagement.js';
 import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
@@ -28,7 +28,7 @@ import { agentPersonaTemplates, teamPresets } from '../shared/data/staticData.js
 import { useProviders } from '../features/providers/context/ProvidersContext.js';
 
 export default function App() {
-  const { providers, getModelOptions } = useProviders();
+  const { providers, getModelOptions, detectedClis } = useProviders();
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Discussions');
   const [loading, setLoading] = useState<boolean>(false);
@@ -457,39 +457,22 @@ export default function App() {
                           const res = await api.roomInit(projectPath!);
                           if (res.success) {
                             clearWorkspaceDerivedState();
-                            const activeOllama = providers.find(p => p.id === 'ollama');
-                            const activeLMStudio = providers.find(p => p.id === 'lmstudio');
-                            const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
-                            const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
-                            const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
-
-                            let defaultProvider = 'gemini';
-                            if (activeOllama) {
-                              defaultProvider = 'ollama';
-                            } else if (activeLMStudio) {
-                              defaultProvider = 'lmstudio';
-                            } else if (geminiConfigured) {
-                              defaultProvider = 'gemini';
-                            } else if (claudeConfigured) {
-                              defaultProvider = 'anthropic';
-                            } else if (openaiConfigured) {
-                              defaultProvider = 'openai';
-                            }
+                            const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
 
                             const nextSelected: string[] = [];
                             for (const roleName of preset.roles) {
                               const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
                               if (tmpl) {
                                 try {
-                                  const models = getModelOptions(defaultProvider, 'none');
-                                  const defaultModel = models[0]?.value || '';
                                   const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
 
                                   await api.saveAgent(projectPath!, {
                                     name: tmpl.name,
                                     role: tmpl.role,
-                                    provider: defaultProvider,
-                                    modelName: defaultModel || undefined,
+                                    provider: defaults.provider,
+                                    modelName: defaults.provider === 'Local CLI' ? undefined : (defaults.modelName || undefined),
+                                    cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
+                                    permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined,
                                     systemPrompt: tmpl.prompt,
                                     skills: skillFiles
                                   });

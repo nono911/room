@@ -6,6 +6,7 @@ import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/Pix
 import { api } from '../../../shared/ipc/client.js';
 import { agentPersonaTemplates, teamPresets } from '../../../shared/data/staticData.js';
 import { useProviders } from '../../providers/context/ProvidersContext.js';
+import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
 
 interface DiscussionsScreenProps {
   projectPath: string | null;
@@ -121,7 +122,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
 }) => {
   const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
   const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
-  const { providers, getModelOptions } = useProviders();
+  const { providers, detectedClis, getModelOptions } = useProviders();
   const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
   const [showAddTemplateDropdown, setShowAddTemplateDropdown] = React.useState<boolean>(false);
   const [selectedTemplateName, setSelectedTemplateName] = React.useState<string>('');
@@ -130,36 +131,19 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
     if (!projectPath) return;
     setLocalRegistering(true);
     try {
-      const activeOllama = providers.find(p => p.id === 'ollama');
-      const activeLMStudio = providers.find(p => p.id === 'lmstudio');
-      const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
-      const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
-      const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
+      const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
 
-      let defaultProvider = 'gemini';
-      if (activeOllama) {
-        defaultProvider = 'ollama';
-      } else if (activeLMStudio) {
-        defaultProvider = 'lmstudio';
-      } else if (geminiConfigured) {
-        defaultProvider = 'gemini';
-      } else if (claudeConfigured) {
-        defaultProvider = 'anthropic';
-      } else if (openaiConfigured) {
-        defaultProvider = 'openai';
-      }
-
-      const models = getModelOptions(defaultProvider, 'none');
-      const defaultModel = models[0]?.value || '';
       const skillFiles = await ensureTemplateSkills(template.skills || []);
 
       const res = await api.saveAgent(projectPath, {
         name: template.name,
         role: template.role,
-        provider: defaultProvider,
-        modelName: defaultModel || undefined,
+        provider: defaults.provider,
+        modelName: defaults.modelName || undefined,
         systemPrompt: template.prompt,
-        skills: skillFiles
+        skills: skillFiles,
+        cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
+        permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
       });
 
       if (res.success) {
@@ -310,37 +294,19 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                           if (tmpl) {
                             // Register it
                             try {
-                              const activeOllama = providers.find(p => p.id === 'ollama');
-                              const activeLMStudio = providers.find(p => p.id === 'lmstudio');
-                              const geminiConfigured = providers.find(p => p.id === 'gemini')?.hasKey;
-                              const claudeConfigured = providers.find(p => p.id === 'anthropic')?.hasKey;
-                              const openaiConfigured = providers.find(p => p.id === 'openai')?.hasKey;
-
-                              let defaultProvider = 'gemini';
-                              if (activeOllama) {
-                                defaultProvider = 'ollama';
-                              } else if (activeLMStudio) {
-                                defaultProvider = 'lmstudio';
-                              } else if (geminiConfigured) {
-                                defaultProvider = 'gemini';
-                              } else if (claudeConfigured) {
-                                defaultProvider = 'anthropic';
-                              } else if (openaiConfigured) {
-                                defaultProvider = 'openai';
-                              }
-
-                              const models = getModelOptions(defaultProvider, 'none');
-                              const defaultModel = models[0]?.value || '';
+                              const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
                               const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
 
                               if (projectPath) {
                                 const res = await api.saveAgent(projectPath, {
                                   name: tmpl.name,
                                   role: tmpl.role,
-                                  provider: defaultProvider,
-                                  modelName: defaultModel || undefined,
+                                  provider: defaults.provider,
+                                  modelName: defaults.modelName || undefined,
                                   systemPrompt: tmpl.prompt,
-                                  skills: skillFiles
+                                  skills: skillFiles,
+                                  cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
+                                  permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
                                 });
                                 if (res.success) {
                                   nextSelected.push(tmpl.name);
