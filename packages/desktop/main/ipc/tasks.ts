@@ -99,13 +99,13 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
 }
 
 export function registerTasksIpc(): void {
-  ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, reviewerNames, maxCycles, contextRefs }: { dirPath: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[] }) => {
-    const taskId = `task-${Date.now()}`;
+  ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, reviewerNames, maxCycles, contextRefs, associatedCardId, continuedFromTaskId, taskId }: { dirPath: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }) => {
+    const actualTaskId = taskId || (associatedCardId ? `task-${associatedCardId}` : `task-${Date.now()}`);
     const cycleLimit = Number.isFinite(maxCycles) ? Math.max(1, Math.min(5, Math.floor(maxCycles || 1))) : 2;
     const sendDiscussionEvent = (payload: any) => {
       event.sender.send('discussion-event', payload);
     };
-    startControlledRun(taskId);
+    startControlledRun(actualTaskId);
 
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
@@ -125,7 +125,7 @@ export function registerTasksIpc(): void {
 
       const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
       const result = await engine.runCodingTask(
-        taskId,
+        actualTaskId,
         `Task: ${task.slice(0, 40)}...`,
         task,
         doer.name,
@@ -135,7 +135,9 @@ export function registerTasksIpc(): void {
           onEvent: sendDiscussionEvent,
           additionalContext,
           taskType,
-          getInterruptMessage: () => getRunInterruptMessage(taskId)
+          getInterruptMessage: () => getRunInterruptMessage(actualTaskId),
+          associatedCardId,
+          continuedFromTaskId
         }
       );
 
@@ -148,7 +150,7 @@ export function registerTasksIpc(): void {
       });
       return { success: false, error: error.message };
     } finally {
-      finishControlledRun(taskId);
+      finishControlledRun(actualTaskId);
     }
   });
 

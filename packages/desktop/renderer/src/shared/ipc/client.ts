@@ -22,7 +22,7 @@ export const api = {
   runTask: (
     dirPath: string,
     task: string,
-    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[] }
+    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }
   ) => window.electronAPI.runTask(dirPath, task, options),
   interruptRun: (runId: string, message: string) => window.electronAPI.interruptRun(runId, message),
   summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>

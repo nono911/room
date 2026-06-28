@@ -250,6 +250,8 @@ export const PixelAgentStage: React.FC<PixelAgentStageProps> = ({
   viewMode,
   onViewModeChange
 }) => {
+  return null; // Unconditionally hidden per user request to use classic view only
+
   const orderedAgents = React.useMemo(() => {
     return selectedAgentNames
       .map(name => agents.find(agent => normalizeName(agent.name) === normalizeName(name)) || { name, role: 'AI Member' })

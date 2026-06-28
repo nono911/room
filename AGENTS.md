@@ -64,7 +64,13 @@ This checkout does not expose Git history, so use Conventional Commits, for exam
 
 Pull requests should include a concise summary, affected package(s), validation commands run, linked issues when applicable, and screenshots or recordings for UI changes.
 
-## Security & Configuration Tips
-
 Do not commit API keys, local provider credentials, or machine-specific `.room/config.json` values. MCP configuration can execute local commands, so review `.room/mcp.json` changes carefully.
+
+## Code File Size Limits & Modularization
+
+To prevent code bloat and maintain a high-quality codebase, ROOM strictly enforces file size constraints:
+- **Maximum File Length**: Keep all source files (TypeScript `.ts`, React `.tsx`) under **500 lines**.
+- If a file starts exceeding 500 lines during implementation, you MUST proactively refactor and split it into logical sub-modules.
+- Pre-build scripts automatically run `node scripts/guard-file-size.js` to enforce this rule and fail the build if any non-whitelisted source file exceeds 500 lines.
+
 

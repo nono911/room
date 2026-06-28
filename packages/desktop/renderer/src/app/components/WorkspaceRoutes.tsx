@@ -134,6 +134,7 @@ interface WorkspaceRoutesProps {
   codingTaskMaxCycles: number;
   setCodingTaskMaxCycles: (value: number) => void;
   selectedCodingTaskContextRefs: string[];
+  setSelectedCodingTaskContextRefs: (value: string[] | ((prev: string[]) => string[])) => void;
   handleRunCodingTask: () => void;
   lastCodingTaskResult: any;
   setLastCodingTaskResult: (value: any) => void;
@@ -159,6 +160,10 @@ interface WorkspaceRoutesProps {
   setContentFontSize: (value: string) => void;
   contentLineHeight: string;
   setContentLineHeight: (value: string) => void;
+  selectedTaskCardId: string | null;
+  setSelectedTaskCardId: (value: string | null) => void;
+  continuedFromTaskId: string | null;
+  setContinuedFromTaskId: (value: string | null) => void;
 }
 
 export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
@@ -280,6 +285,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     codingTaskMaxCycles,
     setCodingTaskMaxCycles,
     selectedCodingTaskContextRefs,
+    setSelectedCodingTaskContextRefs,
     handleRunCodingTask,
     lastCodingTaskResult,
     setLastCodingTaskResult,
@@ -296,6 +302,10 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     continueTaskRunFromPivot,
     taskRunView,
     setTaskRunView,
+    selectedTaskCardId,
+    setSelectedTaskCardId,
+    continuedFromTaskId,
+    setContinuedFromTaskId,
     handleUpdateProjectConfig,
     contentTheme,
     setContentTheme,
@@ -368,6 +378,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     return (
       <TaskRunScreen
         projectData={projectData}
+        taskBoardCards={taskBoardCards}
         codingTaskMessages={codingTaskMessages}
         codingTaskDeveloperName={codingTaskDeveloperName}
         setCodingTaskDeveloperName={setCodingTaskDeveloperName}
@@ -408,6 +419,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         loading={loading}
         taskRunView={taskRunView}
         setTaskRunView={setTaskRunView}
+        selectedTaskCardId={selectedTaskCardId}
+        setSelectedTaskCardId={setSelectedTaskCardId}
       />
     );
   }
@@ -522,6 +535,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         initialSelectedFile={initialSelectedFile}
         setInitialSelectedFile={setInitialSelectedFile}
         setErrorMsg={setErrorMsg}
+        setActiveTab={setActiveTab}
+        setCodingTaskInput={setCodingTaskInput}
+        setSelectedTaskCardId={setSelectedTaskCardId}
+        setSelectedCodingTaskContextRefs={setSelectedCodingTaskContextRefs}
+        continuedFromTaskId={continuedFromTaskId}
+        setContinuedFromTaskId={setContinuedFromTaskId}
       />
     );
   }

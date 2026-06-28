@@ -41,7 +41,8 @@ export async function executeModeratorActions(
           title: action.title,
           kind: action.kind,
           parent: action.parent,
-          details: action.details
+          details: action.details,
+          assignee: action.assignee
         })),
         sourceDiscussionId
       );

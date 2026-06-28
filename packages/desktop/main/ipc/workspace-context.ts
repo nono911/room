@@ -17,7 +17,13 @@ import {
 function isSearchableRoomContextFile(relPath: string): boolean {
   const normalized = relPath.toLowerCase();
   if (!normalized.startsWith(`${ROOM_DIR}/`)) return true;
-  if (normalized.startsWith(`${ROOM_DIR}/tasks/`)) return normalized.endsWith('.md');
+  if (normalized.startsWith(`${ROOM_DIR}/tasks/`)) {
+    const base = path.basename(normalized);
+    if (base.startsWith('task-')) {
+      return base.endsWith('-artifact.md');
+    }
+    return normalized.endsWith('.md');
+  }
   if (normalized.startsWith(`${ROOM_DIR}/documents/`)) return normalized.endsWith('.md');
   if (normalized.startsWith(`${ROOM_DIR}/reviews/`)) return normalized.endsWith('.md');
   if (normalized.startsWith(`${ROOM_DIR}/decisions/`)) return normalized.endsWith('.md');
@@ -190,9 +196,29 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
       if (score < 0) continue;
       const type = getContextResultType(relPath);
       const heading = preview ? extractMarkdownHeading(preview) : undefined;
+      let label = getContextLabel(type, relPath, heading);
+      if (type === 'task') {
+        const base = path.basename(relPath);
+        if (base.startsWith('task-') && base.endsWith('-artifact.md')) {
+          const jsonFile = base.replace(/-artifact\.md$/i, '.json');
+          const jsonPath = path.join(root, ROOM_DIR, 'tasks', jsonFile);
+          try {
+            const jsonContent = await fs.readFile(jsonPath, 'utf-8');
+            const meta = JSON.parse(jsonContent);
+            const title = meta.title || meta.task || '';
+            const cleanTitle = title.replace(/^Task:\s*/i, '').trim();
+            const cardId = meta.associatedCardId ? `${meta.associatedCardId} — ` : '';
+            const status = meta.status ? ` [${meta.status.toUpperCase().replace(/_/g, ' ')}]` : '';
+            label = `Task: ${cardId}${cleanTitle}${status}`;
+          } catch {
+            // Fallback
+          }
+        }
+      }
+
       results.push({
         ref: getContextRef(relPath),
-        label: getContextLabel(type, relPath, heading),
+        label,
         type,
         path: relPath,
         detail: `${formatBytes(stat.size)} · modified ${stat.mtime.toISOString().slice(0, 10)}`,

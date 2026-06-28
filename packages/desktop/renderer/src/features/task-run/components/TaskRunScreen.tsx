@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ProjectData, UIMessage } from '../../../types/domain.js';
+import type { ProjectData, UIMessage, TaskBoardCard } from '../../../types/domain.js';
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { ContextControl } from '../../../components/context/ContextControl.js';
 import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
@@ -46,6 +46,9 @@ interface TaskRunScreenProps {
   loading: boolean;
   taskRunView: 'setup' | 'timeline' | 'artifact' | 'trace';
   setTaskRunView: (view: 'setup' | 'timeline' | 'artifact' | 'trace') => void;
+  taskBoardCards?: TaskBoardCard[];
+  selectedTaskCardId: string | null;
+  setSelectedTaskCardId: (value: string | null) => void;
 }
 
 export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
@@ -89,9 +92,12 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   loadRoomFilePreview,
   loading,
   taskRunView,
-  setTaskRunView
+  setTaskRunView,
+  taskBoardCards = [],
+  selectedTaskCardId,
+  setSelectedTaskCardId
 }) => {
-  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
+  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('classic');
   const agents = projectData?.agents || [];
   const savedTaskRuns = (projectData?.taskRuns || []).slice(0, 12);
   const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
@@ -166,6 +172,43 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
             ))}
           </select>
         </div>
+
+        {taskBoardCards.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
+              Import from Task Board
+            </label>
+            <select
+              className="form-select"
+              value={selectedTaskCardId || ""}
+              disabled={loading}
+              onChange={(e) => {
+                const cardId = e.target.value;
+                setSelectedTaskCardId(cardId || null);
+                const selectedCard = taskBoardCards.find(c => c.id === cardId);
+                if (selectedCard) {
+                  const detailsText = selectedCard.details ? `\n\nDetails:\n${selectedCard.details}` : '';
+                  setCodingTaskInput(`${selectedCard.title}${detailsText}`);
+                  
+                  if (selectedCard.assignee) {
+                    const matchedAgent = agents.find(a => a.name.toLowerCase() === selectedCard.assignee!.toLowerCase());
+                    if (matchedAgent) {
+                      setCodingTaskDeveloperName(matchedAgent.name);
+                    }
+                  }
+                }
+              }}
+              style={{ height: '36px', fontSize: '0.85rem' }}
+            >
+              <option value="">-- Choose a task --</option>
+              {taskBoardCards.map(card => (
+                <option key={card.id} value={card.id}>
+                  {card.id} ({card.status}) - {card.title} {card.assignee ? `[@${card.assignee}]` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
@@ -825,7 +868,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         )}
 
         {!(taskRunView === 'timeline' && pixelAgentViewMode === 'animated') && (
-          <div style={{ flex: 1, minHeight: 0, overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: taskRunView === 'timeline' ? 'hidden' : 'auto' }}>
             {taskRunView === 'setup' && setupPanel}
             {taskRunView === 'timeline' && timelinePanel}
             {taskRunView === 'artifact' && artifactPanel}

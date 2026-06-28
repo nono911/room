@@ -37,6 +37,8 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
   const [activeTaskRunId, setActiveTaskRunId] = useState<string | null>(null);
   const [taskInterruptMessage, setTaskInterruptMessage] = useState<string>('');
   const [taskInterruptPending, setTaskInterruptPending] = useState<boolean>(false);
+  const [selectedTaskCardId, setSelectedTaskCardId] = useState<string | null>(null);
+  const [continuedFromTaskId, setContinuedFromTaskId] = useState<string | null>(null);
 
   // Auto-expand the newest cycle when a new one starts
   const maxRound = codingTaskMessages.length > 0 ? Math.max(...codingTaskMessages.map(m => m.round ?? 0)) : 0;
@@ -56,6 +58,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     setActiveTaskRunId(null);
     setTaskInterruptMessage('');
     setTaskInterruptPending(false);
+    setContinuedFromTaskId(null);
   };
 
   const handleRunCodingTask = async () => {
@@ -243,7 +246,10 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
         doerName: codingTaskDeveloperName,
         reviewerNames: codingTaskReviewerNames,
         maxCycles: codingTaskMaxCycles,
-        contextRefs: selectedCodingTaskContextRefs
+        contextRefs: selectedCodingTaskContextRefs,
+        associatedCardId: selectedTaskCardId || undefined,
+        continuedFromTaskId: continuedFromTaskId || undefined,
+        taskId: continuedFromTaskId || undefined
       });
       if (!res.success || !res.result) {
         setErrorMsg(res.error || 'Failed to run task.');
@@ -385,6 +391,8 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     interruptActiveTaskRun,
     continueTaskRunFromPivot,
     applyTaskTypePreset,
-    resetTaskRun
+    resetTaskRun,
+    selectedTaskCardId, setSelectedTaskCardId,
+    continuedFromTaskId, setContinuedFromTaskId
   };
 }

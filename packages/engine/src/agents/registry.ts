@@ -16,6 +16,7 @@ export interface AgentConfig {
   stdinFormat?: 'text' | 'json';
   permissionMode?: 'safe' | 'dangerous';
   strategy?: string;
+  isVirtual?: boolean;
 }
 
 const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
@@ -153,6 +154,21 @@ export async function loadAgents(dirPath: string): Promise<AgentConfig[]> {
     try {
       await loadFromDir(legacyAgentsDir);
     } catch {}
+  }
+
+  // Populate built-in agents as virtual fallbacks if not overridden
+  const existingNames = new Set(agents.map(a => a.name.toLowerCase()));
+  for (const template of PERSONA_TEMPLATES) {
+    if (!existingNames.has(template.name.toLowerCase())) {
+      agents.push({
+        name: template.name,
+        role: template.role,
+        provider: template.provider,
+        systemPrompt: template.prompt,
+        skills: [],
+        isVirtual: true
+      });
+    }
   }
 
   return agents;

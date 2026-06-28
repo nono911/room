@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { scanDirectory, writeScanData, loadAgents, LocalCliProvider, normalizeLocalCliModelName } from '@room/engine';
+import { scanDirectory, writeScanData, loadAgents, LocalCliProvider, normalizeLocalCliModelName, detectLocalAgents, normalizeProviderId } from '@room/engine';
 import {
   ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT, WORKSPACE_FILE_READ_LIMIT_BYTES,
   resolveProjectPath, bindCurrentProjectRoot, requireBoundProjectRoot, resolveWithinProject,
@@ -9,7 +9,7 @@ import {
   readMergedDirs
 } from './shared.js';
 import { readProjectConfigFromDisk } from './config-store.js';
-import { applyApiKeysToEnvironment } from './provider-store.js';
+import { applyApiKeysToEnvironment, readProvidersFromDisk } from './provider-store.js';
 import { searchContextItems } from './workspace-context.js';
 import { listWorkspaceFiles } from './workspace-files.js';
 
@@ -226,8 +226,37 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
 
       const taskFiles = (await safeReadDir(tasksDir))
         .filter(file => file.toLowerCase().endsWith('.md'));
-      const taskRuns = taskFiles.filter(file => /^task-\d+\.md$/i.test(file));
-      const tasks = taskFiles.filter(file => !/^task-\d+\.md$/i.test(file));
+      const rawTaskRuns = taskFiles.filter(file => /^task-[\w-]+\.md$/i.test(file) && !file.toLowerCase().endsWith('-artifact.md'));
+      rawTaskRuns.sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+
+      const taskRuns = await Promise.all(rawTaskRuns.map(async (file) => {
+        const jsonFile = file.replace(/\.md$/i, '.json');
+        const jsonPath = path.join(tasksDir, jsonFile);
+        try {
+          const content = await fs.readFile(jsonPath, 'utf-8');
+          const data = JSON.parse(content);
+          return {
+            filename: file,
+            id: data.id || file.replace(/\.md$/i, ''),
+            title: data.title || file.replace(/\.md$/i, ''),
+            status: data.status || 'unknown',
+            cycles: data.cycles || 0,
+            statusSummary: data.statusSummary || '',
+            associatedCardId: data.associatedCardId || ''
+          };
+        } catch {
+          return {
+            filename: file,
+            id: file.replace(/\.md$/i, ''),
+            title: file.replace(/\.md$/i, ''),
+            status: 'unknown',
+            cycles: 0,
+            associatedCardId: ''
+          };
+        }
+      }));
+
+      const tasks = taskFiles.filter(file => !(/^task-[\w-]+\.md$/i.test(file)) && !file.toLowerCase().endsWith('-artifact.md'));
       const decisions = await safeReadDir(decisionsDir);
       const reviews = await safeReadDir(reviewsDir);
       const discussions = (await safeReadDir(discussionsDir))
@@ -235,6 +264,61 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
       const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
       const skills = await readMergedDirs([skillsDir, rolesDir]);
       const agents = await loadAgents(projectRoot);
+      const providers = await readProvidersFromDisk();
+      const detectedClis = await detectLocalAgents();
+
+      const activeCli = detectedClis.find(cli => cli.available);
+      const activeOllama = providers.find(p => p.id === 'ollama');
+      const activeLMStudio = providers.find(p => p.id === 'lmstudio');
+      
+      const geminiConfigured = !!providers.find(p => p.id === 'gemini')?.apiKey;
+      const claudeConfigured = !!providers.find(p => p.id === 'anthropic')?.apiKey;
+      const openaiConfigured = !!providers.find(p => p.id === 'openai')?.apiKey;
+
+      let defaultProvider = 'gemini';
+      let defaultModel = 'gemini-1.5-flash';
+      let defaultCliPreset: string | undefined = undefined;
+
+      if (activeCli) {
+        defaultProvider = 'Local CLI';
+        defaultCliPreset = activeCli.id;
+        defaultModel = '';
+      } else if (activeOllama) {
+        defaultProvider = 'ollama';
+        defaultModel = 'llama3';
+      } else if (activeLMStudio) {
+        defaultProvider = 'lmstudio';
+        defaultModel = '';
+      } else if (geminiConfigured) {
+        defaultProvider = 'gemini';
+        defaultModel = 'gemini-1.5-flash';
+      } else if (claudeConfigured) {
+        defaultProvider = 'anthropic';
+        defaultModel = 'claude-3-5-sonnet-20241022';
+      } else if (openaiConfigured) {
+        defaultProvider = 'openai';
+        defaultModel = 'gpt-4o-mini';
+      }
+
+      const updatedAgents = agents.map(agent => {
+        if (!agent.isVirtual) return agent;
+        
+        const providerId = normalizeProviderId(agent.provider);
+        const isTemplateProviderConfigured = 
+          (providerId === 'anthropic' && claudeConfigured) ||
+          (providerId === 'gemini' && geminiConfigured) ||
+          (providerId === 'openai' && openaiConfigured);
+
+        if (!isTemplateProviderConfigured) {
+          return {
+            ...agent,
+            provider: defaultProvider,
+            cliPreset: defaultProvider === 'Local CLI' ? defaultCliPreset as any : undefined,
+            modelName: defaultModel || undefined
+          };
+        }
+        return agent;
+      });
 
       return {
         success: true,
@@ -248,7 +332,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         documents,
         discussions,
         skills,
-        agents
+        agents: updatedAgents
       };
     } catch (error: any) {
       return { success: false, error: error.message };

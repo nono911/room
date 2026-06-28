@@ -80,7 +80,7 @@ export interface ElectronAPI {
   runTask: (
     dirPath: string,
     task: string,
-    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[] }
+    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }
   ) => Promise<{
     success: boolean;
     result?: {

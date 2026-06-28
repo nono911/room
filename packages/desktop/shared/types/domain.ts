@@ -3,7 +3,7 @@ export interface ProjectData {
   archMd: string;
   hasScanData?: boolean;
   tasks: string[];
-  taskRuns?: string[];
+  taskRuns?: any[];
   decisions: string[];
   reviews: string[];
   documents: string[];
@@ -70,6 +70,7 @@ export interface TaskBoardCard {
   status: 'todo' | 'in_progress' | 'done';
   sourceDiscussionId?: string;
   createdAt: string;
+  assignee?: string;
 }
 
 export interface UIMessage {

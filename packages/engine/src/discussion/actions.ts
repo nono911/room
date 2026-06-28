@@ -14,6 +14,7 @@ export interface CreateTaskAction {
   details?: string;
   kind?: 'epic' | 'task' | 'subtask';
   parent?: string;
+  assignee?: string;
 }
 
 export interface CreateAdrAction {
@@ -56,7 +57,8 @@ function validateAction(candidate: any): ModeratorAction | string {
         title,
         details: asOptionalString(candidate.details),
         kind,
-        parent: asOptionalString(candidate.parent)
+        parent: asOptionalString(candidate.parent),
+        assignee: asOptionalString(candidate.assignee)
       };
     }
     case 'create_adr': {

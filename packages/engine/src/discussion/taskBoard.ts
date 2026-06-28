@@ -10,6 +10,7 @@ export interface TaskCard {
   status: 'todo' | 'in_progress' | 'done';
   sourceDiscussionId?: string;
   createdAt: string;
+  assignee?: string;
 }
 
 export interface TaskBoard {
@@ -21,6 +22,7 @@ export interface NewTaskCardInput {
   kind?: 'epic' | 'task' | 'subtask';
   parent?: string;
   details?: string;
+  assignee?: string;
 }
 
 function boardPaths(dirPath: string) {
@@ -72,6 +74,7 @@ export async function addTaskCards(
       createdAt: new Date().toISOString()
     };
     if (input.details) card.details = input.details;
+    if (input.assignee) card.assignee = input.assignee;
     if (sourceDiscussionId) card.sourceDiscussionId = sourceDiscussionId;
     const parentId = input.parent ? titleToId.get(input.parent.normalize('NFC').toLowerCase()) : undefined;
     if (parentId) card.parentId = parentId;
@@ -103,7 +106,8 @@ export function renderTaskBoardMarkdown(board: TaskBoard): string {
   const renderCard = (card: TaskCard, depth: number) => {
     const checkbox = card.status === 'done' ? '[x]' : '[ ]';
     const details = card.details ? ` — ${card.details}` : '';
-    lines.push(`${'  '.repeat(depth)}- ${checkbox} **${card.id}** (${card.kind}) ${card.title}${details}`);
+    const assigneeStr = card.assignee ? ` [assignee: ${card.assignee}]` : '';
+    lines.push(`${'  '.repeat(depth)}- ${checkbox} **${card.id}** (${card.kind}) ${card.title}${assigneeStr}${details}`);
     for (const child of childrenOf.get(card.id) || []) {
       renderCard(child, depth + 1);
     }
@@ -115,4 +119,23 @@ export function renderTaskBoardMarkdown(board: TaskBoard): string {
     lines.push('No task cards yet.');
   }
   return lines.join('\n') + '\n';
+}
+
+export async function updateTaskCardStatus(
+  dirPath: string,
+  cardId: string,
+  status: 'todo' | 'in_progress' | 'done'
+): Promise<boolean> {
+  const { jsonPath, markdownPath } = boardPaths(dirPath);
+  try {
+    const board = await loadTaskBoard(dirPath);
+    const card = board.cards.find(c => c.id === cardId);
+    if (card) {
+      card.status = status;
+      await fs.writeFile(jsonPath, JSON.stringify(board, null, 2), 'utf-8');
+      await fs.writeFile(markdownPath, renderTaskBoardMarkdown(board), 'utf-8');
+      return true;
+    }
+  } catch {}
+  return false;
 }

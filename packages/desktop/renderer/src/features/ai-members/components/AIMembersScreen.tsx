@@ -129,33 +129,31 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1, alignContent: 'flex-start' }}>
                   {team.roles.map(role => {
-                    const exists = agents.some((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase());
+                    const matchedAgent = agents.find((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase());
+                    const isCustomized = matchedAgent && !matchedAgent.isVirtual;
                     return (
                       <span
                         key={role}
                         style={{
-                          background: exists ? 'hsl(var(--bg-card))' : 'hsl(var(--accent-purple) / 0.12)',
-                          border: exists ? '1px solid hsl(var(--border-dim))' : '1px solid hsl(var(--accent-purple) / 0.35)',
-                          color: exists ? 'hsl(var(--text-muted))' : 'hsl(var(--text-secondary))',
+                          background: isCustomized ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-card))',
+                          border: isCustomized ? '1px solid hsl(var(--accent-purple) / 0.35)' : '1px solid hsl(var(--border-dim))',
+                          color: isCustomized ? 'hsl(var(--text-secondary))' : 'hsl(var(--text-muted))',
                           fontSize: '0.7rem',
                           padding: '4px 8px',
                           borderRadius: '14px'
                         }}
                       >
-                        {role}{exists ? ' · added' : ''}
+                        {role}{isCustomized ? ' · custom' : ' · default'}
                       </span>
                     );
                   })}
                 </div>
-                <button
-                  className="btn-primary"
-                  type="button"
-                  onClick={() => handleAddTeamPreset(team.name)}
-                  disabled={loading || allAdded}
-                  style={{ height: '34px', padding: '0 14px', fontSize: '0.8rem', alignSelf: 'flex-start' }}
-                >
-                  {allAdded ? 'Added' : 'Add Team'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '34px', fontSize: '0.8rem', color: 'hsl(var(--text-success))', paddingLeft: '2px' }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Team active</span>
+                </div>
               </div>
             );
           })}
@@ -193,7 +191,14 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'white' }}>{agent.name}</h4>
+                    <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'white', display: 'flex', alignItems: 'center' }}>
+                      {agent.name}
+                      {agent.isVirtual && (
+                        <span style={{ fontSize: '0.65rem', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'hsl(var(--text-muted))', padding: '1px 5px', borderRadius: '3px', marginLeft: '6px', textTransform: 'uppercase', fontWeight: 500 }}>
+                          Default
+                        </span>
+                      )}
+                    </h4>
                     <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 500, marginTop: '2px' }}>{agent.role}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -201,22 +206,24 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
                     <button 
                       className="agent-action-btn"
                       onClick={() => startEditAgent(agent)}
-                      title="Edit Agent Config"
+                      title={agent.isVirtual ? 'Customize Agent Prompt' : 'Edit Agent Config'}
                     >
                       <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                       </svg>
                     </button>
                     {/* Delete Button */}
-                    <button 
-                      className="agent-action-btn delete"
-                      onClick={() => handleDeleteAgent(agent.name)}
-                      title="Delete Agent"
-                    >
-                      <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    {!agent.isVirtual && (
+                      <button 
+                        className="agent-action-btn delete"
+                        onClick={() => handleDeleteAgent(agent.name)}
+                        title="Delete Agent Customization"
+                      >
+                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </div>
 

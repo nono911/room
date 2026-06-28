@@ -120,7 +120,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   showInspector,
   setShowInspector
 }) => {
-  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('animated');
+  const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('classic');
   const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
   const { providers, detectedClis, getModelOptions } = useProviders();
   const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);

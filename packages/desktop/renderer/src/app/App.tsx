@@ -90,7 +90,9 @@ export default function App() {
     handleRunCodingTask,
     interruptActiveTaskRun,
     continueTaskRunFromPivot,
-    applyTaskTypePreset
+    applyTaskTypePreset,
+    selectedTaskCardId,
+    setSelectedTaskCardId
   } = useTaskRun({
     projectPath,
     projectData,
@@ -772,6 +774,7 @@ export default function App() {
                 codingTaskMaxCycles={codingTaskMaxCycles}
                 setCodingTaskMaxCycles={setCodingTaskMaxCycles}
                 selectedCodingTaskContextRefs={selectedCodingTaskContextRefs}
+                setSelectedCodingTaskContextRefs={setSelectedCodingTaskContextRefs}
                 handleRunCodingTask={handleRunCodingTask}
                 lastCodingTaskResult={lastCodingTaskResult}
                 setLastCodingTaskResult={setLastCodingTaskResult}
@@ -788,6 +791,10 @@ export default function App() {
                 continueTaskRunFromPivot={continueTaskRunFromPivot}
                 taskRunView={taskRunView}
                 setTaskRunView={setTaskRunView}
+                selectedTaskCardId={selectedTaskCardId}
+                setSelectedTaskCardId={setSelectedTaskCardId}
+                continuedFromTaskId={continuedFromTaskId}
+                setContinuedFromTaskId={setContinuedFromTaskId}
                 handleUpdateProjectConfig={handleUpdateProjectConfig}
                 contentTheme={contentTheme}
                 setContentTheme={setContentTheme}
