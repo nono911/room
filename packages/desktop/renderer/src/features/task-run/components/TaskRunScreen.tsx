@@ -3,8 +3,17 @@ import type { ProjectData, UIMessage, TaskBoardCard } from '../../../types/domai
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { ContextControl } from '../../../components/context/ContextControl.js';
 import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
+import { api } from '../../../shared/ipc/client.js';
+import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
+import { useProviders } from '../../providers/context/ProvidersContext.js';
+import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
+import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
+import { AgentClonePicker } from '../../ai-members/components/AgentClonePicker.js';
 
 interface TaskRunScreenProps {
+  projectPath: string | null;
+  loadProjectData: (path: string) => Promise<void>;
+  ensureTemplateSkills: (skills: any) => Promise<string[]>;
   projectData: ProjectData | null;
   codingTaskMessages: UIMessage[];
   codingTaskDeveloperName: string;
@@ -18,6 +27,8 @@ interface TaskRunScreenProps {
   enableTaskRunWriteAccess: () => void;
   codingTaskReviewerNames: string[];
   setCodingTaskReviewerNames: React.Dispatch<React.SetStateAction<string[]>>;
+  temporaryTaskAgents: any[];
+  setTemporaryTaskAgents: React.Dispatch<React.SetStateAction<any[]>>;
   codingTaskMaxCycles: number;
   setCodingTaskMaxCycles: (value: number) => void;
   selectedCodingTaskContextRefs: string[];
@@ -52,6 +63,9 @@ interface TaskRunScreenProps {
 }
 
 export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
+  projectPath,
+  loadProjectData,
+  ensureTemplateSkills,
   projectData,
   codingTaskMessages,
   codingTaskDeveloperName,
@@ -65,6 +79,8 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   enableTaskRunWriteAccess,
   codingTaskReviewerNames,
   setCodingTaskReviewerNames,
+  temporaryTaskAgents,
+  setTemporaryTaskAgents,
   codingTaskMaxCycles,
   setCodingTaskMaxCycles,
   selectedCodingTaskContextRefs,
@@ -98,7 +114,10 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   setSelectedTaskCardId
 }) => {
   const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('classic');
-  const agents = projectData?.agents || [];
+  const { providers, detectedClis, getModelOptions } = useProviders();
+  const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
+  const registeredProjectAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
+  const agents = [...registeredProjectAgents, ...temporaryTaskAgents];
   const savedTaskRuns = (projectData?.taskRuns || []).slice(0, 12);
   const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
   
@@ -152,6 +171,48 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
     ? (latestContextMetrics.estimatedHistoryTokens || 0) + (latestContextMetrics.estimatedProjectContextTokens || 0)
     : 0;
   const formatMetric = (value: unknown) => typeof value === 'number' ? value.toLocaleString() : '0';
+
+  const handleAddTemplateAgents = async (templateName: string, count: number, lifecycle: AgentLifecycle) => {
+    if (!projectPath) return;
+    const template = agentPersonaTemplates.find(t => t.name === templateName);
+    if (!template) return;
+
+    setLocalRegistering(true);
+    try {
+      const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
+      const skillFiles = await ensureTemplateSkills(template.skills || []);
+      const instances = createAgentInstancesFromTemplate({
+        template,
+        defaults,
+        skillFiles,
+        count,
+        existingNames: [
+          ...agents.map((agent: any) => agent.name),
+          codingTaskDeveloperName,
+          ...codingTaskReviewerNames
+        ].filter(Boolean)
+      });
+
+      if (lifecycle === 'temporary') {
+        setTemporaryTaskAgents(prev => [...prev, ...instances]);
+      } else {
+        for (const instance of instances) {
+          const res = await api.saveAgent(projectPath, instance);
+          if (!res.success) {
+            alert(res.error || `Failed to save ${instance.name}.`);
+            return;
+          }
+        }
+        await loadProjectData(projectPath);
+      }
+
+      setCodingTaskReviewerNames(prev => [...prev, ...instances.map(agent => agent.name)]);
+    } catch (err: any) {
+      alert(err.message || 'Error occurred while adding template agents.');
+    } finally {
+      setLocalRegistering(false);
+    }
+  };
 
   const setupPanel = (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.05fr) minmax(280px, 0.95fr)', gap: '18px', alignItems: 'start' }}>
@@ -272,8 +333,16 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
-              Reviewers / Leads
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>
+                Reviewers / Leads
+              </div>
+              <AgentClonePicker
+                compact
+                disabled={loading}
+                busy={localRegistering}
+                onAdd={handleAddTemplateAgents}
+              />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '112px', overflowY: 'auto' }}>
               {agents.map((agent: any) => {
@@ -787,6 +856,11 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                 setCodingTaskMessages([]);
                 setLastCodingTaskResult(null);
                 setOpenRounds({});
+                setTemporaryTaskAgents([]);
+                setCodingTaskReviewerNames(prev => prev.filter(name => registeredProjectAgents.some((agent: any) => agent.name === name)));
+                if (!registeredProjectAgents.some((agent: any) => agent.name === codingTaskDeveloperName)) {
+                  setCodingTaskDeveloperName('');
+                }
               }}
               style={{ height: '34px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flex: '0 0 auto' }}
             >

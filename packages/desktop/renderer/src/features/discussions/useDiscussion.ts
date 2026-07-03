@@ -31,6 +31,7 @@ export function useDiscussion({
   setErrorMsg
 }: UseDiscussionDeps) {
   const [selectedDiscussionAgents, setSelectedDiscussionAgents] = useState<string[]>([]);
+  const [temporaryDiscussionAgents, setTemporaryDiscussionAgents] = useState<any[]>([]);
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
   const [discussionQualityGate, setDiscussionQualityGate] = useState<boolean>(false);
@@ -56,13 +57,15 @@ export function useDiscussion({
     setLastDiscussionLog(null);
     setLastDiscussionTopic('');
     setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
+    setTemporaryDiscussionAgents([]);
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
   };
 
   const selectDefaultDiscussionAgents = (agents: any[]) => {
-    if (agents && agents.length > 0) {
-      const names = agents.map((agent: any) => agent.name);
+    const registeredAgents = (agents || []).filter((agent: any) => !agent.isVirtual);
+    if (registeredAgents.length > 0) {
+      const names = registeredAgents.map((agent: any) => agent.name);
       setSelectedDiscussionAgents(prev => {
         const validPrev = prev.filter(name => names.includes(name));
         if (validPrev.length > 0) return validPrev;
@@ -139,6 +142,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setLastDiscussionTopic('');
     setDiscussionMessages([]);
     setActiveDiscussionRunId(null);
+    setTemporaryDiscussionAgents([]);
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
   };
@@ -289,7 +293,10 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   const handleSendDiscussion = async () => {
     if (!userInputTopic.trim() || !projectPath) return;
-    const availableAgentNames = new Set((projectData?.agents || []).map((agent: any) => agent.name));
+    const availableAgentNames = new Set([
+      ...(projectData?.agents || []).map((agent: any) => agent.name),
+      ...temporaryDiscussionAgents.map((agent: any) => agent.name)
+    ]);
     const validSelectedAgents = selectedDiscussionAgents.filter(name => availableAgentNames.has(name));
     if (selectedDiscussionAgents.length === 0) {
       setErrorMsg('Please select at least one participating agent.');
@@ -299,6 +306,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       setErrorMsg('Selected agents are not available in this workspace.');
       return;
     }
+    const persistedAgentNames = new Set((projectData?.agents || [])
+      .filter((agent: any) => !agent.isVirtual)
+      .map((agent: any) => agent.name));
+    const safeModeratorName = persistedAgentNames.has(discussionModeratorName) ? discussionModeratorName : undefined;
+    const hasPersistedSummaryAgent = persistedAgentNames.has(discussionSummaryAgentName);
+    const useProjectSummary = discussionSummaryAgentName === '__project__' || (!!discussionSummaryAgentName && !hasPersistedSummaryAgent);
     setLoading(true);
     setErrorMsg(null);
     const userTopic = userInputTopic;
@@ -475,10 +488,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
         contextRefs,
         discussionId: activeDiscussionId || undefined,
         qualityGate: discussionQualityGate,
-        moderatorName: discussionModeratorName || undefined,
+        moderatorName: safeModeratorName,
         autoSummary: discussionAutoSummary,
-        summaryAgentName: discussionSummaryAgentName !== '__project__' ? discussionSummaryAgentName : undefined,
-        useProjectSummaryAgent: discussionSummaryAgentName === '__project__'
+        summaryAgentName: hasPersistedSummaryAgent ? discussionSummaryAgentName : undefined,
+        useProjectSummaryAgent: useProjectSummary,
+        temporaryAgents: temporaryDiscussionAgents
       });
       if (res.success && res.log) {
         setLastDiscussionLog(res.log);
@@ -550,6 +564,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   return {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    temporaryDiscussionAgents, setTemporaryDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,

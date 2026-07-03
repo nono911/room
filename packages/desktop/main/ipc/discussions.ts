@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { DiscussionEngine, loadAgents, type AgentConfig } from '@room/engine';
+import { DiscussionEngine, loadAgents, validateAgentConfig, type AgentConfig } from '@room/engine';
 import {
   ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   requireBoundProjectRoot, resolveWithinProject,
@@ -121,8 +121,17 @@ Use the same natural language as the chat unless the user explicitly asks otherw
   };
 }
 
+function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
+  if (!Array.isArray(rawAgents)) return [];
+  return rawAgents
+    .slice(0, 12)
+    .map(rawAgent => validateAgentConfig(rawAgent))
+    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
+    .map(result => result.agent);
+}
+
 export function registerDiscussionsIpc(): void {
-  ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
+  ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
     const safeRequestedDiscussionId = typeof requestedDiscussionId === 'string' && /^discussion-\d+$/.test(requestedDiscussionId)
       ? requestedDiscussionId
       : '';
@@ -137,6 +146,7 @@ export function registerDiscussionsIpc(): void {
       const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
       const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
+      const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
       let log = await engine.runDiscussion(
         discussionId,
         `Discussion: ${topic.slice(0, 30)}...`,
@@ -147,6 +157,7 @@ export function registerDiscussionsIpc(): void {
           onEvent: sendDiscussionEvent,
           reviewMode: !!reviewMode,
           additionalContext,
+          temporaryAgents: safeTemporaryAgents,
           getInterruptMessage: () => getRunInterruptMessage(discussionId)
         }
       );

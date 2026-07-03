@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
-import { DiscussionEngine, loadAgents, loadTaskBoard } from '@room/engine';
+import { DiscussionEngine, loadAgents, loadTaskBoard, validateAgentConfig, type AgentConfig } from '@room/engine';
 import {
   ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   requireBoundProjectRoot, resolveWithinProject,
@@ -98,8 +98,17 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
   return sections.join('');
 }
 
+function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
+  if (!Array.isArray(rawAgents)) return [];
+  return rawAgents
+    .slice(0, 12)
+    .map(rawAgent => validateAgentConfig(rawAgent))
+    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
+    .map(result => result.agent);
+}
+
 export function registerTasksIpc(): void {
-  ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, reviewerNames, maxCycles, contextRefs, associatedCardId, continuedFromTaskId, taskId }: { dirPath: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }) => {
+  ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, reviewerNames, maxCycles, contextRefs, associatedCardId, continuedFromTaskId, taskId, temporaryAgents }: { dirPath: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: unknown[] }) => {
     const actualTaskId = taskId || (associatedCardId ? `task-${associatedCardId}` : `task-${Date.now()}`);
     const cycleLimit = Number.isFinite(maxCycles) ? Math.max(1, Math.min(5, Math.floor(maxCycles || 1))) : 2;
     const sendDiscussionEvent = (payload: any) => {
@@ -111,7 +120,8 @@ export function registerTasksIpc(): void {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
-      const agents = await loadAgents(projectRoot);
+      const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
+      const agents = [...safeTemporaryAgents, ...await loadAgents(projectRoot)];
       const doer = doerName
         ? agents.find(agent => agent.name.toLowerCase() === doerName.toLowerCase())
         : agents.find(agent => {
@@ -137,7 +147,8 @@ export function registerTasksIpc(): void {
           taskType,
           getInterruptMessage: () => getRunInterruptMessage(actualTaskId),
           associatedCardId,
-          continuedFromTaskId
+          continuedFromTaskId,
+          temporaryAgents: safeTemporaryAgents
         }
       );
 

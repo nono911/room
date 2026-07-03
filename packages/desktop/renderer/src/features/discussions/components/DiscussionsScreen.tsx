@@ -7,6 +7,8 @@ import { api } from '../../../shared/ipc/client.js';
 import { agentPersonaTemplates, teamPresets } from '../../../shared/data/staticData.js';
 import { useProviders } from '../../providers/context/ProvidersContext.js';
 import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
+import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
+import { AgentClonePicker } from '../../ai-members/components/AgentClonePicker.js';
 
 interface DiscussionsScreenProps {
   projectPath: string | null;
@@ -31,6 +33,8 @@ interface DiscussionsScreenProps {
   getContextLabel: (ref: string) => string;
   selectedDiscussionAgents: string[];
   setSelectedDiscussionAgents: React.Dispatch<React.SetStateAction<string[]>>;
+  temporaryDiscussionAgents: any[];
+  setTemporaryDiscussionAgents: React.Dispatch<React.SetStateAction<any[]>>;
   discussionReviewMode: boolean;
   setDiscussionReviewMode: React.Dispatch<React.SetStateAction<boolean>>;
   discussionMaxRounds: number;
@@ -91,6 +95,8 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   getContextLabel,
   selectedDiscussionAgents,
   setSelectedDiscussionAgents,
+  temporaryDiscussionAgents,
+  setTemporaryDiscussionAgents,
   discussionReviewMode,
   setDiscussionReviewMode,
   discussionMaxRounds,
@@ -123,37 +129,46 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('classic');
   const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
   const { providers, detectedClis, getModelOptions } = useProviders();
+  const registeredProjectAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
+  const discussionAgents = [...registeredProjectAgents, ...temporaryDiscussionAgents];
   const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
-  const [showAddTemplateDropdown, setShowAddTemplateDropdown] = React.useState<boolean>(false);
-  const [selectedTemplateName, setSelectedTemplateName] = React.useState<string>('');
 
-  const handleRegisterTemplateAgent = async (template: any) => {
+  const handleAddTemplateAgents = async (templateName: string, count: number, lifecycle: AgentLifecycle) => {
     if (!projectPath) return;
+    const template = agentPersonaTemplates.find(t => t.name === templateName);
+    if (!template) return;
+
     setLocalRegistering(true);
     try {
       const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
-
       const skillFiles = await ensureTemplateSkills(template.skills || []);
-
-      const res = await api.saveAgent(projectPath, {
-        name: template.name,
-        role: template.role,
-        provider: defaults.provider,
-        modelName: defaults.modelName || undefined,
-        systemPrompt: template.prompt,
-        skills: skillFiles,
-        cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
-        permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
+      const instances = createAgentInstancesFromTemplate({
+        template,
+        defaults,
+        skillFiles,
+        count,
+        existingNames: [
+          ...discussionAgents.map((agent: any) => agent.name),
+          ...selectedDiscussionAgents
+        ]
       });
 
-      if (res.success) {
-        await loadProjectData(projectPath);
-        setSelectedDiscussionAgents(prev => [...prev, template.name]);
+      if (lifecycle === 'temporary') {
+        setTemporaryDiscussionAgents(prev => [...prev, ...instances]);
+        setSelectedDiscussionAgents(prev => [...prev, ...instances.map(agent => agent.name)]);
       } else {
-        alert(res.error || 'Failed to auto-register template agent.');
+        for (const instance of instances) {
+          const res = await api.saveAgent(projectPath, instance);
+          if (!res.success) {
+            alert(res.error || `Failed to save ${instance.name}.`);
+            return;
+          }
+        }
+        await loadProjectData(projectPath);
+        setSelectedDiscussionAgents(prev => [...prev, ...instances.map(agent => agent.name)]);
       }
     } catch (err: any) {
-      alert(err.message || 'Error occurred while auto-registering template agent.');
+      alert(err.message || 'Error occurred while adding template agents.');
     } finally {
       setLocalRegistering(false);
     }
@@ -254,7 +269,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
         <PixelAgentStage
           title="Discussion room"
-          agents={projectData?.agents || []}
+          agents={discussionAgents}
           selectedAgentNames={selectedDiscussionAgents}
           messages={discussionMessages}
           loading={loading}
@@ -427,13 +442,13 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase', marginRight: '4px' }}>
           AI Members:
         </span>
-        {(projectData?.agents || []).length === 0 ? (
-          <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
-        ) : (
-          <>
+        <>
+            {discussionAgents.length === 0 && (
+              <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
+            )}
             {/* 1. Selected & Draggable Agents */}
             {selectedDiscussionAgents.map((agentName, index) => {
-              const agent = (projectData?.agents || []).find((a: any) => a.name === agentName);
+              const agent = discussionAgents.find((a: any) => a.name === agentName);
               if (!agent) return null;
               return (
                 <div
@@ -476,6 +491,9 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                     {index + 1}
                   </span>
                   <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
+                  {temporaryDiscussionAgents.some((temp: any) => temp.name === agent.name) && (
+                    <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>temp</span>
+                  )}
                   <span 
                     onClick={(e) => {
                       e.stopPropagation();
@@ -497,8 +515,8 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
               );
             })}
 
-            {/* 2a. Registered but Unselected Agents */}
-            {(projectData?.agents || [])
+            {/* 2a. Available but Unselected Agents */}
+            {discussionAgents
               .filter((agent: any) => !selectedDiscussionAgents.includes(agent.name))
               .map((agent: any) => (
                 <div 
@@ -526,116 +544,11 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                 </div>
               ))}
 
-            {/* 2b. Add Template Dropdown */}
-            {(() => {
-              const unregisteredTemplates = agentPersonaTemplates.filter(
-                tmpl => !(projectData?.agents || []).some((a: any) => a.name.toLowerCase() === tmpl.name.toLowerCase())
-              );
-              if (unregisteredTemplates.length === 0) return null;
-              return (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  {showAddTemplateDropdown ? (
-                    <>
-                      <select
-                        value={selectedTemplateName}
-                        onChange={(e) => setSelectedTemplateName(e.target.value)}
-                        className="form-select"
-                        style={{
-                          fontSize: '0.75rem',
-                          height: '28px',
-                          padding: '0 8px',
-                          borderRadius: '6px',
-                          backgroundColor: 'hsl(var(--bg-input))',
-                          border: '1px solid hsl(var(--border-dim))',
-                          color: 'white',
-                          outline: 'none'
-                        }}
-                      >
-                        <option value="">-- Select Expert --</option>
-                        {unregisteredTemplates.map(tmpl => (
-                          <option key={tmpl.name} value={tmpl.name}>
-                            {tmpl.name} ({tmpl.role})
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        disabled={!selectedTemplateName || localRegistering}
-                        onClick={() => {
-                          const tmpl = unregisteredTemplates.find(t => t.name === selectedTemplateName);
-                          if (tmpl) {
-                            handleRegisterTemplateAgent(tmpl).then(() => {
-                              setSelectedTemplateName('');
-                              setShowAddTemplateDropdown(false);
-                            });
-                          }
-                        }}
-                        style={{
-                          padding: '0 10px',
-                          fontSize: '0.72rem',
-                          height: '28px',
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {localRegistering ? 'Adding...' : 'Add'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => {
-                          setSelectedTemplateName('');
-                          setShowAddTemplateDropdown(false);
-                        }}
-                        style={{
-                          padding: '0 8px',
-                          fontSize: '0.72rem',
-                          height: '28px',
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddTemplateDropdown(true);
-                        if (unregisteredTemplates.length > 0) {
-                          setSelectedTemplateName(unregisteredTemplates[0].name);
-                        }
-                      }}
-                      style={{
-                        fontSize: '0.72rem',
-                        padding: '4px 10px',
-                        borderRadius: '16px',
-                        border: '1px dotted hsl(var(--accent-purple) / 0.5)',
-                        background: 'hsl(var(--accent-purple) / 0.08)',
-                        color: 'hsl(var(--text-secondary))',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        transition: 'all 0.15s ease',
-                        userSelect: 'none'
-                      }}
-                      title="Add a pre-built AI expert role to this discussion"
-                    >
-                      <span>+ Expert</span>
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
+            <AgentClonePicker
+              disabled={loading}
+              busy={localRegistering}
+              onAdd={handleAddTemplateAgents}
+            />
 
             {/* 3. Clear button if any selected */}
             {selectedDiscussionAgents.length > 0 && (
@@ -655,7 +568,6 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
               </button>
             )}
           </>
-        )}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '10px 16px', background: 'hsl(var(--bg-input))', borderRadius: '8px', border: '1px solid hsl(var(--border-dim))', marginBottom: '8px', alignItems: 'center' }}>
@@ -701,7 +613,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
             style={{ height: '30px', minWidth: '150px', fontSize: '0.78rem', padding: '0 8px' }}
           >
             <option value="">Auto-pick</option>
-            {(projectData?.agents || []).map((agent: any) => (
+            {registeredProjectAgents.map((agent: any) => (
               <option key={agent.name} value={agent.name}>{agent.name}</option>
             ))}
           </select>
@@ -729,7 +641,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                 ? `Project settings: ${projectConfig.mainAgent}`
                 : 'Project settings'}
             </option>
-            {(projectData?.agents || []).map((agent: any) => (
+            {registeredProjectAgents.map((agent: any) => (
               <option key={agent.name} value={agent.name}>{agent.name}</option>
             ))}
           </select>

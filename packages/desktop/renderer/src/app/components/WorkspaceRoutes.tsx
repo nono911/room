@@ -93,6 +93,8 @@ interface WorkspaceRoutesProps {
   selectedDiscussionContextRefs: string[];
   selectedDiscussionAgents: string[];
   setSelectedDiscussionAgents: (value: string[] | ((prev: string[]) => string[])) => void;
+  temporaryDiscussionAgents: any[];
+  setTemporaryDiscussionAgents: (value: any[] | ((prev: any[]) => any[])) => void;
   discussionReviewMode: any;
   setDiscussionReviewMode: (value: any) => void;
   discussionMaxRounds: number;
@@ -131,6 +133,8 @@ interface WorkspaceRoutesProps {
   enableTaskRunWriteAccess: () => void;
   codingTaskReviewerNames: string[];
   setCodingTaskReviewerNames: (value: string[] | ((prev: string[]) => string[])) => void;
+  temporaryTaskAgents: any[];
+  setTemporaryTaskAgents: (value: any[] | ((prev: any[]) => any[])) => void;
   codingTaskMaxCycles: number;
   setCodingTaskMaxCycles: (value: number) => void;
   selectedCodingTaskContextRefs: string[];
@@ -162,7 +166,6 @@ interface WorkspaceRoutesProps {
   setContentLineHeight: (value: string) => void;
   selectedTaskCardId: string | null;
   setSelectedTaskCardId: (value: string | null) => void;
-  continuedFromTaskId: string | null;
   setContinuedFromTaskId: (value: string | null) => void;
 }
 
@@ -244,6 +247,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     selectedDiscussionContextRefs,
     selectedDiscussionAgents,
     setSelectedDiscussionAgents,
+    temporaryDiscussionAgents,
+    setTemporaryDiscussionAgents,
     discussionReviewMode,
     setDiscussionReviewMode,
     discussionMaxRounds,
@@ -282,6 +287,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     enableTaskRunWriteAccess,
     codingTaskReviewerNames,
     setCodingTaskReviewerNames,
+    temporaryTaskAgents,
+    setTemporaryTaskAgents,
     codingTaskMaxCycles,
     setCodingTaskMaxCycles,
     selectedCodingTaskContextRefs,
@@ -304,7 +311,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setTaskRunView,
     selectedTaskCardId,
     setSelectedTaskCardId,
-    continuedFromTaskId,
     setContinuedFromTaskId,
     handleUpdateProjectConfig,
     contentTheme,
@@ -342,6 +348,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         getContextLabel={getContextLabel}
         selectedDiscussionAgents={selectedDiscussionAgents}
         setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+        temporaryDiscussionAgents={temporaryDiscussionAgents}
+        setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
         discussionReviewMode={discussionReviewMode}
         setDiscussionReviewMode={setDiscussionReviewMode}
         discussionMaxRounds={discussionMaxRounds}
@@ -377,6 +385,9 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
   if (activeTab === 'Task Run') {
     return (
       <TaskRunScreen
+        projectPath={projectPath}
+        loadProjectData={loadProjectData}
+        ensureTemplateSkills={ensureTemplateSkills}
         projectData={projectData}
         taskBoardCards={taskBoardCards}
         codingTaskMessages={codingTaskMessages}
@@ -391,6 +402,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         enableTaskRunWriteAccess={enableTaskRunWriteAccess}
         codingTaskReviewerNames={codingTaskReviewerNames}
         setCodingTaskReviewerNames={setCodingTaskReviewerNames}
+        temporaryTaskAgents={temporaryTaskAgents}
+        setTemporaryTaskAgents={setTemporaryTaskAgents}
         codingTaskMaxCycles={codingTaskMaxCycles}
         setCodingTaskMaxCycles={setCodingTaskMaxCycles}
         selectedCodingTaskContextRefs={selectedCodingTaskContextRefs}
@@ -539,7 +552,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setCodingTaskInput={setCodingTaskInput}
         setSelectedTaskCardId={setSelectedTaskCardId}
         setSelectedCodingTaskContextRefs={setSelectedCodingTaskContextRefs}
-        continuedFromTaskId={continuedFromTaskId}
         setContinuedFromTaskId={setContinuedFromTaskId}
       />
     );

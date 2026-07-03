@@ -87,12 +87,14 @@ export default function App() {
     activeTaskRunId,
     taskInterruptMessage, setTaskInterruptMessage,
     taskInterruptPending,
+    temporaryTaskAgents, setTemporaryTaskAgents,
     handleRunCodingTask,
     interruptActiveTaskRun,
     continueTaskRunFromPivot,
     applyTaskTypePreset,
     selectedTaskCardId,
-    setSelectedTaskCardId
+    setSelectedTaskCardId,
+    setContinuedFromTaskId
   } = useTaskRun({
     projectPath,
     projectData,
@@ -104,6 +106,7 @@ export default function App() {
   const [initialSelectedFile, setInitialSelectedFile] = useState<{ section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions'; file: string } | null>(null);
   const {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    temporaryDiscussionAgents, setTemporaryDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
@@ -217,6 +220,8 @@ export default function App() {
     setExpandedMsgKeys({});
     setLastMaxRound(-1);
     setLastCodingTaskResult(null);
+    setSelectedTaskCardId(null);
+    setContinuedFromTaskId(null);
     resetDiscussion();
     setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
     resetContextPicker();
@@ -733,6 +738,8 @@ export default function App() {
                 selectedDiscussionContextRefs={selectedDiscussionContextRefs}
                 selectedDiscussionAgents={selectedDiscussionAgents}
                 setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+                temporaryDiscussionAgents={temporaryDiscussionAgents}
+                setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
                 discussionReviewMode={discussionReviewMode}
                 setDiscussionReviewMode={setDiscussionReviewMode}
                 discussionMaxRounds={discussionMaxRounds}
@@ -771,6 +778,8 @@ export default function App() {
                 enableTaskRunWriteAccess={enableTaskRunWriteAccess}
                 codingTaskReviewerNames={codingTaskReviewerNames}
                 setCodingTaskReviewerNames={setCodingTaskReviewerNames}
+                temporaryTaskAgents={temporaryTaskAgents}
+                setTemporaryTaskAgents={setTemporaryTaskAgents}
                 codingTaskMaxCycles={codingTaskMaxCycles}
                 setCodingTaskMaxCycles={setCodingTaskMaxCycles}
                 selectedCodingTaskContextRefs={selectedCodingTaskContextRefs}
@@ -793,7 +802,6 @@ export default function App() {
                 setTaskRunView={setTaskRunView}
                 selectedTaskCardId={selectedTaskCardId}
                 setSelectedTaskCardId={setSelectedTaskCardId}
-                continuedFromTaskId={continuedFromTaskId}
                 setContinuedFromTaskId={setContinuedFromTaskId}
                 handleUpdateProjectConfig={handleUpdateProjectConfig}
                 contentTheme={contentTheme}

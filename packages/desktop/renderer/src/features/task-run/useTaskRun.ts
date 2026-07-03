@@ -39,6 +39,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
   const [taskInterruptPending, setTaskInterruptPending] = useState<boolean>(false);
   const [selectedTaskCardId, setSelectedTaskCardId] = useState<string | null>(null);
   const [continuedFromTaskId, setContinuedFromTaskId] = useState<string | null>(null);
+  const [temporaryTaskAgents, setTemporaryTaskAgents] = useState<any[]>([]);
 
   // Auto-expand the newest cycle when a new one starts
   const maxRound = codingTaskMessages.length > 0 ? Math.max(...codingTaskMessages.map(m => m.round ?? 0)) : 0;
@@ -59,6 +60,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     setTaskInterruptMessage('');
     setTaskInterruptPending(false);
     setContinuedFromTaskId(null);
+    setTemporaryTaskAgents([]);
   };
 
   const handleRunCodingTask = async () => {
@@ -249,7 +251,8 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
         contextRefs: selectedCodingTaskContextRefs,
         associatedCardId: selectedTaskCardId || undefined,
         continuedFromTaskId: continuedFromTaskId || undefined,
-        taskId: continuedFromTaskId || undefined
+        taskId: continuedFromTaskId || undefined,
+        temporaryAgents: temporaryTaskAgents
       });
       if (!res.success || !res.result) {
         setErrorMsg(res.error || 'Failed to run task.');
@@ -317,7 +320,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
 
   const applyTaskTypePreset = (taskType: string) => {
     setTaskRunType(taskType);
-    const agents = projectData?.agents || [];
+    const agents = [...(projectData?.agents || []), ...temporaryTaskAgents];
     if (agents.length === 0) return;
 
     const findByTerms = (terms: string[]) => agents.find((agent: any) => {
@@ -387,6 +390,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
     activeTaskRunId,
     taskInterruptMessage, setTaskInterruptMessage,
     taskInterruptPending,
+    temporaryTaskAgents, setTemporaryTaskAgents,
     handleRunCodingTask,
     interruptActiveTaskRun,
     continueTaskRunFromPivot,

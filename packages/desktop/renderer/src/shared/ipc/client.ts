@@ -1,5 +1,19 @@
 import type { DiscussionIpcEvent } from '../../types/domain.js';
 
+type TemporaryAgentPayload = {
+  name: string;
+  role: string;
+  provider: string;
+  modelName?: string;
+  systemPrompt: string;
+  skills?: string[];
+  command?: string;
+  cliPreset?: string;
+  stdinFormat?: string;
+  permissionMode?: string;
+  strategy?: string;
+};
+
 export const api = {
   selectProjectDir: () => window.electronAPI.selectProjectDir(),
   openProjectDir: (dirPath: string) => window.electronAPI.openProjectDir(dirPath),
@@ -17,12 +31,12 @@ export const api = {
     dirPath: string,
     topic: string,
     agentNames?: string[],
-    options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
+    options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
   ) => window.electronAPI.runDiscussion(dirPath, topic, agentNames, options),
   runTask: (
     dirPath: string,
     task: string,
-    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }
+    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: TemporaryAgentPayload[] }
   ) => window.electronAPI.runTask(dirPath, task, options),
   interruptRun: (runId: string, message: string) => window.electronAPI.interruptRun(runId, message),
   summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>

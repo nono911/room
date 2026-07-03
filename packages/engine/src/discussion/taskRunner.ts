@@ -58,6 +58,7 @@ export interface CodingTaskRunOptions {
   getInterruptMessage?: () => string | null;
   associatedCardId?: string;
   continuedFromTaskId?: string;
+  temporaryAgents?: AgentConfig[];
 }
 
 export async function runCodingTaskLoop(
@@ -81,7 +82,7 @@ export async function runCodingTaskLoop(
     throw new Error('Invalid task id.');
   }
 
-  const agents = await loadAgents(dirPath);
+  const agents = [...(options.temporaryAgents || []), ...await loadAgents(dirPath)];
   const developer = agents.find(agent => agent.name.toLowerCase() === developerName.toLowerCase())
     || agents.find(agent => isDeveloperAgent(agent));
   if (!developer) {
@@ -482,5 +483,4 @@ ${reviewerRules}
   });
   return result;
 }
-
 

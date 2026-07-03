@@ -145,6 +145,107 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
   ].filter(result => result.score >= 0);
   let scanned = 0;
 
+  async function addFileResult(fullPath: string, scoreOverride?: number) {
+    const stat = await fs.stat(fullPath).catch(() => null);
+    if (!stat || !stat.isFile()) return;
+    if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) return;
+
+    const relPath = path.relative(root, fullPath).split(path.sep).join('/');
+    const normalized = relPath.toLowerCase();
+    if (!isSearchableRoomContextFile(relPath)) return;
+
+    const shouldReadPreview = /\.(md|mdx|txt)$/i.test(relPath) || normalized.startsWith('docs/') || normalized.startsWith(`${ROOM_DIR}/`);
+    const preview = shouldReadPreview ? await readContextSearchPreview(fullPath, stat.size) : '';
+    const previewSearch = preview.toLowerCase();
+    const isLikelyContext =
+      scoreOverride !== undefined ||
+      normalizedQuery ||
+      normalized.startsWith(`${ROOM_DIR}/`) ||
+      normalized.startsWith('docs/') ||
+      !normalized.includes('/') ||
+      /\.(md|mdx|txt)$/i.test(relPath);
+    if (!isLikelyContext) return;
+
+    let score = scoreOverride ?? scoreContextCandidate(relPath, normalizedQuery, stat.mtimeMs);
+    if (score < 0 && normalizedQuery && previewSearch) {
+      const queryParts = normalizedQuery.split(/\s+/).filter(Boolean);
+      if (queryParts.every(part => previewSearch.includes(part))) {
+        score = 210 + Math.max(0, 60 - Math.min(60, (Date.now() - stat.mtimeMs) / 36e5 / 12));
+      }
+    }
+    if (score < 0) return;
+
+    const type = getContextResultType(relPath);
+    const heading = preview ? extractMarkdownHeading(preview) : undefined;
+    let label = getContextLabel(type, relPath, heading);
+    if (type === 'task') {
+      const base = path.basename(relPath);
+      if (base.startsWith('task-') && base.endsWith('-artifact.md')) {
+        const jsonFile = base.replace(/-artifact\.md$/i, '.json');
+        const jsonPath = path.join(root, ROOM_DIR, 'tasks', jsonFile);
+        try {
+          const jsonContent = await fs.readFile(jsonPath, 'utf-8');
+          const meta = JSON.parse(jsonContent);
+          const title = meta.title || meta.task || '';
+          const cleanTitle = title.replace(/^Task:\s*/i, '').trim();
+          const cardId = meta.associatedCardId ? `${meta.associatedCardId} — ` : '';
+          const status = meta.status ? ` [${meta.status.toUpperCase().replace(/_/g, ' ')}]` : '';
+          label = `Task: ${cardId}${cleanTitle}${status}`;
+        } catch {
+          // Fallback to filename-based label.
+        }
+      }
+    }
+
+    results.push({
+      ref: getContextRef(relPath),
+      label,
+      type,
+      path: relPath,
+      detail: `${formatBytes(stat.size)} · modified ${stat.mtime.toISOString().slice(0, 10)}`,
+      modifiedAt: stat.mtime.toISOString(),
+      size: stat.size,
+      score
+    });
+  }
+
+  async function addDirectPathMatches() {
+    if (!normalizedQuery.includes('/')) return;
+    const relQuery = query.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!relQuery || relQuery.split('/').some(part => !part || part === '.' || part === '..')) return;
+    const candidatePath = resolveWithinProject(root, relQuery);
+    const stat = await fs.stat(candidatePath).catch(() => null);
+    if (!stat) return;
+    if (stat.isFile()) {
+      await addFileResult(candidatePath, 900);
+      return;
+    }
+    if (!stat.isDirectory()) return;
+
+    let added = 0;
+    async function walkDirect(dirPath: string) {
+      if (added >= CONTEXT_SEARCH_RESULT_LIMIT) return;
+      const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
+      entries.sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      for (const entry of entries) {
+        if (added >= CONTEXT_SEARCH_RESULT_LIMIT) return;
+        if (entry.name.startsWith('.') && entry.name !== ROOM_DIR) continue;
+        if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
+        const fullPath = resolveWithinProject(root, path.relative(root, path.join(dirPath, entry.name)));
+        if (entry.isDirectory()) {
+          await walkDirect(fullPath);
+        } else if (entry.isFile()) {
+          added += 1;
+          await addFileResult(fullPath, 850 - added);
+        }
+      }
+    }
+    await walkDirect(candidatePath);
+  }
+
   async function walk(currentDir: string) {
     if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
     const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
@@ -166,69 +267,11 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
       if (!entry.isFile()) continue;
 
       scanned += 1;
-      const stat = await fs.stat(fullPath).catch(() => null);
-      if (!stat || !stat.isFile()) continue;
-      if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) continue;
-
-      const relPath = path.relative(root, fullPath).split(path.sep).join('/');
-      const normalized = relPath.toLowerCase();
-      if (!isSearchableRoomContextFile(relPath)) {
-        continue;
-      }
-      const shouldReadPreview = /\.(md|mdx|txt)$/i.test(relPath) || normalized.startsWith('docs/') || normalized.startsWith(`${ROOM_DIR}/`);
-      const preview = shouldReadPreview ? await readContextSearchPreview(fullPath, stat.size) : '';
-      const previewSearch = preview.toLowerCase();
-      const isLikelyContext =
-        normalizedQuery ||
-        normalized.startsWith(`${ROOM_DIR}/`) ||
-        normalized.startsWith('docs/') ||
-        !normalized.includes('/') ||
-        /\.(md|mdx|txt)$/i.test(relPath);
-      if (!isLikelyContext) continue;
-
-      let score = scoreContextCandidate(relPath, normalizedQuery, stat.mtimeMs);
-      if (score < 0 && normalizedQuery && previewSearch) {
-        const queryParts = normalizedQuery.split(/\s+/).filter(Boolean);
-        if (queryParts.every(part => previewSearch.includes(part))) {
-          score = 210 + Math.max(0, 60 - Math.min(60, (Date.now() - stat.mtimeMs) / 36e5 / 12));
-        }
-      }
-      if (score < 0) continue;
-      const type = getContextResultType(relPath);
-      const heading = preview ? extractMarkdownHeading(preview) : undefined;
-      let label = getContextLabel(type, relPath, heading);
-      if (type === 'task') {
-        const base = path.basename(relPath);
-        if (base.startsWith('task-') && base.endsWith('-artifact.md')) {
-          const jsonFile = base.replace(/-artifact\.md$/i, '.json');
-          const jsonPath = path.join(root, ROOM_DIR, 'tasks', jsonFile);
-          try {
-            const jsonContent = await fs.readFile(jsonPath, 'utf-8');
-            const meta = JSON.parse(jsonContent);
-            const title = meta.title || meta.task || '';
-            const cleanTitle = title.replace(/^Task:\s*/i, '').trim();
-            const cardId = meta.associatedCardId ? `${meta.associatedCardId} — ` : '';
-            const status = meta.status ? ` [${meta.status.toUpperCase().replace(/_/g, ' ')}]` : '';
-            label = `Task: ${cardId}${cleanTitle}${status}`;
-          } catch {
-            // Fallback
-          }
-        }
-      }
-
-      results.push({
-        ref: getContextRef(relPath),
-        label,
-        type,
-        path: relPath,
-        detail: `${formatBytes(stat.size)} · modified ${stat.mtime.toISOString().slice(0, 10)}`,
-        modifiedAt: stat.mtime.toISOString(),
-        size: stat.size,
-        score
-      });
+      await addFileResult(fullPath);
     }
   }
 
+  await addDirectPathMatches();
   await walk(root);
   const byRef = new Map<string, ContextSearchResult & { score: number }>();
   for (const result of results) {

@@ -14,7 +14,6 @@ interface TaskArchiveScreenProps {
   setCodingTaskInput: (value: string) => void;
   setSelectedTaskCardId: (value: string | null) => void;
   setSelectedCodingTaskContextRefs: (value: string[]) => void;
-  continuedFromTaskId: string | null;
   setContinuedFromTaskId: (value: string | null) => void;
 }
 
@@ -29,7 +28,6 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
   setCodingTaskInput,
   setSelectedTaskCardId,
   setSelectedCodingTaskContextRefs,
-  continuedFromTaskId,
   setContinuedFromTaskId
 }) => {
   const [selectedTaskFile, setSelectedTaskFile] = useState<string | null>(null);

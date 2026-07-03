@@ -58,6 +58,7 @@ export interface DiscussionRunOptions {
   additionalContext?: string;
   userLabel?: string;
   getInterruptMessage?: () => string | null;
+  temporaryAgents?: AgentConfig[];
 }
 
 export async function runDiscussionLoop(
@@ -78,7 +79,7 @@ export async function runDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const agents = await loadAgents(dirPath);
+  const agents = [...(options.temporaryAgents || []), ...await loadAgents(dirPath)];
   const workflowAgents = agentNames
     .map(name => agents.find(a => a.name.toLowerCase() === name.toLowerCase()))
     .filter((a): a is AgentConfig => !!a);
@@ -400,5 +401,4 @@ export async function runDiscussionLoop(
   });
   return discussionLog;
 }
-
 

@@ -28,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   startEditAgent,
   resetAgentForm
 }) => {
+  const registeredAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
   const menuItems = [
     { name: 'Overview', icon: (
       <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -104,106 +105,127 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
       
-      <ul className="sidebar-menu">
-        {menuItems.map((item) => {
-          const isAgents = item.name === 'AI Members';
-          const isItemActive = activeTab === item.name || (isAgents && activeTab.startsWith('Agent:'));
-          const itemLabel = item.label || item.name;
-          return (
-            <React.Fragment key={item.name}>
-              <li
-                className={`menu-item sidebar-nav-item ${isItemActive ? 'active' : ''}`}
-                onClick={() => {
-                  if (isAgents) {
-                    setActiveTab('AI Members');
-                  } else {
-                    setActiveTab(item.name);
-                  }
-                }}
-                title={sidebarExpanded ? undefined : itemLabel}
-              >
-                <span className="sidebar-nav-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {item.icon}
-                </span>
-                <span className="sidebar-nav-label">{itemLabel}</span>
-                {isAgents && sidebarExpanded && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAiMembersSidebarExpanded(current => {
-                        localStorage.setItem('room_ai_members_sidebar_expanded', String(!current));
-                        return !current;
-                      });
-                    }}
-                    title={aiMembersSidebarExpanded ? 'Collapse AI Members' : 'Expand AI Members'}
-                    style={{
-                      marginLeft: 'auto',
-                      width: '22px',
-                      height: '22px',
-                      border: 0,
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      color: 'hsl(var(--text-muted))',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d={aiMembersSidebarExpanded ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
-                    </svg>
-                  </button>
-                )}
-              </li>
-              {isAgents && sidebarExpanded && aiMembersSidebarExpanded && (
-                <ul className="sidebar-submenu">
-                  {(projectData?.agents || []).map((agent: any) => {
-                    const isFocused = activeTab === `Agent:${agent.name}`;
-                    return (
+      <div className="sidebar-scroll">
+        <ul className="sidebar-menu">
+          {menuItems.map((item) => {
+            const isAgents = item.name === 'AI Members';
+            const isItemActive = activeTab === item.name || (isAgents && activeTab.startsWith('Agent:'));
+            const itemLabel = item.label || item.name;
+            return (
+              <React.Fragment key={item.name}>
+                <li
+                  className={`menu-item sidebar-nav-item ${isItemActive ? 'active' : ''}`}
+                  onClick={() => {
+                    if (isAgents) {
+                      setActiveTab('AI Members');
+                    } else {
+                      setActiveTab(item.name);
+                    }
+                  }}
+                  title={sidebarExpanded ? undefined : itemLabel}
+                >
+                  <span className="sidebar-nav-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {item.icon}
+                  </span>
+                  <span className="sidebar-nav-label">{itemLabel}</span>
+                  {isAgents && sidebarExpanded && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAiMembersSidebarExpanded(current => {
+                          localStorage.setItem('room_ai_members_sidebar_expanded', String(!current));
+                          return !current;
+                        });
+                      }}
+                      title={aiMembersSidebarExpanded ? 'Collapse AI Members' : 'Expand AI Members'}
+                      style={{
+                        marginLeft: 'auto',
+                        width: '22px',
+                        height: '22px',
+                        border: 0,
+                        borderRadius: '6px',
+                        background: 'transparent',
+                        color: 'hsl(var(--text-muted))',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d={aiMembersSidebarExpanded ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                      </svg>
+                    </button>
+                  )}
+                </li>
+                {isAgents && sidebarExpanded && aiMembersSidebarExpanded && (
+                  <ul className="sidebar-submenu">
+                    {registeredAgents.map((agent: any) => {
+                      const isFocused = activeTab === `Agent:${agent.name}`;
+                      return (
+                        <li
+                          key={agent.name}
+                          className={`submenu-item ${isFocused ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditAgent(agent);
+                          }}
+                        >
+                          <span style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            backgroundColor: isFocused ? 'hsl(var(--accent-purple))' : 'hsl(var(--border-dim))',
+                            display: 'inline-block'
+                          }}></span>
+                          <span style={{
+                            textOverflow: 'ellipsis',
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap'
+                          }}>{agent.name}</span>
+                        </li>
+                      );
+                    })}
+                    {registeredAgents.length === 0 && (
                       <li
-                        key={agent.name}
-                        className={`submenu-item ${isFocused ? 'active' : ''}`}
+                        className="submenu-item"
                         onClick={(e) => {
                           e.stopPropagation();
-                          startEditAgent(agent);
+                          setActiveTab('AI Members');
                         }}
+                        style={{ color: 'hsl(var(--text-muted))' }}
                       >
                         <span style={{
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          backgroundColor: isFocused ? 'hsl(var(--accent-purple))' : 'hsl(var(--border-dim))',
+                          backgroundColor: 'hsl(var(--border-dim))',
                           display: 'inline-block'
                         }}></span>
-                        <span style={{
-                          textOverflow: 'ellipsis',
-                          overflow: 'hidden',
-                          whiteSpace: 'nowrap'
-                        }}>{agent.name}</span>
+                        <span>No registered members</span>
                       </li>
-                    );
-                  })}
-                  <li
-                    className={`submenu-item ${activeTab === 'Agent:New' ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      resetAgentForm();
-                      setActiveTab('Agent:New');
-                    }}
-                    style={{ fontStyle: 'italic' }}
-                  >
-                    <span style={{ fontWeight: 'bold' }}>+</span>
-                    <span>Register AI Member...</span>
-                  </li>
-                </ul>
-              )}
-            </React.Fragment>
-          );
-        })}
-      </ul>
+                    )}
+                    <li
+                      className={`submenu-item ${activeTab === 'Agent:New' ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        resetAgentForm();
+                        setActiveTab('Agent:New');
+                      }}
+                      style={{ fontStyle: 'italic' }}
+                    >
+                      <span style={{ fontWeight: 'bold' }}>+</span>
+                      <span>Register AI Member...</span>
+                    </li>
+                  </ul>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </ul>
+      </div>
 
       <button 
         className="sidebar-toggle-btn" 
