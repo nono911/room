@@ -233,7 +233,7 @@ rtk git commit -m "feat(engine): preserve stable member ids"
 
 **Interfaces:**
 - Produces: `MemberTeam` type with `id`, `name`, `description`, `memberIds`, timestamps.
-- Produces: IPC: `loadTeams`, `saveTeam`, `deleteTeam`, `createTeamWithMembers`, `updateTeamMembers`.
+- Produces: IPC: `loadTeams`, `saveTeam`, `deleteTeam`, `createTeamWithMembers`, `addMembersToTeam`, `updateTeamMembers`.
 - Produces: distinct validators:
   - `validateNewTeamDraft` may generate a missing `team.id` for new drafts.
   - `validatePersistedTeamConfig` must reject malformed persisted IDs and malformed `memberIds`.
@@ -309,6 +309,13 @@ export interface LoadTeamsResult {
 export interface SkillDraft {
   name: string;
   content: string;
+}
+
+export class TeamStoreTransactionError extends Error {
+  constructor(message: string, readonly rollbackWarnings: string[]) {
+    super(message);
+    this.name = 'TeamStoreTransactionError';
+  }
 }
 
 const TEAM_ID_PATTERN = /^team_[a-z0-9][a-z0-9_-]{2,80}$/;
@@ -418,6 +425,7 @@ export async function saveTeam(projectRoot: string, rawTeam: unknown): Promise<M
 }
 
 export async function deleteTeam(projectRoot: string, teamId: string): Promise<void> {
+  if (!TEAM_ID_PATTERN.test(teamId)) throw new Error('Invalid team id.');
   const safeId = sanitizeFileName(teamId, 'team');
   await fs.unlink(resolveWithinProject(projectRoot, ROOM_DIR, 'teams', `${safeId}.json`));
 }
@@ -512,7 +520,81 @@ export async function createTeamWithMembers(
       try { await fs.unlink(filePath); }
       catch { rollbackWarnings.push(filePath); }
     }
-    throw error;
+    throw new TeamStoreTransactionError(error instanceof Error ? error.message : String(error), rollbackWarnings);
+  }
+}
+
+export async function addMembersToTeam(
+  projectRoot: string,
+  teamId: string,
+  rawMembers: unknown[],
+  skillDrafts: SkillDraft[] = []
+): Promise<{ team: MemberTeam; members: AgentConfig[]; rollbackWarnings: string[] }> {
+  if (!TEAM_ID_PATTERN.test(teamId)) throw new Error('Invalid team id.');
+  const teams = await loadTeams(projectRoot);
+  const current = teams.find(team => team.id === teamId);
+  if (!current) throw new Error('Team not found.');
+  const members = rawMembers.map((rawMember) => {
+    const memberRecord = rawMember && typeof rawMember === 'object' ? rawMember as Record<string, unknown> : {};
+    const id = typeof memberRecord.id === 'string' ? memberRecord.id.trim() : createStableId('mem', String(memberRecord.name || 'member'));
+    if (!MEMBER_ID_PATTERN.test(id)) throw new Error(`Invalid member id: ${id}`);
+    const result = validateAgentConfig({ ...memberRecord, id });
+    if (!result.success) throw new Error(result.error);
+    return result.agent;
+  });
+  const newMemberIds = members.map(member => member.id).filter((id): id is string => !!id);
+  if (new Set(newMemberIds).size !== newMemberIds.length) throw new Error('Duplicate member ids in add-members payload.');
+  const nextMemberIds = [...current.memberIds, ...newMemberIds.filter(id => !current.memberIds.includes(id))];
+  const updatedTeam = { ...current, memberIds: nextMemberIds, updatedAt: new Date().toISOString() };
+  const membersDir = resolveWithinProject(projectRoot, ROOM_DIR, 'members');
+  const teamsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'teams');
+  const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'skills');
+  await fs.mkdir(membersDir, { recursive: true });
+  await fs.mkdir(skillsDir, { recursive: true });
+  for (const skill of skillDrafts) {
+    if (!skill.name.trim()) throw new Error('Skill draft name is required.');
+    if (!skill.content.trim()) throw new Error(`Skill draft ${skill.name} is empty.`);
+  }
+  const teamPath = resolveWithinProject(teamsDir, `${sanitizeFileName(teamId, 'team')}.json`);
+  const memberWrites = members.map(member => ({
+    finalPath: resolveWithinProject(membersDir, `${member.id}.json`),
+    content: JSON.stringify(member, null, 2)
+  }));
+  const skillWrites = skillDrafts.map(skill => ({
+    finalPath: resolveWithinProject(skillsDir, `${sanitizeFileName(skill.name, 'skill')}.md`),
+    content: skill.content
+  }));
+  if (new Set([...memberWrites, ...skillWrites].map(write => write.finalPath)).size !== memberWrites.length + skillWrites.length) {
+    throw new Error('Duplicate write path in add-members transaction.');
+  }
+  const rollbackWarnings: string[] = [];
+  const reservedFiles: string[] = [];
+  const completedFiles: string[] = [];
+  const tempFiles: string[] = [];
+  try {
+    for (const write of [...memberWrites, ...skillWrites]) {
+      await fs.writeFile(write.finalPath, '', { encoding: 'utf-8', flag: 'wx' });
+      reservedFiles.push(write.finalPath);
+    }
+    for (const write of [...memberWrites, ...skillWrites]) {
+      const tempPath = `${write.finalPath}.${randomUUID()}.tmp`;
+      await fs.writeFile(tempPath, write.content, { encoding: 'utf-8', flag: 'wx' });
+      tempFiles.push(tempPath);
+      await fs.rename(tempPath, write.finalPath);
+      tempFiles.splice(tempFiles.indexOf(tempPath), 1);
+      completedFiles.push(write.finalPath);
+    }
+    const teamTempPath = `${teamPath}.${randomUUID()}.tmp`;
+    await fs.writeFile(teamTempPath, JSON.stringify(updatedTeam, null, 2), { encoding: 'utf-8', flag: 'wx' });
+    tempFiles.push(teamTempPath);
+    await fs.rename(teamTempPath, teamPath);
+    return { team: updatedTeam, members, rollbackWarnings };
+  } catch (error) {
+    for (const filePath of [...new Set([...completedFiles, ...reservedFiles, ...tempFiles])]) {
+      try { await fs.unlink(filePath); }
+      catch { rollbackWarnings.push(filePath); }
+    }
+    throw new TeamStoreTransactionError(error instanceof Error ? error.message : String(error), rollbackWarnings);
   }
 }
 
@@ -528,22 +610,31 @@ Create `packages/desktop/main/ipc/teams.ts`:
 ```ts
 import { ipcMain } from 'electron';
 import {
+  addMembersToTeam,
   createTeamWithMembers,
   deleteTeam,
   loadTeams,
   requireProjectRootForTeams,
   saveTeam,
+  TeamStoreTransactionError,
   updateTeamMembers
 } from './team-store.js';
 import type { SkillDraft } from './team-store.js';
+
+function serializeTeamStoreError(error: unknown): { success: false; error: string; rollbackWarnings?: string[] } {
+  if (error instanceof TeamStoreTransactionError) {
+    return { success: false, error: error.message, rollbackWarnings: error.rollbackWarnings };
+  }
+  return { success: false, error: error instanceof Error ? error.message : String(error) };
+}
 
 export function registerTeamsIpc(): void {
   ipcMain.handle('load-teams', async (event, { dirPath }: { dirPath: string }) => {
     try {
       const projectRoot = requireProjectRootForTeams(dirPath);
       return { success: true, teams: await loadTeams(projectRoot) };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return serializeTeamStoreError(error);
     }
   });
 
@@ -551,8 +642,8 @@ export function registerTeamsIpc(): void {
     try {
       const projectRoot = requireProjectRootForTeams(dirPath);
       return { success: true, team: await saveTeam(projectRoot, team) };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return serializeTeamStoreError(error);
     }
   });
 
@@ -561,8 +652,8 @@ export function registerTeamsIpc(): void {
       const projectRoot = requireProjectRootForTeams(dirPath);
       await deleteTeam(projectRoot, teamId);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return serializeTeamStoreError(error);
     }
   });
 
@@ -570,8 +661,8 @@ export function registerTeamsIpc(): void {
     try {
       const projectRoot = requireProjectRootForTeams(dirPath);
       return { success: true, team: await updateTeamMembers(projectRoot, teamId, memberIds) };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return serializeTeamStoreError(error);
     }
   });
 
@@ -587,8 +678,25 @@ export function registerTeamsIpc(): void {
           Array.isArray(skillDrafts) ? skillDrafts : []
         ))
       };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return serializeTeamStoreError(error);
+    }
+  });
+
+  ipcMain.handle('add-members-to-team', async (event, { dirPath, teamId, members, skillDrafts }: { dirPath: string; teamId: string; members: unknown[]; skillDrafts?: SkillDraft[] }) => {
+    try {
+      const projectRoot = requireProjectRootForTeams(dirPath);
+      return {
+        success: true,
+        ...(await addMembersToTeam(
+          projectRoot,
+          teamId,
+          Array.isArray(members) ? members : [],
+          Array.isArray(skillDrafts) ? skillDrafts : []
+        ))
+      };
+    } catch (error) {
+      return serializeTeamStoreError(error);
     }
   });
 }
@@ -619,6 +727,8 @@ deleteTeam: (dirPath, teamId) => ipcRenderer.invoke('delete-team', { dirPath, te
 updateTeamMembers: (dirPath, teamId, memberIds) => ipcRenderer.invoke('update-team-members', { dirPath, teamId, memberIds }),
 createTeamWithMembers: (dirPath, team, members, skillDrafts = []) =>
   ipcRenderer.invoke('create-team-with-members', { dirPath, team, members, skillDrafts }),
+addMembersToTeam: (dirPath, teamId, members, skillDrafts = []) =>
+  ipcRenderer.invoke('add-members-to-team', { dirPath, teamId, members, skillDrafts }),
 ```
 
 Update `packages/desktop/renderer/src/shared/ipc/client.ts`:
@@ -631,6 +741,8 @@ updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) =>
   window.electronAPI.updateTeamMembers(dirPath, teamId, memberIds),
 createTeamWithMembers: (dirPath: string, team: unknown, members: unknown[], skillDrafts: Array<{ name: string; content: string }> = []) =>
   window.electronAPI.createTeamWithMembers(dirPath, team, members, skillDrafts),
+addMembersToTeam: (dirPath: string, teamId: string, members: unknown[], skillDrafts: Array<{ name: string; content: string }> = []) =>
+  window.electronAPI.addMembersToTeam(dirPath, teamId, members, skillDrafts),
 ```
 
 - [ ] **Step 5: Run build**
@@ -1006,6 +1118,7 @@ rtk git commit -m "feat(desktop): add team roster utilities"
 **Interfaces:**
 - Consumes: `projectData.teams`, `projectData.unassignedMemberIds`.
 - Consumes: `api.createTeamWithMembers(projectPath, team, members, skillDrafts)`.
+- Consumes: `api.addMembersToTeam(projectPath, teamId, members, skillDrafts)` for adding generated members to an existing team.
 - Consumes: `api.updateTeamMembers(projectPath, teamId, memberIds)` for reorder/add/remove.
 - Consumes: `buildTeamRosters`, `generateTemplateVariants`.
 
@@ -1075,7 +1188,7 @@ Create `CreateTeamWizard.tsx` with first-version controls required by the spec:
 
 - Team draft fields: name and description.
 - Template rows: add/remove rows, each row selects a built-in template and count.
-- Review table: every generated member draft can edit name, role, persona angle, skills, provider, and model before create.
+- Review table: every generated member draft can edit name, role, persona angle, skills, provider, and modelName before create.
 - Submit payload: `onCreate(team, members, skillDrafts)` where `members` are complete member configs and `skillDrafts` contains any new skill files requested by the edited drafts.
 
 ```tsx
@@ -1095,7 +1208,7 @@ interface MemberDraft {
   role: string;
   personaAngle: string;
   provider: string;
-  model?: string;
+  modelName?: string;
   skills: string[];
   systemPrompt: string;
 }
@@ -1125,7 +1238,7 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({ existingName
         role: template.role || template.name,
         personaAngle: variant.personaAngle,
         provider: template.provider || 'gemini',
-        model: template.model,
+        modelName: template.modelName,
         skills: [],
         systemPrompt: `${template.prompt || ''}\n\n=== Persona Variant ===\n${variant.personaAngle}`
       }));
@@ -1165,7 +1278,7 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({ existingName
             <select className="form-select" value={member.provider} onChange={(event) => updateDraft(member.draftId, { provider: event.target.value })}>
               {['gemini', 'openai', 'anthropic'].map(provider => <option key={provider} value={provider}>{provider}</option>)}
             </select>
-            <input className="form-input" value={member.model || ''} onChange={(event) => updateDraft(member.draftId, { model: event.target.value || undefined })} placeholder="Model" />
+            <input className="form-input" value={member.modelName || ''} onChange={(event) => updateDraft(member.draftId, { modelName: event.target.value || undefined })} placeholder="Model" />
           </div>
         ))}
       </div>
@@ -1218,7 +1331,7 @@ Create `TeamDetailScreen.tsx` with member ordering and membership controls:
 
 - Reorder saved team members with up/down controls and persist through `api.updateTeamMembers(projectPath, team.id, nextMemberIds)`.
 - Add existing saved members from Unassigned or another team by appending their `member.id`.
-- Add new template-generated members by opening the same `CreateTeamWizard` member draft editor in add-to-existing mode, calling `api.createTeamWithMembers` only for the new member files and then `api.updateTeamMembers` with existing plus new IDs.
+- Add new template-generated members by opening the same `CreateTeamWizard` member draft editor in add-to-existing mode and calling `api.addMembersToTeam(projectPath, team.id, members, skillDrafts)` so member creation and team update happen in one main-process transaction.
 - Remove a member from this team by removing only the ID reference; do not delete the member file.
 - Edit a member by opening `Agent:<member.id>` or another ID-backed editor route, not by display name.
 
@@ -1229,7 +1342,10 @@ interface TeamDetailScreenProps {
   projectPath: string;
   team: { id: string; name: string; memberIds: string[]; members: Array<{ id: string; name: string }> };
   availableMembers: Array<{ id: string; name: string }>;
-  api: { updateTeamMembers: (projectPath: string, teamId: string, memberIds: string[]) => Promise<unknown> };
+  api: {
+    updateTeamMembers: (projectPath: string, teamId: string, memberIds: string[]) => Promise<unknown>;
+    addMembersToTeam: (projectPath: string, teamId: string, members: unknown[], skillDrafts: Array<{ name: string; content: string }>) => Promise<unknown>;
+  };
   reloadProjectData: () => Promise<void>;
   setActiveTab: (tab: string) => void;
 }
