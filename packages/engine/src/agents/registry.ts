@@ -5,6 +5,7 @@ import { PERSONA_TEMPLATES, DEFAULT_MEMBER_NAMES } from './personaTemplates.js';
 import { normalizeProviderId, isValidProviderId } from '../providers/registry.js';
 
 export interface AgentConfig {
+  id?: string;
   name: string;
   role: string;
   provider: string;
@@ -22,6 +23,7 @@ export interface AgentConfig {
 const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
 const ALLOWED_PERMISSION_MODES = ['safe', 'dangerous'] as const;
 const ALLOWED_STDIN_FORMATS = ['text', 'json'] as const;
+const MEMBER_ID_PATTERN = /^mem_[a-z0-9][a-z0-9_-]{2,80}$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -41,6 +43,20 @@ function sanitizeSkillFileName(skill: unknown): string | null {
   return safeName;
 }
 
+function normalizeMemberId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('Invalid member id.');
+  }
+
+  const trimmed = value.trim();
+  if (!MEMBER_ID_PATTERN.test(trimmed)) {
+    throw new Error('Invalid member id.');
+  }
+
+  return trimmed;
+}
+
 export function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentConfig } | { success: false; error: string } {
   if (!isPlainObject(rawAgent)) {
     return { success: false, error: 'Invalid agent payload.' };
@@ -51,9 +67,16 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   const provider = typeof rawAgent.provider === 'string' ? rawAgent.provider.trim() : '';
   const systemPrompt = typeof rawAgent.systemPrompt === 'string' ? rawAgent.systemPrompt.trim() : '';
   const modelName = typeof rawAgent.modelName === 'string' ? rawAgent.modelName.trim() : '';
+  let id: string | undefined;
 
   if (!name || !role || !systemPrompt) {
     return { success: false, error: 'Agent name, role and system prompt are required.' };
+  }
+
+  try {
+    id = normalizeMemberId(rawAgent.id);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Invalid member id.' };
   }
 
   const normalizedProvider = provider === 'Local CLI' ? provider : normalizeProviderId(provider);
@@ -106,6 +129,7 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   return {
     success: true,
     agent: {
+      id,
       name,
       role,
       provider: normalizedProvider,
@@ -172,6 +196,15 @@ export async function loadAgents(dirPath: string): Promise<AgentConfig[]> {
   }
 
   return agents;
+}
+
+export async function saveAgent(dirPath: string, agent: AgentConfig): Promise<void> {
+  const agentsDir = path.join(dirPath, '.room', 'members');
+  await fs.mkdir(agentsDir, { recursive: true });
+
+  const fileBase = agent.id || agent.name.toLowerCase();
+  const filePath = path.join(agentsDir, `${fileBase}.json`);
+  await fs.writeFile(filePath, JSON.stringify(agent, null, 2), 'utf-8');
 }
 
 export async function createDefaultAgents(dirPath: string) {
