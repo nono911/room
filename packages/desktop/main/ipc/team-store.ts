@@ -334,7 +334,7 @@ export async function updateTeamMembers(
     throw new Error('Invalid team id.');
   }
 
-  const parsedMemberIds = parseMemberIds(memberIds, { requireArray: false });
+  const parsedMemberIds = parseMemberIds(memberIds, { requireArray: true });
   if (!parsedMemberIds.success) {
     throw new Error(parsedMemberIds.error);
   }
