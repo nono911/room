@@ -109,11 +109,12 @@ export default function App() {
   const [initialSelectedFile, setInitialSelectedFile] = useState<{ section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions'; file: string } | null>(null);
   const {
     selectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
     queueDiscussionAgentSelectionByNames,
     selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
     appendSelectedDiscussionMemberIds,
     toggleSelectedDiscussionMemberId,
-    reorderSelectedDiscussionMemberIds,
+    reorderSelectedDiscussionParticipants,
     selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
     toggleSelectedLegacyDiscussionAgentName,
     selectedTemporaryDiscussionAgentIds,
@@ -754,11 +755,12 @@ export default function App() {
                 highlightedDiscussionMessage={highlightedDiscussionMessage}
                 selectedDiscussionContextRefs={selectedDiscussionContextRefs}
                 selectedDiscussionAgents={selectedDiscussionAgents}
+                selectedDiscussionParticipantKeys={selectedDiscussionParticipantKeys}
                 selectedDiscussionMemberIds={selectedDiscussionMemberIds}
                 setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
                 appendSelectedDiscussionMemberIds={appendSelectedDiscussionMemberIds}
                 toggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
-                reorderSelectedDiscussionMemberIds={reorderSelectedDiscussionMemberIds}
+                reorderSelectedDiscussionParticipants={reorderSelectedDiscussionParticipants}
                 selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
                 setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
                 toggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}

@@ -28,6 +28,25 @@ function serializeTeamStoreError(
   };
 }
 
+function readTransactionArrayField(
+  value: unknown,
+  fieldName: 'members' | 'skillDrafts',
+  options: { optional?: boolean } = {}
+): { success: true; value: unknown[] } | { success: false; error: string } {
+  if (value === undefined && options.optional) {
+    return { success: true, value: [] };
+  }
+  if (!Array.isArray(value)) {
+    return {
+      success: false,
+      error: fieldName === 'members'
+        ? 'Transaction field "members" must be an array.'
+        : 'Transaction field "skillDrafts" must be an array when provided.'
+    };
+  }
+  return { success: true, value };
+}
+
 export function registerTeamsIpc(): void {
   ipcMain.handle('load-teams', async (_event, { dirPath }: { dirPath: string }) => {
     try {
@@ -87,14 +106,22 @@ export function registerTeamsIpc(): void {
       }
     ) => {
       try {
+        const parsedMembers = readTransactionArrayField(members, 'members');
+        if (!parsedMembers.success) {
+          return { success: false, error: parsedMembers.error };
+        }
+        const parsedSkillDrafts = readTransactionArrayField(skillDrafts, 'skillDrafts', { optional: true });
+        if (!parsedSkillDrafts.success) {
+          return { success: false, error: parsedSkillDrafts.error };
+        }
         const projectRoot = requireProjectRootForTeams(dirPath);
         return {
           success: true,
           ...(await createTeamWithMembers(
             projectRoot,
             team,
-            Array.isArray(members) ? members : [],
-            Array.isArray(skillDrafts) ? skillDrafts : []
+            parsedMembers.value,
+            parsedSkillDrafts.value as SkillDraft[]
           ))
         };
       } catch (error) {
@@ -120,14 +147,22 @@ export function registerTeamsIpc(): void {
       }
     ) => {
       try {
+        const parsedMembers = readTransactionArrayField(members, 'members');
+        if (!parsedMembers.success) {
+          return { success: false, error: parsedMembers.error };
+        }
+        const parsedSkillDrafts = readTransactionArrayField(skillDrafts, 'skillDrafts', { optional: true });
+        if (!parsedSkillDrafts.success) {
+          return { success: false, error: parsedSkillDrafts.error };
+        }
         const projectRoot = requireProjectRootForTeams(dirPath);
         return {
           success: true,
           ...(await addMembersToTeam(
             projectRoot,
             teamId,
-            Array.isArray(members) ? members : [],
-            Array.isArray(skillDrafts) ? skillDrafts : []
+            parsedMembers.value,
+            parsedSkillDrafts.value as SkillDraft[]
           ))
         };
       } catch (error) {

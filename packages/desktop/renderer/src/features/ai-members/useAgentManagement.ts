@@ -258,13 +258,6 @@ export function useAgentManagement({
     setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
-      const isRenamingLegacyMember = editingAgent
-        && !editingAgent.id
-        && editingAgent.name.toLowerCase() !== newAgentName.trim().toLowerCase();
-      if (isRenamingLegacyMember) {
-        await api.deleteAgent(projectPath, editingAgent.name, editingAgent.id);
-      }
-
       const defaultModel = getModelOptions(newAgentProvider, newAgentPreset)[0]?.value;
       const modelToSave = newAgentProvider === 'Local CLI'
         ? newAgentModel.trim() || undefined
@@ -284,6 +277,7 @@ export function useAgentManagement({
 
       const res = await api.saveAgent(projectPath, {
         id: editingAgent?.id,
+        previousName: !editingAgent?.id ? editingAgent?.name : undefined,
         name: newAgentName.trim(),
         role: newAgentRole.trim(),
         provider: newAgentProvider,

@@ -141,4 +141,35 @@ describe('useDiscussionSelection', () => {
     expect(result.current.temporaryDiscussionAgents.map((agent) => agent.id)).toEqual(['tmp_1', 'tmp_2']);
     expect(result.current.selectedTemporaryDiscussionAgentIds).toEqual(['tmp_1', 'tmp_2']);
   });
+
+  it('preserves temporary-first execution order when saved members are selected afterward', () => {
+    const { result } = renderHook(() => useDiscussionSelection({
+      projectData: {
+        projectMd: '',
+        archMd: '',
+        tasks: [],
+        decisions: [],
+        reviews: [],
+        documents: [],
+        discussions: [],
+        skills: [],
+        agents: [
+          { id: 'mem_planner', name: 'Planner', role: 'Planning' },
+          { id: 'mem_reviewer', name: 'Reviewer', role: 'QA' }
+        ]
+      }
+    }));
+
+    act(() => {
+      result.current.setTemporaryDiscussionAgents([
+        { id: 'tmp_red', name: 'Red Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' }
+      ]);
+      result.current.appendSelectedTemporaryDiscussionAgentIds(['tmp_red']);
+      result.current.appendSelectedDiscussionMemberIds(['mem_planner', 'mem_reviewer']);
+    });
+
+    expect(result.current.selectedTemporaryDiscussionAgentIds).toEqual(['tmp_red']);
+    expect(result.current.selectedDiscussionMemberIds).toEqual(['mem_planner', 'mem_reviewer']);
+    expect(result.current.selectedDiscussionAgents).toEqual(['Red Team', 'Planner', 'Reviewer']);
+  });
 });

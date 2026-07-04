@@ -119,8 +119,16 @@ describe('TeamDetailScreen', () => {
   });
 
   it('stays on the screen and shows errors when team IPC mutations fail', async () => {
-    const updateTeamMembers = vi.fn().mockResolvedValue({ success: false, error: 'Cannot reorder members.' });
-    const addMembersToTeam = vi.fn().mockResolvedValue({ success: false, error: 'Cannot add generated members.' });
+    const updateTeamMembers = vi.fn().mockResolvedValue({
+      success: false,
+      error: 'Cannot reorder members.',
+      rollbackWarnings: ['/tmp/room-cleanup/reorder.json']
+    });
+    const addMembersToTeam = vi.fn().mockResolvedValue({
+      success: false,
+      error: 'Cannot add generated members.',
+      rollbackWarnings: ['/tmp/room-cleanup/generated.json']
+    });
     const reloadProjectData = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -150,13 +158,15 @@ describe('TeamDetailScreen', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Move Designer up' }));
-    expect(await screen.findByText('Cannot reorder members.')).toBeTruthy();
+    expect(await screen.findByText(/Cannot reorder members\./)).toBeTruthy();
+    expect(screen.getByText(/\/tmp\/room-cleanup\/reorder\.json/)).toBeTruthy();
     expect(reloadProjectData).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add template members' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit template members' }));
 
-    expect(await screen.findByText('Cannot add generated members.')).toBeTruthy();
+    expect(await screen.findByText(/Cannot add generated members\./)).toBeTruthy();
+    expect(screen.getByText(/\/tmp\/room-cleanup\/generated\.json/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Submit template members' })).toBeTruthy();
     expect(reloadProjectData).not.toHaveBeenCalled();
   });

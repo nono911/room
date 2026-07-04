@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ProjectData } from '../../types/domain.js';
 import {
-  appendUniqueDiscussionSelectionValues,
+  appendUniqueDiscussionParticipantKeys,
   areDiscussionSelectionValuesEqual,
   dedupeDiscussionSelectionValues,
+  getDiscussionSelectionValuesByKind,
   getPersistedDiscussionAgents,
-  removeDiscussionSelectionValue,
+  parseDiscussionParticipantKey,
+  removeDiscussionParticipantKey,
+  reorderDiscussionParticipantKeys,
   reorderDiscussionSelectionValues,
+  replaceDiscussionParticipantKeysOfKind,
   resolveDiscussionSelection,
   resolveDiscussionSelectionByAgentNames,
+  createDiscussionParticipantKey,
+  type DiscussionParticipantKey,
   type PersistedDiscussionAgent,
   type TemporaryDiscussionAgent
 } from './lib/discussionSelection.js';
@@ -18,14 +24,20 @@ interface UseDiscussionSelectionOptions {
 }
 
 export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOptions) {
-  const [selectedDiscussionMemberIdsState, setSelectedDiscussionMemberIdsState] = useState<string[]>([]);
-  const [selectedLegacyDiscussionAgentNamesState, setSelectedLegacyDiscussionAgentNamesState] = useState<string[]>([]);
-  const [selectedTemporaryDiscussionAgentIdsState, setSelectedTemporaryDiscussionAgentIdsState] = useState<string[]>([]);
+  const [selectedDiscussionParticipantKeysState, setSelectedDiscussionParticipantKeysState] = useState<DiscussionParticipantKey[]>([]);
   const [temporaryDiscussionAgents, setTemporaryDiscussionAgentsState] = useState<TemporaryDiscussionAgent[]>([]);
   const [pendingDiscussionAgentNames, setPendingDiscussionAgentNames] = useState<string[]>([]);
   const persistedDiscussionAgents = useMemo(
     () => getPersistedDiscussionAgents((projectData?.agents || []) as PersistedDiscussionAgent[]),
     [projectData]
+  );
+  const {
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds
+  } = useMemo(
+    () => getDiscussionSelectionValuesByKind(selectedDiscussionParticipantKeysState),
+    [selectedDiscussionParticipantKeysState]
   );
 
   const {
@@ -35,16 +47,18 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
     selectedAgentNames: selectedDiscussionAgents
   } = useMemo(() => resolveDiscussionSelection({
     projectAgents: persistedDiscussionAgents,
-    selectedDiscussionMemberIds: selectedDiscussionMemberIdsState,
-    selectedLegacyDiscussionAgentNames: selectedLegacyDiscussionAgentNamesState,
+    selectedDiscussionParticipantKeys: selectedDiscussionParticipantKeysState,
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
     temporaryDiscussionAgents,
-    selectedTemporaryDiscussionAgentIds: selectedTemporaryDiscussionAgentIdsState
+    selectedTemporaryDiscussionAgentIds
   }), [
     persistedDiscussionAgents,
-    selectedDiscussionMemberIdsState,
-    selectedLegacyDiscussionAgentNamesState,
+    selectedDiscussionParticipantKeysState,
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
     temporaryDiscussionAgents,
-    selectedTemporaryDiscussionAgentIdsState
+    selectedTemporaryDiscussionAgentIds
   ]);
 
   const applySelectionByNames = useCallback((agentNames: string[]) => {
@@ -53,9 +67,7 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
       temporaryDiscussionAgents,
       agentNames
     );
-    setSelectedDiscussionMemberIdsState(resolved.selectedDiscussionMemberIds);
-    setSelectedLegacyDiscussionAgentNamesState(resolved.selectedLegacyDiscussionAgentNames);
-    setSelectedTemporaryDiscussionAgentIdsState(resolved.selectedTemporaryDiscussionAgentIds);
+    setSelectedDiscussionParticipantKeysState(resolved.selectedDiscussionParticipantKeys);
     setPendingDiscussionAgentNames(resolved.unresolvedAgentNames);
   }, [persistedDiscussionAgents, temporaryDiscussionAgents]);
 
@@ -68,16 +80,20 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
     const persistedNames = new Set(persistedDiscussionAgents.map((agent) => agent.name));
     const temporaryIds = new Set(temporaryDiscussionAgents.map((agent) => agent.id));
 
-    setSelectedDiscussionMemberIdsState((prev) => {
-      const next = dedupeDiscussionSelectionValues(prev.filter((memberId) => savedAgentIds.has(memberId)));
-      return areDiscussionSelectionValuesEqual(prev, next) ? prev : next;
-    });
-    setSelectedLegacyDiscussionAgentNamesState((prev) => {
-      const next = dedupeDiscussionSelectionValues(prev.filter((agentName) => persistedNames.has(agentName)));
-      return areDiscussionSelectionValuesEqual(prev, next) ? prev : next;
-    });
-    setSelectedTemporaryDiscussionAgentIdsState((prev) => {
-      const next = dedupeDiscussionSelectionValues(prev.filter((agentId) => temporaryIds.has(agentId)));
+    setSelectedDiscussionParticipantKeysState((prev) => {
+      const next = prev.filter((key) => {
+        const parsed = parseDiscussionParticipantKey(key);
+        if (!parsed) {
+          return false;
+        }
+        if (parsed.kind === 'member') {
+          return savedAgentIds.has(parsed.value);
+        }
+        if (parsed.kind === 'legacy') {
+          return persistedNames.has(parsed.value);
+        }
+        return temporaryIds.has(parsed.value);
+      });
       return areDiscussionSelectionValuesEqual(prev, next) ? prev : next;
     });
   }, [persistedDiscussionAgents, temporaryDiscussionAgents]);
@@ -92,25 +108,47 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
     if (resolved.unresolvedAgentNames.length === pendingDiscussionAgentNames.length) {
       return;
     }
-    setSelectedDiscussionMemberIdsState((prev) => appendUniqueDiscussionSelectionValues(prev, resolved.selectedDiscussionMemberIds));
-    setSelectedLegacyDiscussionAgentNamesState((prev) => appendUniqueDiscussionSelectionValues(prev, resolved.selectedLegacyDiscussionAgentNames));
-    setSelectedTemporaryDiscussionAgentIdsState((prev) => appendUniqueDiscussionSelectionValues(prev, resolved.selectedTemporaryDiscussionAgentIds));
+    setSelectedDiscussionParticipantKeysState((prev) => (
+      appendUniqueDiscussionParticipantKeys(prev, resolved.selectedDiscussionParticipantKeys)
+    ));
     setPendingDiscussionAgentNames(resolved.unresolvedAgentNames);
   }, [pendingDiscussionAgentNames, persistedDiscussionAgents, temporaryDiscussionAgents]);
 
   const setSelectedDiscussionMemberIds = useCallback((value: string[] | ((prev: string[]) => string[])) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedDiscussionMemberIdsState((prev) => dedupeDiscussionSelectionValues(typeof value === 'function' ? value(prev) : value));
+    setSelectedDiscussionParticipantKeysState((prev) => replaceDiscussionParticipantKeysOfKind(
+      prev,
+      'member',
+      dedupeDiscussionSelectionValues(
+        typeof value === 'function' ? value(getDiscussionSelectionValuesByKind(prev).selectedDiscussionMemberIds) : value
+      )
+    ));
   }, []);
 
   const setSelectedLegacyDiscussionAgentNames = useCallback((value: string[] | ((prev: string[]) => string[])) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedLegacyDiscussionAgentNamesState((prev) => dedupeDiscussionSelectionValues(typeof value === 'function' ? value(prev) : value));
+    setSelectedDiscussionParticipantKeysState((prev) => replaceDiscussionParticipantKeysOfKind(
+      prev,
+      'legacy',
+      dedupeDiscussionSelectionValues(
+        typeof value === 'function'
+          ? value(getDiscussionSelectionValuesByKind(prev).selectedLegacyDiscussionAgentNames)
+          : value
+      )
+    ));
   }, []);
 
   const setSelectedTemporaryDiscussionAgentIds = useCallback((value: string[] | ((prev: string[]) => string[])) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedTemporaryDiscussionAgentIdsState((prev) => dedupeDiscussionSelectionValues(typeof value === 'function' ? value(prev) : value));
+    setSelectedDiscussionParticipantKeysState((prev) => replaceDiscussionParticipantKeysOfKind(
+      prev,
+      'tmp',
+      dedupeDiscussionSelectionValues(
+        typeof value === 'function'
+          ? value(getDiscussionSelectionValuesByKind(prev).selectedTemporaryDiscussionAgentIds)
+          : value
+      )
+    ));
   }, []);
 
   const setTemporaryDiscussionAgents = useCallback((value: TemporaryDiscussionAgent[] | ((prev: TemporaryDiscussionAgent[]) => TemporaryDiscussionAgent[])) => {
@@ -139,51 +177,70 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
 
   const appendSelectedDiscussionMemberIds = useCallback((memberIds: string[]) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedDiscussionMemberIdsState((prev) => appendUniqueDiscussionSelectionValues(prev, memberIds));
+    setSelectedDiscussionParticipantKeysState((prev) => appendUniqueDiscussionParticipantKeys(
+      prev,
+      dedupeDiscussionSelectionValues(memberIds).map((memberId) => createDiscussionParticipantKey('member', memberId))
+    ));
   }, []);
 
   const appendSelectedTemporaryDiscussionAgentIds = useCallback((temporaryIds: string[]) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedTemporaryDiscussionAgentIdsState((prev) => appendUniqueDiscussionSelectionValues(prev, temporaryIds));
+    setSelectedDiscussionParticipantKeysState((prev) => appendUniqueDiscussionParticipantKeys(
+      prev,
+      dedupeDiscussionSelectionValues(temporaryIds).map((temporaryId) => createDiscussionParticipantKey('tmp', temporaryId))
+    ));
   }, []);
 
   const toggleSelectedDiscussionMemberId = useCallback((memberId: string) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedDiscussionMemberIdsState((prev) => (
-      prev.includes(memberId)
-        ? removeDiscussionSelectionValue(prev, memberId)
-        : appendUniqueDiscussionSelectionValues(prev, [memberId])
+    const participantKey = createDiscussionParticipantKey('member', memberId);
+    setSelectedDiscussionParticipantKeysState((prev) => (
+      prev.includes(participantKey)
+        ? removeDiscussionParticipantKey(prev, participantKey)
+        : appendUniqueDiscussionParticipantKeys(prev, [participantKey])
     ));
   }, []);
 
   const toggleSelectedLegacyDiscussionAgentName = useCallback((agentName: string) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedLegacyDiscussionAgentNamesState((prev) => (
-      prev.includes(agentName)
-        ? removeDiscussionSelectionValue(prev, agentName)
-        : appendUniqueDiscussionSelectionValues(prev, [agentName])
+    const participantKey = createDiscussionParticipantKey('legacy', agentName);
+    setSelectedDiscussionParticipantKeysState((prev) => (
+      prev.includes(participantKey)
+        ? removeDiscussionParticipantKey(prev, participantKey)
+        : appendUniqueDiscussionParticipantKeys(prev, [participantKey])
     ));
   }, []);
 
   const toggleSelectedTemporaryDiscussionAgentId = useCallback((temporaryId: string) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedTemporaryDiscussionAgentIdsState((prev) => (
-      prev.includes(temporaryId)
-        ? removeDiscussionSelectionValue(prev, temporaryId)
-        : appendUniqueDiscussionSelectionValues(prev, [temporaryId])
+    const participantKey = createDiscussionParticipantKey('tmp', temporaryId);
+    setSelectedDiscussionParticipantKeysState((prev) => (
+      prev.includes(participantKey)
+        ? removeDiscussionParticipantKey(prev, participantKey)
+        : appendUniqueDiscussionParticipantKeys(prev, [participantKey])
     ));
   }, []);
 
   const reorderSelectedDiscussionMemberIds = useCallback((sourceIndex: number, targetIndex: number) => {
     setPendingDiscussionAgentNames([]);
-    setSelectedDiscussionMemberIdsState((prev) => reorderDiscussionSelectionValues(prev, sourceIndex, targetIndex));
+    setSelectedDiscussionParticipantKeysState((prev) => {
+      const current = getDiscussionSelectionValuesByKind(prev).selectedDiscussionMemberIds;
+      return replaceDiscussionParticipantKeysOfKind(
+        prev,
+        'member',
+        reorderDiscussionSelectionValues(current, sourceIndex, targetIndex)
+      );
+    });
+  }, []);
+
+  const reorderSelectedDiscussionParticipants = useCallback((sourceIndex: number, targetIndex: number) => {
+    setPendingDiscussionAgentNames([]);
+    setSelectedDiscussionParticipantKeysState((prev) => reorderDiscussionParticipantKeys(prev, sourceIndex, targetIndex));
   }, []);
 
   const clearSelectedDiscussionAgents = useCallback(() => {
     setPendingDiscussionAgentNames([]);
-    setSelectedDiscussionMemberIdsState([]);
-    setSelectedLegacyDiscussionAgentNamesState([]);
-    setSelectedTemporaryDiscussionAgentIdsState([]);
+    setSelectedDiscussionParticipantKeysState([]);
   }, []);
 
   const selectDefaultDiscussionAgents = useCallback((agents: PersistedDiscussionAgent[]) => {
@@ -199,23 +256,37 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
 
     if (savedAgents.length > 0) {
       const validIds = new Set(savedAgents.map((agent) => agent.id));
-      setSelectedDiscussionMemberIdsState((prev) => {
-        const next = dedupeDiscussionSelectionValues(prev.filter((memberId) => validIds.has(memberId)));
-        if (next.length > 0) return next;
-        return savedAgents.slice(0, 2).map((agent) => agent.id);
+      setSelectedDiscussionParticipantKeysState((prev) => {
+        const nextMemberIds = dedupeDiscussionSelectionValues(
+          getDiscussionSelectionValuesByKind(prev).selectedDiscussionMemberIds.filter((memberId) => validIds.has(memberId))
+        );
+        const memberIds = nextMemberIds.length > 0
+          ? nextMemberIds
+          : savedAgents.slice(0, 2).map((agent) => agent.id);
+        return replaceDiscussionParticipantKeysOfKind(
+          replaceDiscussionParticipantKeysOfKind(prev, 'legacy', []),
+          'member',
+          memberIds
+        );
       });
-      setSelectedLegacyDiscussionAgentNamesState([]);
       return;
     }
 
     if (registeredAgents.length > 0) {
       const names = registeredAgents.map((agent) => agent.name);
-      setSelectedLegacyDiscussionAgentNamesState((prev) => {
-        const next = dedupeDiscussionSelectionValues(prev.filter((name) => names.includes(name)));
-        if (next.length > 0) return next;
-        return names.slice(0, 2);
+      setSelectedDiscussionParticipantKeysState((prev) => {
+        const nextLegacyNames = dedupeDiscussionSelectionValues(
+          getDiscussionSelectionValuesByKind(prev).selectedLegacyDiscussionAgentNames.filter((name) => names.includes(name))
+        );
+        const legacyNames = nextLegacyNames.length > 0
+          ? nextLegacyNames
+          : names.slice(0, 2);
+        return replaceDiscussionParticipantKeysOfKind(
+          replaceDiscussionParticipantKeysOfKind(prev, 'member', []),
+          'legacy',
+          legacyNames
+        );
       });
-      setSelectedDiscussionMemberIdsState([]);
       return;
     }
 
@@ -224,9 +295,10 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
 
   return {
     selectedDiscussionAgents,
-    selectedDiscussionMemberIds: selectedDiscussionMemberIdsState,
-    selectedLegacyDiscussionAgentNames: selectedLegacyDiscussionAgentNamesState,
-    selectedTemporaryDiscussionAgentIds: selectedTemporaryDiscussionAgentIdsState,
+    selectedDiscussionParticipantKeys: selectedDiscussionParticipantKeysState,
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds,
     temporaryDiscussionAgents,
     setSelectedDiscussionAgents,
     queueDiscussionAgentSelectionByNames,
@@ -240,6 +312,7 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
     toggleSelectedLegacyDiscussionAgentName,
     toggleSelectedTemporaryDiscussionAgentId,
     reorderSelectedDiscussionMemberIds,
+    reorderSelectedDiscussionParticipants,
     clearSelectedDiscussionAgents,
     selectDefaultDiscussionAgents
   };

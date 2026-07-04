@@ -9,7 +9,7 @@ import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
 } from './shared.js';
 import { isDangerousAgentAllowed } from './config-store.js';
-import { removeMemberFromTeams } from './team-store.js';
+import { createStableId, removeMemberFromTeams } from './team-store.js';
 
 interface SkillPreviewItem {
   filename: string;
@@ -66,30 +66,94 @@ function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentCo
   return engineValidated;
 }
 
+function getLegacyMemberFileCandidates(projectRoot: string, name: string): string[] {
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  if (!normalizedName) {
+    return [];
+  }
+
+  const lowerName = normalizedName.toLowerCase();
+  const candidates = new Set<string>([
+    resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${sanitizeAgentFileName(normalizedName) || 'agent'}.json`),
+    resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${encodeURIComponent(lowerName)}.json`)
+  ]);
+
+  if (!/[\\/]/.test(normalizedName)) {
+    candidates.add(resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${lowerName}.json`));
+  }
+
+  return [...candidates];
+}
+
+async function cleanupLegacyMemberFiles(
+  projectRoot: string,
+  persistedAgent: AgentConfig & { id: string },
+  previousName?: string
+): Promise<void> {
+  const candidateNames = new Set(
+    [previousName, persistedAgent.name]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim().toLowerCase())
+  );
+  const idFilePath = resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${persistedAgent.id}.json`);
+  const candidatePaths = [
+    ...getLegacyMemberFileCandidates(projectRoot, persistedAgent.name),
+    ...(previousName ? getLegacyMemberFileCandidates(projectRoot, previousName) : [])
+  ];
+  const seenPaths = new Set<string>();
+
+  for (const candidatePath of candidatePaths) {
+    if (candidatePath === idFilePath || seenPaths.has(candidatePath)) {
+      continue;
+    }
+    seenPaths.add(candidatePath);
+
+    try {
+      const raw = JSON.parse(await fs.readFile(candidatePath, 'utf-8')) as Record<string, unknown>;
+      const rawName = typeof raw.name === 'string' ? raw.name.trim().toLowerCase() : '';
+      const rawId = typeof raw.id === 'string' ? raw.id.trim() : '';
+      if (rawId || !candidateNames.has(rawName)) {
+        continue;
+      }
+      await fs.unlink(candidatePath);
+    } catch {}
+  }
+}
+
 export function registerAgentsIpc(): void {
   ipcMain.handle('save-agent', async (event, { dirPath, agent }: { dirPath: string; agent: unknown }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const agentsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'members');
+      const previousName = typeof (agent as { previousName?: unknown })?.previousName === 'string'
+        ? (agent as { previousName?: string }).previousName?.trim() || undefined
+        : undefined;
       const validated = validateAgentConfig(agent);
       if (!validated.success) {
         return { success: false, error: validated.error };
       }
 
-      if (validated.agent.provider === 'Local CLI') {
+      const persistedAgent: AgentConfig & { id: string } = validated.agent.id
+        ? { ...validated.agent, id: validated.agent.id }
+        : { ...validated.agent, id: createStableId('mem', validated.agent.name) };
+
+      if (persistedAgent.provider === 'Local CLI') {
         try {
-          assertLocalCliExecutionAllowed(validated.agent, await isDangerousAgentAllowed(projectRoot));
+          assertLocalCliExecutionAllowed(persistedAgent, await isDangerousAgentAllowed(projectRoot));
         } catch (error: any) {
           return { success: false, error: error.message };
         }
       }
 
       await fs.mkdir(agentsDir, { recursive: true });
-      const safeFileBase = validated.agent.id || sanitizeAgentFileName(validated.agent.name) || 'agent';
-      const filename = `${safeFileBase}.json`;
-      const filePath = resolveWithinProject(agentsDir, filename);
-      await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
-      return { success: true };
+      const filePath = resolveWithinProject(agentsDir, `${persistedAgent.id}.json`);
+      await fs.writeFile(filePath, JSON.stringify(persistedAgent, null, 2), 'utf-8');
+
+      if (!validated.agent.id) {
+        await cleanupLegacyMemberFiles(projectRoot, persistedAgent, previousName);
+      }
+
+      return { success: true, agent: persistedAgent };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

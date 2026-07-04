@@ -94,11 +94,12 @@ interface WorkspaceRoutesProps {
   highlightedDiscussionMessage: any;
   selectedDiscussionContextRefs: string[];
   selectedDiscussionAgents: string[];
+  selectedDiscussionParticipantKeys: string[];
   selectedDiscussionMemberIds: string[];
   setSelectedDiscussionMemberIds: (value: string[] | ((prev: string[]) => string[])) => void;
   appendSelectedDiscussionMemberIds: (memberIds: string[]) => void;
   toggleSelectedDiscussionMemberId: (memberId: string) => void;
-  reorderSelectedDiscussionMemberIds: (sourceIndex: number, targetIndex: number) => void;
+  reorderSelectedDiscussionParticipants: (sourceIndex: number, targetIndex: number) => void;
   selectedLegacyDiscussionAgentNames: string[];
   setSelectedLegacyDiscussionAgentNames: (value: string[] | ((prev: string[]) => string[])) => void;
   toggleSelectedLegacyDiscussionAgentName: (agentName: string) => void;
@@ -258,11 +259,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     highlightedDiscussionMessage,
     selectedDiscussionContextRefs,
     selectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
     selectedDiscussionMemberIds,
     setSelectedDiscussionMemberIds,
     appendSelectedDiscussionMemberIds,
     toggleSelectedDiscussionMemberId,
-    reorderSelectedDiscussionMemberIds,
+    reorderSelectedDiscussionParticipants,
     selectedLegacyDiscussionAgentNames,
     setSelectedLegacyDiscussionAgentNames,
     toggleSelectedLegacyDiscussionAgentName,
@@ -370,11 +372,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         toggleContextSelection={toggleContextSelection}
         getContextLabel={getContextLabel}
         selectedDiscussionAgents={selectedDiscussionAgents}
+        selectedDiscussionParticipantKeys={selectedDiscussionParticipantKeys}
         selectedDiscussionMemberIds={selectedDiscussionMemberIds}
         setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
         appendSelectedDiscussionMemberIds={appendSelectedDiscussionMemberIds}
         toggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
-        reorderSelectedDiscussionMemberIds={reorderSelectedDiscussionMemberIds}
+        reorderSelectedDiscussionParticipants={reorderSelectedDiscussionParticipants}
         selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
         setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
         toggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}

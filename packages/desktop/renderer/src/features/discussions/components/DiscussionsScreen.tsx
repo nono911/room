@@ -34,11 +34,12 @@ interface DiscussionsScreenProps {
   toggleContextSelection: (target: 'task' | 'discussion', ref: string) => void;
   getContextLabel: (ref: string) => string;
   selectedDiscussionAgents: string[];
+  selectedDiscussionParticipantKeys: string[];
   selectedDiscussionMemberIds: string[];
   setSelectedDiscussionMemberIds: React.Dispatch<React.SetStateAction<string[]>>;
   appendSelectedDiscussionMemberIds: (memberIds: string[]) => void;
   toggleSelectedDiscussionMemberId: (memberId: string) => void;
-  reorderSelectedDiscussionMemberIds: (sourceIndex: number, targetIndex: number) => void;
+  reorderSelectedDiscussionParticipants: (sourceIndex: number, targetIndex: number) => void;
   selectedLegacyDiscussionAgentNames: string[];
   setSelectedLegacyDiscussionAgentNames: React.Dispatch<React.SetStateAction<string[]>>;
   toggleSelectedLegacyDiscussionAgentName: (agentName: string) => void;
@@ -107,11 +108,12 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   toggleContextSelection,
   getContextLabel,
   selectedDiscussionAgents,
+  selectedDiscussionParticipantKeys,
   selectedDiscussionMemberIds,
   setSelectedDiscussionMemberIds,
   appendSelectedDiscussionMemberIds,
   toggleSelectedDiscussionMemberId,
-  reorderSelectedDiscussionMemberIds,
+  reorderSelectedDiscussionParticipants,
   selectedLegacyDiscussionAgentNames,
   setSelectedLegacyDiscussionAgentNames,
   toggleSelectedLegacyDiscussionAgentName,
@@ -484,24 +486,25 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         />
       </div>
 
-      <DiscussionParticipantSelector
-        teams={discussionTeams}
-        loading={loading}
-        localRegistering={localRegistering}
-        savedDiscussionAgents={savedDiscussionAgents}
-        legacyDiscussionAgents={legacyDiscussionAgents}
-        temporaryDiscussionAgents={temporaryDiscussionAgents}
-        selectedDiscussionMemberIds={selectedDiscussionMemberIds}
-        selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
-        selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
-        onSetSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
-        onToggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
-        onToggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}
-        onToggleSelectedTemporaryDiscussionAgentId={toggleSelectedTemporaryDiscussionAgentId}
-        onReorderSelectedDiscussionMemberIds={reorderSelectedDiscussionMemberIds}
-        onClearSelectedDiscussionAgents={clearSelectedDiscussionAgents}
-        onAddTemplateAgents={handleAddTemplateAgents}
-      />
+        <DiscussionParticipantSelector
+          teams={discussionTeams}
+          loading={loading}
+          localRegistering={localRegistering}
+          savedDiscussionAgents={savedDiscussionAgents}
+          legacyDiscussionAgents={legacyDiscussionAgents}
+          temporaryDiscussionAgents={temporaryDiscussionAgents}
+          selectedDiscussionParticipantKeys={selectedDiscussionParticipantKeys}
+          selectedDiscussionMemberIds={selectedDiscussionMemberIds}
+          selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
+          selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
+          onSetSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+          onToggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
+          onToggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}
+          onToggleSelectedTemporaryDiscussionAgentId={toggleSelectedTemporaryDiscussionAgentId}
+          onReorderSelectedDiscussionParticipants={reorderSelectedDiscussionParticipants}
+          onClearSelectedDiscussionAgents={clearSelectedDiscussionAgents}
+          onAddTemplateAgents={handleAddTemplateAgents}
+        />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '10px 16px', background: 'hsl(var(--bg-input))', borderRadius: '8px', border: '1px solid hsl(var(--border-dim))', marginBottom: '8px', alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>

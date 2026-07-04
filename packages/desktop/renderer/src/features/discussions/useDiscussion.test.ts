@@ -22,4 +22,22 @@ describe('resolveDiscussionSelection', () => {
     expect(selection.selectedTemporaryNames).toEqual(['Blue Team', 'Red Team']);
     expect(selection.selectedAgentNames).toEqual(['Analyst', 'Designer', 'Blue Team', 'Red Team']);
   });
+
+  it('preserves participant order across temporary, saved, and legacy selections when keyed ordering is provided', () => {
+    const selection = resolveDiscussionSelection({
+      projectAgents: [
+        { id: 'mem_analyst', name: 'Analyst', role: 'Research' },
+        { name: 'Legacy Reviewer', role: 'QA' }
+      ],
+      selectedDiscussionParticipantKeys: ['tmp:tmp_red', 'member:mem_analyst', 'legacy:Legacy Reviewer'],
+      selectedDiscussionMemberIds: ['mem_analyst'],
+      selectedLegacyDiscussionAgentNames: ['Legacy Reviewer'],
+      temporaryDiscussionAgents: [
+        { id: 'tmp_red', name: 'Red Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' }
+      ],
+      selectedTemporaryDiscussionAgentIds: ['tmp_red']
+    });
+
+    expect(selection.selectedAgentNames).toEqual(['Red Team', 'Analyst', 'Legacy Reviewer']);
+  });
 });

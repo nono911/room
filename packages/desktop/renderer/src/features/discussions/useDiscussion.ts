@@ -33,6 +33,7 @@ export function useDiscussion({
 }: UseDiscussionDeps) {
   const {
     selectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
     selectedDiscussionMemberIds,
     selectedLegacyDiscussionAgentNames,
     selectedTemporaryDiscussionAgentIds,
@@ -48,6 +49,7 @@ export function useDiscussion({
     toggleSelectedDiscussionMemberId,
     toggleSelectedLegacyDiscussionAgentName,
     toggleSelectedTemporaryDiscussionAgentId,
+    reorderSelectedDiscussionParticipants,
     reorderSelectedDiscussionMemberIds,
     clearSelectedDiscussionAgents,
     selectDefaultDiscussionAgents
@@ -568,10 +570,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   return {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
     queueDiscussionAgentSelectionByNames,
     selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
     appendSelectedDiscussionMemberIds,
     toggleSelectedDiscussionMemberId,
+    reorderSelectedDiscussionParticipants,
     reorderSelectedDiscussionMemberIds,
     selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
     toggleSelectedLegacyDiscussionAgentName,

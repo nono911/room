@@ -1,10 +1,12 @@
 import React from 'react';
 import { CreateTeamWizard } from './CreateTeamWizard.js';
 import type { TeamRoster, RosterMember } from '../lib/teamRoster.js';
+import { formatTeamMutationError } from '../lib/teamMutationError.js';
 
 interface TeamMutationResult {
   success: boolean;
   error?: string;
+  rollbackWarnings?: string[];
 }
 
 interface TeamDetailScreenProps {
@@ -51,7 +53,7 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
     try {
       const result = await api.updateTeamMembers(projectPath, team.id, memberIds);
       if (!result.success) {
-        setMutationError(result.error || 'Failed to update team members.');
+        setMutationError(formatTeamMutationError(result, 'Failed to update team members.'));
         return false;
       }
       await reloadProjectData();
@@ -91,7 +93,7 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
     try {
       const result = await api.addMembersToTeam(projectPath, team.id, members, skillDrafts);
       if (!result.success) {
-        setMutationError(result.error || 'Failed to add generated members.');
+        setMutationError(formatTeamMutationError(result, 'Failed to add generated members.'));
         return;
       }
       await reloadProjectData();

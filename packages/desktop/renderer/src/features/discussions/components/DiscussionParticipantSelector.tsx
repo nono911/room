@@ -3,6 +3,10 @@ import type { TeamRoster } from '../../ai-members/lib/teamRoster.js';
 import { AgentClonePicker } from '../../ai-members/components/AgentClonePicker.js';
 import type { AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
 import { DiscussionTeamSelector } from './DiscussionTeamSelector.js';
+import {
+  parseDiscussionParticipantKey,
+  type DiscussionParticipantKey
+} from '../lib/discussionSelection.js';
 
 interface DiscussionSelectableAgent {
   id?: string;
@@ -16,6 +20,7 @@ interface DiscussionParticipantSelectorProps {
   savedDiscussionAgents: DiscussionSelectableAgent[];
   legacyDiscussionAgents: DiscussionSelectableAgent[];
   temporaryDiscussionAgents: Array<DiscussionSelectableAgent & { id: string }>;
+  selectedDiscussionParticipantKeys: DiscussionParticipantKey[];
   selectedDiscussionMemberIds: string[];
   selectedLegacyDiscussionAgentNames: string[];
   selectedTemporaryDiscussionAgentIds: string[];
@@ -23,7 +28,7 @@ interface DiscussionParticipantSelectorProps {
   onToggleSelectedDiscussionMemberId: (memberId: string) => void;
   onToggleSelectedLegacyDiscussionAgentName: (agentName: string) => void;
   onToggleSelectedTemporaryDiscussionAgentId: (temporaryId: string) => void;
-  onReorderSelectedDiscussionMemberIds: (sourceIndex: number, targetIndex: number) => void;
+  onReorderSelectedDiscussionParticipants: (sourceIndex: number, targetIndex: number) => void;
   onClearSelectedDiscussionAgents: () => void;
   onAddTemplateAgents: (templateName: string, count: number, lifecycle: AgentLifecycle) => void;
 }
@@ -35,6 +40,7 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
   savedDiscussionAgents,
   legacyDiscussionAgents,
   temporaryDiscussionAgents,
+  selectedDiscussionParticipantKeys,
   selectedDiscussionMemberIds,
   selectedLegacyDiscussionAgentNames,
   selectedTemporaryDiscussionAgentIds,
@@ -42,7 +48,7 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
   onToggleSelectedDiscussionMemberId,
   onToggleSelectedLegacyDiscussionAgentName,
   onToggleSelectedTemporaryDiscussionAgentId,
-  onReorderSelectedDiscussionMemberIds,
+  onReorderSelectedDiscussionParticipants,
   onClearSelectedDiscussionAgents,
   onAddTemplateAgents
 }) => {
@@ -57,12 +63,52 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
     () => new Map(temporaryDiscussionAgents.map((agent) => [agent.id, agent])),
     [temporaryDiscussionAgents]
   );
-  const selectedSavedDiscussionAgents = selectedDiscussionMemberIds
-    .map((memberId) => savedDiscussionAgentsById.get(memberId))
-    .filter((agent): agent is DiscussionSelectableAgent & { id: string } => agent !== undefined);
-  const selectedTemporaryDiscussionAgents = selectedTemporaryDiscussionAgentIds
-    .map((temporaryId) => temporaryDiscussionAgentsById.get(temporaryId))
-    .filter((agent): agent is DiscussionSelectableAgent & { id: string } => agent !== undefined);
+  const selectedDiscussionParticipants = selectedDiscussionParticipantKeys
+    .map((participantKey) => {
+      const parsed = parseDiscussionParticipantKey(participantKey);
+      if (!parsed) {
+        return null;
+      }
+      if (parsed.kind === 'member') {
+        const agent = savedDiscussionAgentsById.get(parsed.value);
+        if (!agent) {
+          return null;
+        }
+        return {
+          key: participantKey,
+          name: agent.name,
+          kind: 'member' as const,
+          value: parsed.value
+        };
+      }
+      if (parsed.kind === 'legacy') {
+        if (!legacyDiscussionAgents.some((agent) => agent.name === parsed.value)) {
+          return null;
+        }
+        return {
+          key: participantKey,
+          name: parsed.value,
+          kind: 'legacy' as const,
+          value: parsed.value
+        };
+      }
+      const agent = temporaryDiscussionAgentsById.get(parsed.value);
+      if (!agent) {
+        return null;
+      }
+      return {
+        key: participantKey,
+        name: agent.name,
+        kind: 'tmp' as const,
+        value: parsed.value
+      };
+    })
+    .filter((participant): participant is {
+      key: DiscussionParticipantKey;
+      name: string;
+      kind: 'member' | 'legacy' | 'tmp';
+      value: string;
+    } => participant !== null);
   const hasSelectedParticipants = (
     selectedDiscussionMemberIds.length > 0
     || selectedLegacyDiscussionAgentNames.length > 0
@@ -77,7 +123,7 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
   const handleDrop = (event: React.DragEvent, targetIndex: number) => {
     event.preventDefault();
     const sourceIndex = Number(event.dataTransfer.getData('text/plain'));
-    onReorderSelectedDiscussionMemberIds(sourceIndex, targetIndex);
+    onReorderSelectedDiscussionParticipants(sourceIndex, targetIndex);
     setDraggedIndex(null);
   };
 
@@ -100,9 +146,9 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
         )}
 
-        {selectedSavedDiscussionAgents.map((agent, index) => (
+        {selectedDiscussionParticipants.map((participant, index) => (
           <div
-            key={agent.id}
+            key={participant.key}
             draggable={true}
             onDragStart={(event) => handleDragStart(event, index)}
             onDragOver={(event) => event.preventDefault()}
@@ -123,7 +169,7 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
               userSelect: 'none',
               transition: 'all 0.15s ease'
             }}
-            title="Drag to reorder saved members"
+            title="Drag to reorder participants"
           >
             <span style={{
               display: 'inline-flex',
@@ -140,80 +186,23 @@ export const DiscussionParticipantSelector: React.FC<DiscussionParticipantSelect
             }}>
               {index + 1}
             </span>
-            <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
+            <span style={{ fontWeight: 500, color: 'white' }}>{participant.name}</span>
+            {participant.kind !== 'member' && (
+              <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>
+                {participant.kind === 'legacy' ? 'legacy' : 'temp'}
+              </span>
+            )}
             <span
               onClick={(event) => {
                 event.stopPropagation();
-                onToggleSelectedDiscussionMemberId(agent.id);
+                if (participant.kind === 'member') {
+                  onToggleSelectedDiscussionMemberId(participant.value);
+                } else if (participant.kind === 'legacy') {
+                  onToggleSelectedLegacyDiscussionAgentName(participant.value);
+                } else {
+                  onToggleSelectedTemporaryDiscussionAgentId(participant.value);
+                }
               }}
-              style={{
-                cursor: 'pointer',
-                marginLeft: '4px',
-                color: 'hsl(var(--text-muted))',
-                fontSize: '0.85rem',
-                lineHeight: 1,
-                fontWeight: 'bold'
-              }}
-              title="Deselect member"
-            >
-              ×
-            </span>
-          </div>
-        ))}
-
-        {selectedLegacyDiscussionAgentNames.map((agentName) => (
-          <div
-            key={`legacy:${agentName}`}
-            className="skill-checkbox-chip selected"
-            style={{
-              fontSize: '0.75rem',
-              padding: '4px 12px',
-              borderRadius: '16px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              border: '1px solid hsl(var(--accent-purple) / 0.5)',
-              background: 'hsl(var(--bg-input))'
-            }}
-          >
-            <span style={{ fontWeight: 500, color: 'white' }}>{agentName}</span>
-            <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>legacy</span>
-            <span
-              onClick={() => onToggleSelectedLegacyDiscussionAgentName(agentName)}
-              style={{
-                cursor: 'pointer',
-                marginLeft: '4px',
-                color: 'hsl(var(--text-muted))',
-                fontSize: '0.85rem',
-                lineHeight: 1,
-                fontWeight: 'bold'
-              }}
-              title="Deselect member"
-            >
-              ×
-            </span>
-          </div>
-        ))}
-
-        {selectedTemporaryDiscussionAgents.map((agent) => (
-          <div
-            key={agent.id}
-            className="skill-checkbox-chip selected"
-            style={{
-              fontSize: '0.75rem',
-              padding: '4px 12px',
-              borderRadius: '16px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              border: '1px solid hsl(var(--accent-purple) / 0.5)',
-              background: 'hsl(var(--bg-input))'
-            }}
-          >
-            <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
-            <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>temp</span>
-            <span
-              onClick={() => onToggleSelectedTemporaryDiscussionAgentId(agent.id)}
               style={{
                 cursor: 'pointer',
                 marginLeft: '4px',

@@ -3,6 +3,7 @@ import { api } from '../../../shared/ipc/client.js';
 import type { ProjectData } from '../../../types/domain.js';
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
 import { buildTeamRosters } from '../lib/teamRoster.js';
+import { formatTeamMutationError } from '../lib/teamMutationError.js';
 import type { TemplateRowDraft } from '../lib/teamWizard.js';
 import { TeamCard } from './TeamCard.js';
 import { CreateTeamWizard } from './CreateTeamWizard.js';
@@ -79,7 +80,7 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
     setTeamOperationError(null);
     const response = await api.createTeamWithMembers(projectPath, team, members, skillDrafts);
     if (!response.success) {
-      throw new Error(response.error || 'Failed to create team.');
+      throw new Error(formatTeamMutationError(response, 'Failed to create team.'));
     }
 
     await loadProjectData(projectPath);

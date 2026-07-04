@@ -89,7 +89,7 @@ describe('useAgentManagement save flow', () => {
     }));
   });
 
-  test('renaming a legacy member still deletes the old name-backed file first', async () => {
+  test('renaming a legacy member routes the previous name through save-agent for main-process cleanup', async () => {
     const loadProjectData = vi.fn().mockResolvedValue(undefined);
     const setActiveTab = vi.fn();
     const setErrorMsg = vi.fn();
@@ -124,7 +124,11 @@ describe('useAgentManagement save flow', () => {
       await result.current.handleSaveAgent({ preventDefault() {} } as React.FormEvent);
     });
 
-    expect(deleteAgent).toHaveBeenCalledWith('/workspace', 'Planner', undefined);
+    expect(deleteAgent).not.toHaveBeenCalled();
+    expect(saveAgent).toHaveBeenCalledWith('/workspace', expect.objectContaining({
+      previousName: 'Planner',
+      name: 'Lead Planner'
+    }));
   });
 
   test('hydrates the editor from project data when landing on an id-backed agent route', async () => {
