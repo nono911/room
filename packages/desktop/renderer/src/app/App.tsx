@@ -99,7 +99,9 @@ export default function App() {
   } = useTaskRun({
     projectPath,
     projectData,
-    loadProjectData: (p: string) => loadProjectData(p),
+    loadProjectData: async (p: string) => {
+      await loadProjectData(p);
+    },
     setLoading,
     setErrorMsg
   });
@@ -151,7 +153,9 @@ export default function App() {
   } = useDiscussion({
     projectPath,
     projectData,
-    loadProjectData: (p: string) => loadProjectData(p),
+    loadProjectData: async (p: string) => {
+      await loadProjectData(p);
+    },
     setActiveTab,
     setInitialSelectedFile,
     setTaskBoardCards,
@@ -295,7 +299,9 @@ export default function App() {
     projectData,
     activeTab,
     setActiveTab,
-    loadProjectData: (pathStr: string) => loadProjectData(pathStr),
+    loadProjectData: async (pathStr: string) => {
+      await loadProjectData(pathStr);
+    },
     setErrorMsg
   });
   const { loadRoomFilePreview } = useRoomFilePreview({
@@ -680,7 +686,9 @@ export default function App() {
                 errorMsg={errorMsg}
                 setErrorMsg={setErrorMsg}
                 setActiveTab={setActiveTab}
-                loadProjectData={loadProjectData}
+                loadProjectData={async (pathStr: string) => {
+                  await loadProjectData(pathStr);
+                }}
                 loadWorkspaceCoreData={loadWorkspaceCoreData}
                 loadRoomFilePreview={loadRoomFilePreview}
                 openContextPicker={openContextPicker}
