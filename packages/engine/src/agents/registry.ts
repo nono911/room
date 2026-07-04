@@ -57,6 +57,16 @@ function normalizeMemberId(value: unknown): string | undefined {
   return trimmed;
 }
 
+function sanitizeAgentFileBase(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  const baseName = path.basename(trimmed);
+  const safeBase = baseName
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return safeBase || 'agent';
+}
+
 export function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentConfig } | { success: false; error: string } {
   if (!isPlainObject(rawAgent)) {
     return { success: false, error: 'Invalid agent payload.' };
@@ -199,12 +209,17 @@ export async function loadAgents(dirPath: string): Promise<AgentConfig[]> {
 }
 
 export async function saveAgent(dirPath: string, agent: AgentConfig): Promise<void> {
+  const validated = validateAgentConfig(agent);
+  if (!validated.success) {
+    throw new Error(validated.error);
+  }
+
   const agentsDir = path.join(dirPath, '.room', 'members');
   await fs.mkdir(agentsDir, { recursive: true });
 
-  const fileBase = agent.id || agent.name.toLowerCase();
+  const fileBase = validated.agent.id || sanitizeAgentFileBase(validated.agent.name);
   const filePath = path.join(agentsDir, `${fileBase}.json`);
-  await fs.writeFile(filePath, JSON.stringify(agent, null, 2), 'utf-8');
+  await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
 }
 
 export async function createDefaultAgents(dirPath: string) {

@@ -79,4 +79,22 @@ describe('member id handling', () => {
     const saved = await fs.readFile(path.join(dir, '.room', 'members', 'mem_ux_researcher_ab12cd.json'), 'utf-8');
     expect(JSON.parse(saved).id).toBe('mem_ux_researcher_ab12cd');
   });
+
+  it('rejects malformed stable member IDs when saving members', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-member-save-reject-'));
+    await expect(saveAgent(dir, { ...base, id: '../bad' as unknown as string })).rejects.toThrow(/member id/i);
+  });
+
+  it('sanitizes traversal-like member names into safe filenames', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-member-save-sanitize-'));
+    await saveAgent(dir, { ...base, name: '../escape' });
+
+    const files = await fs.readdir(path.join(dir, '.room', 'members'));
+    expect(files).toContain('escape.json');
+
+    const saved = await fs.readFile(path.join(dir, '.room', 'members', 'escape.json'), 'utf-8');
+    expect(JSON.parse(saved).name).toBe('../escape');
+    await expect(fs.access(path.join(dir, '.room', 'escape.json'))).rejects.toThrow();
+    await expect(fs.access(path.join(dir, 'escape.json'))).rejects.toThrow();
+  });
 });
