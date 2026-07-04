@@ -207,6 +207,55 @@ body {
   position: relative;
 }
 
+.discussion-scroll-controls {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid hsl(var(--border-dim));
+  border-radius: 999px;
+  background: hsl(var(--bg-sidebar) / 0.82);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36), 0 0 24px hsl(var(--accent-purple) / 0.10);
+}
+
+.discussion-scroll-button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid hsl(var(--border-dim));
+  border-radius: 999px;
+  background: hsl(var(--bg-input));
+  color: hsl(var(--text-secondary));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.discussion-scroll-button:hover {
+  color: white;
+  border-color: hsl(var(--accent-purple) / 0.58);
+  background: hsl(var(--accent-purple) / 0.14);
+  transform: translateY(-1px);
+}
+
+.discussion-scroll-button:focus-visible {
+  outline: 2px solid hsl(var(--accent-purple) / 0.72);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .discussion-scroll-controls {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
 /* Empty Project Welcome Page */
 .welcome-container {
   display: flex;

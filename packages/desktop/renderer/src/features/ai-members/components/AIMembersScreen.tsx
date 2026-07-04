@@ -9,8 +9,6 @@ interface AIMembersScreenProps {
   resetAgentForm: () => void;
   setActiveTab: (tab: string) => void;
   teamPresets: Array<{ name: string; description: string; roles: string[] }>;
-  loading: boolean;
-  setLoading: (value: boolean) => void;
   handleAddTeamPreset: (teamName: string) => void;
   startEditAgent: (agent: any) => void;
   handleDeleteAgent: (agentName: string) => void;
@@ -34,13 +32,12 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
   resetAgentForm,
   setActiveTab,
   teamPresets,
-  loading,
-  setLoading,
   handleAddTeamPreset,
   startEditAgent,
   handleDeleteAgent
 }) => {
   const { providers, detectedClis, scanClis } = useProviders();
+  const [toolchainScanLoading, setToolchainScanLoading] = React.useState<boolean>(false);
   const agents = projectData?.agents || [];
 
   return (
@@ -349,20 +346,20 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
             </span>
             <button 
               onClick={async () => {
-                setLoading(true);
+                setToolchainScanLoading(true);
                 try {
                   await scanClis();
                 } catch (err) {
                   console.error(err);
                 } finally {
-                  setLoading(false);
+                  setToolchainScanLoading(false);
                 }
               }}
-              disabled={loading}
+              disabled={toolchainScanLoading}
               className="btn-secondary" 
               style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
             >
-              ↻ Rescan Toolchain
+              {toolchainScanLoading ? 'Scanning...' : '↻ Rescan Toolchain'}
             </button>
           </div>
 

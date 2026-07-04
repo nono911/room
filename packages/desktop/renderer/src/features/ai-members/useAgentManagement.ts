@@ -17,7 +17,6 @@ interface UseAgentManagementOptions {
   setActiveTab: (tab: string) => void;
   loadProjectData: (path: string) => Promise<void>;
   setSelectedDiscussionAgents: (value: string[] | ((prev: string[]) => string[])) => void;
-  setLoading: (value: boolean) => void;
   setErrorMsg: (value: string | null) => void;
 }
 
@@ -94,7 +93,6 @@ export function useAgentManagement({
   setActiveTab,
   loadProjectData,
   setSelectedDiscussionAgents,
-  setLoading,
   setErrorMsg
 }: UseAgentManagementOptions) {
   const {
@@ -122,6 +120,7 @@ export function useAgentManagement({
   const [skillPreview, setSkillPreview] = useState<SkillPreviewResult | null>(null);
   const [newAgentModel, setNewAgentModel] = useState<string>('');
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
+  const [agentOperationLoading, setAgentOperationLoading] = useState<boolean>(false);
 
   useEffect(() => {
     if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
@@ -224,7 +223,7 @@ export function useAgentManagement({
   const handleSaveAgent = async (event: FormEvent) => {
     event.preventDefault();
     if (!projectPath || !newAgentName.trim() || !newAgentRole.trim() || !newAgentPrompt.trim()) return;
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       if (editingAgent && editingAgent.name.toLowerCase() !== newAgentName.trim().toLowerCase()) {
@@ -270,7 +269,7 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving agent.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
@@ -290,7 +289,7 @@ export function useAgentManagement({
       return;
     }
 
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       for (const template of templatesToAdd) {
@@ -335,7 +334,7 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to add team preset.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
@@ -344,7 +343,7 @@ export function useAgentManagement({
     const confirmDelete = window.confirm(`Are you sure you want to delete the agent "${agentName}"?`);
     if (!confirmDelete) return;
 
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.deleteAgent(projectPath, agentName);
@@ -360,7 +359,7 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while deleting agent.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
@@ -372,7 +371,7 @@ export function useAgentManagement({
     const filename = `${formattedName}.md`;
     const defaultContent = `# ${rawName} Skill\n\n${rawDesc || 'Instructions and rules for ' + rawName + '.'}\n`;
 
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.saveSkill(projectPath, filename, defaultContent, 'skills');
@@ -390,13 +389,13 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving skill.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
   const handleSaveEditingSkill = async () => {
     if (!projectPath || !editingSkillFile.trim()) return;
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.saveSkill(projectPath, editingSkillFile, editingSkillContent, editingSkillSource);
@@ -410,13 +409,13 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving skill.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
   const handlePreviewAgentSkills = async () => {
     if (!projectPath) return;
-    setLoading(true);
+    setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.previewAgentSkills(projectPath, {
@@ -438,7 +437,7 @@ export function useAgentManagement({
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while checking skills.');
     } finally {
-      setLoading(false);
+      setAgentOperationLoading(false);
     }
   };
 
@@ -478,6 +477,7 @@ export function useAgentManagement({
     setNewAgentModel,
     newAgentModelCustom,
     setNewAgentModelCustom,
+    agentOperationLoading,
     handleRoleChange,
     ensureTemplateSkills,
     resetAgentForm,

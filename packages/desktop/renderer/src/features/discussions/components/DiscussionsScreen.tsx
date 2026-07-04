@@ -228,6 +228,28 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
     }
     return `${message.agentName} response`;
   };
+  const scrollDiscussionPanel = React.useCallback((direction: 'top' | 'bottom') => {
+    const scroller = document.getElementById('room-main-scroll');
+    if (!scroller) return;
+    scroller.scrollTo({
+      top: direction === 'top' ? 0 : scroller.scrollHeight,
+      behavior: 'smooth'
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target?.isContentEditable) return;
+      event.preventDefault();
+      scrollDiscussionPanel(event.key === 'ArrowUp' ? 'top' : 'bottom');
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [scrollDiscussionPanel]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -784,6 +806,31 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           })}
         </div>
       )}
+
+      <div className="discussion-scroll-controls" aria-label="Discussion scroll controls">
+        <button
+          type="button"
+          className="discussion-scroll-button"
+          onClick={() => scrollDiscussionPanel('top')}
+          title="Top (Alt+↑)"
+          aria-label="Scroll to top"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="discussion-scroll-button"
+          onClick={() => scrollDiscussionPanel('bottom')}
+          title="Bottom (Alt+↓)"
+          aria-label="Scroll to bottom"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m0 0l6-6m-6 6l-6-6" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 };

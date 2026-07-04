@@ -151,6 +151,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
             type="button" 
             className="btn-secondary" 
             onClick={() => handleDeleteAgent(editingAgent?.name || newAgentName)}
+            disabled={loading}
             style={{ borderColor: '#ef4444', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px', height: '36px', padding: '0 16px' }}
           >
             <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -714,6 +715,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
               <button 
                 type="button" 
                 className="btn-secondary" 
+                disabled={loading}
                 style={{ fontSize: '0.8rem', padding: '8px 12px', alignSelf: 'flex-end' }}
                 onClick={handleAddCustomSkill}
               >

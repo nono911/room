@@ -268,6 +268,7 @@ export default function App() {
     setNewAgentModel,
     newAgentModelCustom,
     setNewAgentModelCustom,
+    agentOperationLoading,
     handleRoleChange,
     ensureTemplateSkills,
     resetAgentForm,
@@ -285,7 +286,6 @@ export default function App() {
     setActiveTab,
     loadProjectData: (pathStr: string) => loadProjectData(pathStr),
     setSelectedDiscussionAgents,
-    setLoading,
     setErrorMsg
   });
   const { loadRoomFilePreview } = useRoomFilePreview({
@@ -649,7 +649,7 @@ export default function App() {
 
           {/* Main Content Pane */}
           <main className="main-content">
-            <div style={{ flex: 1, padding: '24px 32px 32px', overflowY: 'auto' }}>
+            <div id="room-main-scroll" style={{ flex: 1, padding: '24px 32px 32px', overflowY: 'auto' }}>
               <ErrorBanner errorMsg={errorMsg} onClear={() => setErrorMsg(null)} />
               <SetupChecklist
                 dismissedOnboarding={dismissedOnboarding}
@@ -666,6 +666,7 @@ export default function App() {
                 projectPath={projectPath}
                 projectData={projectData}
                 loading={loading}
+                agentOperationLoading={agentOperationLoading}
                 errorMsg={errorMsg}
                 setErrorMsg={setErrorMsg}
                 setActiveTab={setActiveTab}

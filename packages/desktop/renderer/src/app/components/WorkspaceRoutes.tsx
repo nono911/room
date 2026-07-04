@@ -21,6 +21,7 @@ interface WorkspaceRoutesProps {
   projectPath: string | null;
   projectData: any;
   loading: boolean;
+  agentOperationLoading: boolean;
   errorMsg: string | null;
   setErrorMsg: (value: string | null) => void;
   setActiveTab: (tab: string) => void;
@@ -175,6 +176,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     projectPath,
     projectData,
     loading,
+    agentOperationLoading,
     errorMsg,
     setErrorMsg,
     setActiveTab,
@@ -447,8 +449,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         resetAgentForm={resetAgentForm}
         setActiveTab={setActiveTab}
         teamPresets={teamPresets}
-        loading={loading}
-        setLoading={setLoading}
         handleAddTeamPreset={handleAddTeamPreset}
         startEditAgent={startEditAgent}
         handleDeleteAgent={handleDeleteAgent}
@@ -511,7 +511,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setCustomSkillDesc={setCustomSkillDesc}
         handleAddCustomSkill={handleAddCustomSkill}
         newAgentPrompt={newAgentPrompt}
-        loading={loading}
+        loading={agentOperationLoading}
       />
     );
   }
