@@ -137,7 +137,15 @@ export interface ElectronAPI {
   saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
   saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
   deleteAgent: (dirPath: string, agentName: string) => Promise<{ success: boolean; error?: string }>;
-  loadTeams: (dirPath: string) => Promise<{ success: boolean; teams?: MemberTeam[]; error?: string; rollbackWarnings?: string[] }>;
+  loadTeams: (
+    dirPath: string
+  ) => Promise<{
+    success: boolean;
+    teams?: MemberTeam[];
+    diagnostics?: Array<{ filePath: string; error: string }>;
+    error?: string;
+    rollbackWarnings?: string[];
+  }>;
   saveTeam: (dirPath: string, team: any) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;
   deleteTeam: (dirPath: string, teamId: string) => Promise<{ success: boolean; error?: string; rollbackWarnings?: string[] }>;
   updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;

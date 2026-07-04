@@ -12,6 +12,7 @@ import { readProjectConfigFromDisk } from './config-store.js';
 import { applyApiKeysToEnvironment, readProvidersFromDisk } from './provider-store.js';
 import { searchContextItems } from './workspace-context.js';
 import { listWorkspaceFiles } from './workspace-files.js';
+import { loadTeamsWithDiagnostics } from './team-store.js';
 
 function sanitizeWorkspaceFolderName(input: string): string {
   const trimmed = (input || '').trim();
@@ -264,6 +265,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
       const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
       const skills = await readMergedDirs([skillsDir, rolesDir]);
       const agents = await loadAgents(projectRoot);
+      const teamLoadResult = await loadTeamsWithDiagnostics(projectRoot);
       const providers = await readProvidersFromDisk();
       const detectedClis = await detectLocalAgents();
 
@@ -320,11 +322,24 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         return agent;
       });
 
+      const assignedMemberIds = new Set(
+        teamLoadResult.teams.flatMap((team) => team.memberIds)
+      );
+      const unassignedMemberIds = updatedAgents
+        .map((agent) => agent.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .filter((id) => !assignedMemberIds.has(id));
+      const workspaceDiagnostics = teamLoadResult.diagnostics.map((diagnostic) => ({
+        source: diagnostic.filePath,
+        message: diagnostic.error
+      }));
+
       return {
         success: true,
         projectMd,
         archMd,
         hasScanData,
+        workspaceDiagnostics,
         tasks,
         taskRuns,
         decisions,
@@ -332,7 +347,9 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         documents,
         discussions,
         skills,
-        agents: updatedAgents
+        agents: updatedAgents,
+        teams: teamLoadResult.teams,
+        unassignedMemberIds
       };
     } catch (error: any) {
       return { success: false, error: error.message };

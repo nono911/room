@@ -1,6 +1,10 @@
 import * as fs from 'fs/promises';
 import { randomUUID } from 'crypto';
-import { validateAgentConfig, type AgentConfig } from '@room/engine';
+import {
+  assertLocalCliExecutionAllowed,
+  validateAgentConfig,
+  type AgentConfig
+} from '@room/engine';
 import type { MemberTeam } from '../../shared/types/domain.js';
 import {
   ROOM_DIR,
@@ -8,6 +12,7 @@ import {
   resolveWithinProject,
   sanitizeFileName
 } from './shared.js';
+import { isDangerousAgentAllowed } from './config-store.js';
 
 export interface TeamStoreDiagnostic {
   filePath: string;
@@ -55,8 +60,15 @@ function normalizeTimestamp(value: unknown, fallback: string): string {
   return trimmed || fallback;
 }
 
-function parseMemberIds(rawIds: unknown): { success: true; memberIds: string[] } | { success: false; error: string } {
-  if (!Array.isArray(rawIds)) return { success: true, memberIds: [] };
+function parseMemberIds(
+  rawIds: unknown,
+  options: { requireArray: boolean }
+): { success: true; memberIds: string[] } | { success: false; error: string } {
+  if (!Array.isArray(rawIds)) {
+    return options.requireArray
+      ? { success: false, error: 'Persisted team memberIds must be an array.' }
+      : { success: true, memberIds: [] };
+  }
 
   const seen = new Set<string>();
   const memberIds: string[] = [];
@@ -81,7 +93,7 @@ function parseMemberIds(rawIds: unknown): { success: true; memberIds: string[] }
 
 function validateTeamShape(
   rawTeam: unknown,
-  options: { allowMissingId: boolean }
+  options: { allowMissingId: boolean; requireMemberIdsArray: boolean }
 ): { success: true; team: MemberTeam } | { success: false; error: string } {
   if (!rawTeam || typeof rawTeam !== 'object' || Array.isArray(rawTeam)) {
     return { success: false, error: 'Invalid team payload.' };
@@ -101,7 +113,9 @@ function validateTeamShape(
     return { success: false, error: `Invalid team id: ${id || '(missing)'}` };
   }
 
-  const memberIdsResult = parseMemberIds(record.memberIds);
+  const memberIdsResult = parseMemberIds(record.memberIds, {
+    requireArray: options.requireMemberIdsArray
+  });
   if (!memberIdsResult.success) {
     return memberIdsResult;
   }
@@ -163,6 +177,15 @@ function validateMemberPayloads(rawMembers: unknown[]): AgentConfig[] {
   return members;
 }
 
+async function assertMembersCanBePersisted(projectRoot: string, members: AgentConfig[]): Promise<void> {
+  const dangerousCliAllowed = await isDangerousAgentAllowed(projectRoot);
+
+  for (const member of members) {
+    if (member.provider !== 'Local CLI') continue;
+    assertLocalCliExecutionAllowed(member, dangerousCliAllowed);
+  }
+}
+
 async function reserveAndWriteFiles(
   writes: Array<{ finalPath: string; content: string }>
 ): Promise<{ rollbackWarnings: string[]; writtenPaths: string[] }> {
@@ -210,13 +233,19 @@ async function reserveAndWriteFiles(
 export function validateNewTeamDraft(
   rawTeam: unknown
 ): { success: true; team: MemberTeam } | { success: false; error: string } {
-  return validateTeamShape(rawTeam, { allowMissingId: true });
+  return validateTeamShape(rawTeam, {
+    allowMissingId: true,
+    requireMemberIdsArray: false
+  });
 }
 
 export function validatePersistedTeamConfig(
   rawTeam: unknown
 ): { success: true; team: MemberTeam } | { success: false; error: string } {
-  return validateTeamShape(rawTeam, { allowMissingId: false });
+  return validateTeamShape(rawTeam, {
+    allowMissingId: false,
+    requireMemberIdsArray: true
+  });
 }
 
 export async function loadTeamsWithDiagnostics(projectRoot: string): Promise<LoadTeamsResult> {
@@ -305,7 +334,7 @@ export async function updateTeamMembers(
     throw new Error('Invalid team id.');
   }
 
-  const parsedMemberIds = parseMemberIds(memberIds);
+  const parsedMemberIds = parseMemberIds(memberIds, { requireArray: false });
   if (!parsedMemberIds.success) {
     throw new Error(parsedMemberIds.error);
   }
@@ -347,6 +376,7 @@ export async function createTeamWithMembers(
   }
 
   const members = validateMemberPayloads(rawMembers);
+  await assertMembersCanBePersisted(projectRoot, members);
   const memberIds = members.map((member) => member.id).filter((id): id is string => Boolean(id));
   const team: MemberTeam = {
     ...teamResult.team,
@@ -399,6 +429,7 @@ export async function addMembersToTeam(
   }
 
   const members = validateMemberPayloads(rawMembers);
+  await assertMembersCanBePersisted(projectRoot, members);
   const newMemberIds = members.map((member) => member.id).filter((id): id is string => Boolean(id));
   const updatedTeam: MemberTeam = {
     ...current,

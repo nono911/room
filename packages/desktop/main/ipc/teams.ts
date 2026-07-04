@@ -3,7 +3,7 @@ import {
   addMembersToTeam,
   createTeamWithMembers,
   deleteTeam,
-  loadTeams,
+  loadTeamsWithDiagnostics,
   requireProjectRootForTeams,
   saveTeam,
   TeamStoreTransactionError,
@@ -32,7 +32,8 @@ export function registerTeamsIpc(): void {
   ipcMain.handle('load-teams', async (_event, { dirPath }: { dirPath: string }) => {
     try {
       const projectRoot = requireProjectRootForTeams(dirPath);
-      return { success: true, teams: await loadTeams(projectRoot) };
+      const result = await loadTeamsWithDiagnostics(projectRoot);
+      return { success: true, teams: result.teams, diagnostics: result.diagnostics };
     } catch (error) {
       return serializeTeamStoreError(error);
     }
