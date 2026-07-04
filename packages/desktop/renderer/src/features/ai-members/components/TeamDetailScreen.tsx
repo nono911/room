@@ -2,6 +2,11 @@ import React from 'react';
 import { CreateTeamWizard } from './CreateTeamWizard.js';
 import type { TeamRoster, RosterMember } from '../lib/teamRoster.js';
 
+interface TeamMutationResult {
+  success: boolean;
+  error?: string;
+}
+
 interface TeamDetailScreenProps {
   projectPath: string;
   team: TeamRoster;
@@ -9,13 +14,13 @@ interface TeamDetailScreenProps {
   existingNames: string[];
   existingSkillFiles: string[];
   api: {
-    updateTeamMembers: (projectPath: string, teamId: string, memberIds: string[]) => Promise<unknown>;
+    updateTeamMembers: (projectPath: string, teamId: string, memberIds: string[]) => Promise<TeamMutationResult>;
     addMembersToTeam: (
       projectPath: string,
       teamId: string,
       members: unknown[],
       skillDrafts: Array<{ name: string; content: string }>
-    ) => Promise<unknown>;
+    ) => Promise<TeamMutationResult>;
   };
   reloadProjectData: () => Promise<void>;
   setActiveTab: (tab: string) => void;
@@ -36,14 +41,22 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
   const [selectedMemberId, setSelectedMemberId] = React.useState('');
   const [showTemplateWizard, setShowTemplateWizard] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
   const isReadOnlyTeam = Boolean(team.virtual);
 
   const persistMemberIds = async (memberIds: string[]) => {
     if (isReadOnlyTeam) return;
     setSaving(true);
+    setMutationError(null);
     try {
-      await api.updateTeamMembers(projectPath, team.id, memberIds);
+      const result = await api.updateTeamMembers(projectPath, team.id, memberIds);
+      if (!result.success) {
+        setMutationError(result.error || 'Failed to update team members.');
+        return;
+      }
       await reloadProjectData();
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to update team members.');
     } finally {
       setSaving(false);
     }
@@ -70,16 +83,26 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
     skillDrafts: Array<{ name: string; content: string }>
   ) => {
     setSaving(true);
+    setMutationError(null);
     try {
-      await api.addMembersToTeam(projectPath, team.id, members, skillDrafts);
+      const result = await api.addMembersToTeam(projectPath, team.id, members, skillDrafts);
+      if (!result.success) {
+        setMutationError(result.error || 'Failed to add generated members.');
+        return;
+      }
       await reloadProjectData();
       setShowTemplateWizard(false);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to add generated members.');
     } finally {
       setSaving(false);
     }
   };
 
-  const eligibleExistingMembers = availableMembers.filter(member => !team.memberIds.includes(member.id));
+  const eligibleExistingMembers = availableMembers.filter(
+    (member): member is RosterMember & { id: string } =>
+      typeof member.id === 'string' && member.id.length > 0 && !team.memberIds.includes(member.id)
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', width: '100%' }}>
@@ -103,6 +126,21 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
           gap: '14px'
         }}
       >
+        {mutationError && (
+          <div
+            style={{
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.28)',
+              borderRadius: '8px',
+              padding: '12px 14px',
+              color: '#fca5a5',
+              fontSize: '0.84rem'
+            }}
+          >
+            {mutationError}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div>
             <h3 style={{ fontSize: '1.18rem', margin: 0, color: 'white' }}>{team.name}</h3>
@@ -193,7 +231,7 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
                       type="button"
                       className="btn-secondary"
                       aria-label={`Move ${member.name} up`}
-                      onClick={() => void moveMember(member.id, -1)}
+                      onClick={() => member.id ? void moveMember(member.id, -1) : undefined}
                       disabled={index === 0 || saving}
                     >
                       Up
@@ -202,7 +240,7 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
                       type="button"
                       className="btn-secondary"
                       aria-label={`Move ${member.name} down`}
-                      onClick={() => void moveMember(member.id, 1)}
+                      onClick={() => member.id ? void moveMember(member.id, 1) : undefined}
                       disabled={index === team.members.length - 1 || saving}
                     >
                       Down
@@ -225,7 +263,7 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
                     type="button"
                     className="btn-secondary"
                     aria-label={`Remove ${member.name}`}
-                    onClick={() => void persistMemberIds(team.memberIds.filter(id => id !== member.id))}
+                    onClick={() => member.id ? void persistMemberIds(team.memberIds.filter(id => id !== member.id)) : undefined}
                     disabled={saving}
                   >
                     Remove

@@ -3,11 +3,9 @@ import { api } from '../../../shared/ipc/client.js';
 import type { ProjectData } from '../../../types/domain.js';
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
 import { buildTeamRosters } from '../lib/teamRoster.js';
+import type { TemplateRowDraft } from '../lib/teamWizard.js';
 import { TeamCard } from './TeamCard.js';
-import {
-  CreateTeamWizard,
-  type TemplateRowDraft
-} from './CreateTeamWizard.js';
+import { CreateTeamWizard } from './CreateTeamWizard.js';
 
 interface AIMembersScreenProps {
   projectPath: string | null;

@@ -274,7 +274,6 @@ export default function App() {
     resetAgentForm,
     startEditAgent,
     handleSaveAgent,
-    handleAddTeamPreset,
     handleDeleteAgent,
     handleAddCustomSkill,
     handleSaveEditingSkill,
@@ -285,7 +284,6 @@ export default function App() {
     activeTab,
     setActiveTab,
     loadProjectData: (pathStr: string) => loadProjectData(pathStr),
-    setSelectedDiscussionAgents,
     setErrorMsg
   });
   const { loadRoomFilePreview } = useRoomFilePreview({
@@ -685,8 +683,6 @@ export default function App() {
                 aiMemberDetailsExpanded={aiMemberDetailsExpanded}
                 setAiMemberDetailsExpanded={setAiMemberDetailsExpanded}
                 resetAgentForm={resetAgentForm}
-                setLoading={setLoading}
-                handleAddTeamPreset={handleAddTeamPreset}
                 startEditAgent={startEditAgent}
                 handleDeleteAgent={handleDeleteAgent}
                 newAgentProvider={newAgentProvider}

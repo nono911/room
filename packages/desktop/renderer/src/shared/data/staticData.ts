@@ -734,7 +734,7 @@ export type TemplateRoleName = PersonaTemplateName;
 export const teamPresets: {
   name: string;
   description: string;
-  roles: TemplateRoleName[];
+  roles: string[];
 }[] = [
   {
     name: 'Film / Story Development',

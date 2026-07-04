@@ -7,8 +7,8 @@ import type {
   TemplateSkill
 } from '../../types/domain.js';
 import { api } from '../../shared/ipc/client.js';
-import { normalizeProviderId, agentPersonaTemplates, teamPresets } from '../../shared/data/staticData.js';
 import { useProviders } from '../providers/context/ProvidersContext.js';
+import { buildAgentEditorSeed, findAgentForEditorRoute } from './lib/agentEditorState.js';
 
 interface UseAgentManagementOptions {
   projectPath: string | null;
@@ -16,7 +16,6 @@ interface UseAgentManagementOptions {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   loadProjectData: (path: string) => Promise<void>;
-  setSelectedDiscussionAgents: (value: string[] | ((prev: string[]) => string[])) => void;
   setErrorMsg: (value: string | null) => void;
 }
 
@@ -92,7 +91,6 @@ export function useAgentManagement({
   activeTab,
   setActiveTab,
   loadProjectData,
-  setSelectedDiscussionAgents,
   setErrorMsg
 }: UseAgentManagementOptions) {
   const {
@@ -122,6 +120,28 @@ export function useAgentManagement({
   const [newAgentModelCustom, setNewAgentModelCustom] = useState<boolean>(false);
   const [agentOperationLoading, setAgentOperationLoading] = useState<boolean>(false);
 
+  const hydrateAgentEditor = (agent: any, options?: { pushRoute?: boolean }) => {
+    const seed = buildAgentEditorSeed(agent);
+    setEditingAgent(seed.editingAgent);
+    setNewAgentName(seed.newAgentName);
+    setNewAgentRole(seed.newAgentRole);
+    setNewAgentProvider(seed.newAgentProvider);
+    setNewAgentModel(seed.newAgentModel);
+    setNewAgentModelCustom(false);
+    setNewAgentPrompt(seed.newAgentPrompt);
+    setNewAgentSkills(seed.newAgentSkills);
+    setSkillPreview(null);
+    setNewAgentPreset(seed.newAgentPreset);
+    setNewAgentCommand(seed.newAgentCommand);
+    setNewAgentStdinFormat(seed.newAgentStdinFormat);
+    setNewAgentPermissionMode(seed.newAgentPermissionMode);
+    setEditingSkillSource('skills');
+
+    if (options?.pushRoute !== false) {
+      setActiveTab(`Agent:${agent.id || agent.name}`);
+    }
+  };
+
   useEffect(() => {
     if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
       const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
@@ -150,6 +170,32 @@ export function useAgentManagement({
       }
     }
   }, [newAgentProvider, newAgentPreset, dynamicCliModels]);
+
+  useEffect(() => {
+    if (!activeTab.startsWith('Agent:') || activeTab === 'Agent:New') {
+      return;
+    }
+
+    const agentKey = activeTab.slice('Agent:'.length).trim();
+    if (!agentKey) {
+      return;
+    }
+
+    const matchedAgent = findAgentForEditorRoute(activeTab, projectData?.agents || []);
+
+    if (!matchedAgent || matchedAgent.isVirtual) {
+      return;
+    }
+
+    const editingMatches = editingAgent
+      && ((matchedAgent.id && editingAgent.id === matchedAgent.id) || (!matchedAgent.id && editingAgent.name === matchedAgent.name));
+
+    if (editingMatches) {
+      return;
+    }
+
+    hydrateAgentEditor(matchedAgent, { pushRoute: false });
+  }, [activeTab, editingAgent, projectData?.agents]);
 
   const handleRoleChange = (roleValue: string) => {
     setNewAgentRole(roleValue);
@@ -203,21 +249,7 @@ export function useAgentManagement({
   };
 
   const startEditAgent = (agent: any) => {
-    setEditingAgent(agent);
-    setNewAgentName(agent.name);
-    setNewAgentRole(agent.role);
-    setNewAgentProvider(normalizeProviderId(agent.provider));
-    setNewAgentModel(agent.modelName || '');
-    setNewAgentModelCustom(false);
-    setNewAgentPrompt(agent.systemPrompt);
-    setNewAgentSkills(agent.skills || []);
-    setSkillPreview(null);
-    setNewAgentPreset(agent.cliPreset || 'none');
-    setNewAgentCommand(agent.command || '');
-    setNewAgentStdinFormat(agent.stdinFormat || 'text');
-    setNewAgentPermissionMode(agent.permissionMode || 'safe');
-    setEditingSkillSource('skills');
-    setActiveTab(`Agent:${agent.id || agent.name}`);
+    hydrateAgentEditor(agent);
   };
 
   const handleSaveAgent = async (event: FormEvent) => {
@@ -272,71 +304,6 @@ export function useAgentManagement({
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving agent.');
-    } finally {
-      setAgentOperationLoading(false);
-    }
-  };
-
-  const handleAddTeamPreset = async (presetName: string) => {
-    if (!projectPath) return;
-    const preset = teamPresets.find(team => team.name === presetName);
-    if (!preset) return;
-
-    const existingNames = new Set((projectData?.agents || []).map((agent: any) => String(agent.name).toLowerCase()));
-    const templatesToAdd = preset.roles
-      .map(roleName => agentPersonaTemplates.find(template => template.name === roleName))
-      .filter((template): template is typeof agentPersonaTemplates[number] => !!template)
-      .filter(template => !existingNames.has(template.name.toLowerCase()));
-
-    if (templatesToAdd.length === 0) {
-      setErrorMsg('All AI members in this team already exist in the workspace.');
-      return;
-    }
-
-    setAgentOperationLoading(true);
-    setErrorMsg(null);
-    try {
-      for (const template of templatesToAdd) {
-        const provider = normalizeProviderId(template.provider);
-        const hasKey = providers?.find(p => p.id === provider)?.hasKey;
-        const isLocalProvider = provider === 'ollama' || provider === 'lmstudio';
-        const isLocalActive = isLocalProvider && providers?.find(p => p.id === provider);
-
-        let finalProvider = provider;
-        let finalPreset: string | undefined = undefined;
-        let finalModel = '';
-
-        if (!hasKey && !isLocalActive) {
-          const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
-          finalProvider = defaults.provider;
-          finalPreset = defaults.cliPreset;
-          finalModel = defaults.modelName || '';
-        } else {
-          finalModel = getModelOptions(provider, 'none')[0]?.value || '';
-        }
-
-        const skillFiles = await ensureTemplateSkills(template.skills);
-        const res = await api.saveAgent(projectPath, {
-          name: template.name,
-          role: template.role,
-          provider: finalProvider,
-          modelName: finalModel || undefined,
-          systemPrompt: template.prompt,
-          skills: skillFiles,
-          cliPreset: finalProvider === 'Local CLI' ? finalPreset : undefined,
-          permissionMode: finalProvider === 'Local CLI' ? 'safe' : undefined
-        });
-
-        if (!res.success) {
-          setErrorMsg(res.error || `Failed to add ${template.name}.`);
-          return;
-        }
-      }
-
-      await loadProjectData(projectPath);
-      setSelectedDiscussionAgents(prev => Array.from(new Set([...prev, ...templatesToAdd.map(template => template.name)])));
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to add team preset.');
     } finally {
       setAgentOperationLoading(false);
     }
@@ -490,7 +457,6 @@ export function useAgentManagement({
     resetAgentForm,
     startEditAgent,
     handleSaveAgent,
-    handleAddTeamPreset,
     handleDeleteAgent,
     handleAddCustomSkill,
     handleSaveEditingSkill,

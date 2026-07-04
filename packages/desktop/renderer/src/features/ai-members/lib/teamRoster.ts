@@ -1,7 +1,7 @@
 import type { MemberTeam } from '../../../types/domain.js';
 
 export interface RosterMember {
-  id: string;
+  id?: string;
   name: string;
   role: string;
   isVirtual?: boolean;
@@ -16,7 +16,7 @@ export interface TeamRoster {
   virtual?: boolean;
 }
 
-function isRealMember(member: RosterMember): boolean {
+function isRealMember(member: RosterMember): member is RosterMember & { id: string } {
   return !member.isVirtual && typeof member.id === 'string' && member.id.length > 0;
 }
 

@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const {
@@ -49,7 +49,6 @@ describe('useAgentManagement save flow', () => {
   test('renaming an id-backed member saves in place without deleting team refs', async () => {
     const loadProjectData = vi.fn().mockResolvedValue(undefined);
     const setActiveTab = vi.fn();
-    const setSelectedDiscussionAgents = vi.fn();
     const setErrorMsg = vi.fn();
 
     const { result } = renderHook(() =>
@@ -59,7 +58,6 @@ describe('useAgentManagement save flow', () => {
         activeTab: 'AI Members',
         setActiveTab,
         loadProjectData,
-        setSelectedDiscussionAgents,
         setErrorMsg
       })
     );
@@ -94,7 +92,6 @@ describe('useAgentManagement save flow', () => {
   test('renaming a legacy member still deletes the old name-backed file first', async () => {
     const loadProjectData = vi.fn().mockResolvedValue(undefined);
     const setActiveTab = vi.fn();
-    const setSelectedDiscussionAgents = vi.fn();
     const setErrorMsg = vi.fn();
 
     const { result } = renderHook(() =>
@@ -104,7 +101,6 @@ describe('useAgentManagement save flow', () => {
         activeTab: 'AI Members',
         setActiveTab,
         loadProjectData,
-        setSelectedDiscussionAgents,
         setErrorMsg
       })
     );
@@ -129,5 +125,45 @@ describe('useAgentManagement save flow', () => {
     });
 
     expect(deleteAgent).toHaveBeenCalledWith('/workspace', 'Planner', undefined);
+  });
+
+  test('hydrates the editor from project data when landing on an id-backed agent route', async () => {
+    const { result } = renderHook(() =>
+      useAgentManagement({
+        projectPath: '/workspace',
+        projectData: {
+          projectMd: '',
+          archMd: '',
+          tasks: [],
+          decisions: [],
+          reviews: [],
+          documents: [],
+          discussions: [],
+          skills: [],
+          agents: [{
+            id: 'mem_planner',
+            name: 'Planner',
+            role: 'Assistant',
+            provider: 'gemini',
+            modelName: 'gemini-1.5-flash',
+            systemPrompt: 'Prompt',
+            skills: ['planning.md']
+          }]
+        },
+        activeTab: 'Agent:mem_planner',
+        setActiveTab: vi.fn(),
+        loadProjectData: vi.fn().mockResolvedValue(undefined),
+        setErrorMsg: vi.fn()
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.editingAgent?.id).toBe('mem_planner');
+    });
+
+    expect(result.current.newAgentName).toBe('Planner');
+    expect(result.current.newAgentRole).toBe('Assistant');
+    expect(result.current.newAgentPrompt).toBe('Prompt');
+    expect(result.current.newAgentSkills).toEqual(['planning.md']);
   });
 });

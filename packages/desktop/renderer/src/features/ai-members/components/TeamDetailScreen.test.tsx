@@ -42,8 +42,12 @@ describe('TeamDetailScreen', () => {
   });
 
   it('reorders, appends, routes edits by id, and adds generated members via addMembersToTeam', async () => {
-    const updateTeamMembers = vi.fn().mockResolvedValue(undefined);
-    const addMembersToTeam = vi.fn().mockResolvedValue(undefined);
+    const updateTeamMembers = vi.fn().mockResolvedValue({ success: true, team: { id: 'team_product_123' } });
+    const addMembersToTeam = vi.fn().mockResolvedValue({
+      success: true,
+      team: { id: 'team_product_123' },
+      members: [{ id: 'mem_qa_123' }]
+    });
     const reloadProjectData = vi.fn().mockResolvedValue(undefined);
     const setActiveTab = vi.fn();
     const startEditAgent = vi.fn();
@@ -112,5 +116,48 @@ describe('TeamDetailScreen', () => {
       )
     );
     expect(reloadProjectData).toHaveBeenCalled();
+  });
+
+  it('stays on the screen and shows errors when team IPC mutations fail', async () => {
+    const updateTeamMembers = vi.fn().mockResolvedValue({ success: false, error: 'Cannot reorder members.' });
+    const addMembersToTeam = vi.fn().mockResolvedValue({ success: false, error: 'Cannot add generated members.' });
+    const reloadProjectData = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <TeamDetailScreen
+        projectPath="/tmp/workspace"
+        team={{
+          id: 'team_product_123',
+          name: 'Product',
+          description: 'Product team',
+          memberIds: ['mem_a_123', 'mem_b_123'],
+          members: [
+            { id: 'mem_a_123', name: 'Analyst', role: 'Research' },
+            { id: 'mem_b_123', name: 'Designer', role: 'UX' }
+          ]
+        }}
+        availableMembers={[{ id: 'mem_c_123', name: 'Engineer', role: 'Developer' }]}
+        existingNames={['Analyst', 'Designer', 'Engineer']}
+        existingSkillFiles={['existing-skill.md']}
+        api={{
+          updateTeamMembers,
+          addMembersToTeam
+        }}
+        reloadProjectData={reloadProjectData}
+        setActiveTab={vi.fn()}
+        startEditAgent={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Designer up' }));
+    expect(await screen.findByText('Cannot reorder members.')).toBeTruthy();
+    expect(reloadProjectData).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add template members' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit template members' }));
+
+    expect(await screen.findByText('Cannot add generated members.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Submit template members' })).toBeTruthy();
+    expect(reloadProjectData).not.toHaveBeenCalled();
   });
 });

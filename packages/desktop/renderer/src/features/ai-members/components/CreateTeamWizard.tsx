@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TemplateSkill } from '../../../types/domain.js';
 import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
 import {
   buildGeneratedDrafts,

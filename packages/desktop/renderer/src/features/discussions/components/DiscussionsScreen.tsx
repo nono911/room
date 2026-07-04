@@ -179,7 +179,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
     setDraggedIndex(index);
   };
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
+  const handleDragOver = (e: React.DragEvent, _index: number) => {
     e.preventDefault();
   };
 

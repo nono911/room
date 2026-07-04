@@ -43,8 +43,6 @@ interface WorkspaceRoutesProps {
   aiMemberDetailsExpanded: boolean;
   setAiMemberDetailsExpanded: (value: boolean | ((prev: boolean) => boolean)) => void;
   resetAgentForm: () => void;
-  setLoading: (value: boolean) => void;
-  handleAddTeamPreset: (teamName: string) => void;
   startEditAgent: (agent: any) => void;
   handleDeleteAgent: (agentName: string) => void;
   newAgentProvider: string;
@@ -198,8 +196,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     aiMemberDetailsExpanded,
     setAiMemberDetailsExpanded,
     resetAgentForm,
-    setLoading,
-    handleAddTeamPreset,
     startEditAgent,
     handleDeleteAgent,
     newAgentProvider,
