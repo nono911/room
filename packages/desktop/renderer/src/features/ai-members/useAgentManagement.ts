@@ -227,7 +227,7 @@ export function useAgentManagement({
     setErrorMsg(null);
     try {
       if (editingAgent && editingAgent.name.toLowerCase() !== newAgentName.trim().toLowerCase()) {
-        await api.deleteAgent(projectPath, editingAgent.name);
+        await api.deleteAgent(projectPath, editingAgent.name, editingAgent.id);
       }
 
       const defaultModel = getModelOptions(newAgentProvider, newAgentPreset)[0]?.value;
@@ -346,7 +346,10 @@ export function useAgentManagement({
     setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.deleteAgent(projectPath, agentName);
+      const member = editingAgent?.name === agentName
+        ? editingAgent
+        : (projectData?.agents || []).find((agent: any) => agent.name === agentName);
+      const res = await api.deleteAgent(projectPath, agentName, member?.id);
       if (res.success) {
         await loadProjectData(projectPath);
         if (activeTab === `Agent:${agentName}`) {

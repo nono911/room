@@ -9,6 +9,7 @@ import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
 } from './shared.js';
 import { isDangerousAgentAllowed } from './config-store.js';
+import { removeMemberFromTeams } from './team-store.js';
 
 interface SkillPreviewItem {
   filename: string;
@@ -84,8 +85,8 @@ export function registerAgentsIpc(): void {
       }
 
       await fs.mkdir(agentsDir, { recursive: true });
-      const safeAgentName = sanitizeAgentFileName(validated.agent.name);
-      const filename = `${safeAgentName || 'agent'}.json`;
+      const safeFileBase = validated.agent.id || sanitizeAgentFileName(validated.agent.name) || 'agent';
+      const filename = `${safeFileBase}.json`;
       const filePath = resolveWithinProject(agentsDir, filename);
       await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
       return { success: true };
@@ -94,15 +95,25 @@ export function registerAgentsIpc(): void {
     }
   });
 
-  ipcMain.handle('delete-agent', async (event, { dirPath, agentName }: { dirPath: string; agentName: string }) => {
+  ipcMain.handle('delete-agent', async (
+    event,
+    { dirPath, agentName, memberId }: { dirPath: string; agentName?: string; memberId?: string }
+  ) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const safeAgentName = sanitizeFileName((agentName || 'agent').toLowerCase(), 'agent');
-      const filename = `${safeAgentName.replace(/[^a-z0-9_-]/g, '-')}.json`;
-      const filePaths = [
-        resolveWithinProject(projectRoot, ROOM_DIR, 'members', filename),
-        resolveWithinProject(projectRoot, ROOM_DIR, 'agents', filename)
-      ];
+      const filePaths: string[] = [];
+      if (typeof memberId === 'string' && /^mem_[a-z0-9][a-z0-9_-]{2,80}$/.test(memberId)) {
+        filePaths.push(resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${memberId}.json`));
+      }
+      if (agentName) {
+        const safeAgentName = sanitizeFileName(agentName.toLowerCase(), 'agent');
+        const filename = `${safeAgentName.replace(/[^a-z0-9_-]/g, '-')}.json`;
+        filePaths.push(
+          resolveWithinProject(projectRoot, ROOM_DIR, 'members', filename),
+          resolveWithinProject(projectRoot, ROOM_DIR, 'agents', filename)
+        );
+      }
+
       let deleted = false;
       for (const filePath of filePaths) {
         try {
@@ -113,6 +124,9 @@ export function registerAgentsIpc(): void {
       }
       if (!deleted) {
         return { success: false, error: 'Agent was not found.' };
+      }
+      if (memberId) {
+        await removeMemberFromTeams(projectRoot, memberId);
       }
       return { success: true };
     } catch (error: any) {

@@ -326,6 +326,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         teamLoadResult.teams.flatMap((team) => team.memberIds)
       );
       const unassignedMemberIds = updatedAgents
+        .filter((agent) => !agent.isVirtual)
         .map((agent) => agent.id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
         .filter((id) => !assignedMemberIds.has(id));

@@ -50,7 +50,7 @@ export const api = {
   saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) =>
     window.electronAPI.saveContextFile(dirPath, filename, content),
   saveAgent: (dirPath: string, agent: any) => window.electronAPI.saveAgent(dirPath, agent),
-  deleteAgent: (dirPath: string, agentName: string) => window.electronAPI.deleteAgent(dirPath, agentName),
+  deleteAgent: (dirPath: string, agentName: string, memberId?: string) => window.electronAPI.deleteAgent(dirPath, agentName, memberId),
   loadTeams: (dirPath: string) => window.electronAPI.loadTeams(dirPath),
   saveTeam: (dirPath: string, team: any) => window.electronAPI.saveTeam(dirPath, team),
   deleteTeam: (dirPath: string, teamId: string) => window.electronAPI.deleteTeam(dirPath, teamId),

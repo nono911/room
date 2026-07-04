@@ -136,7 +136,7 @@ export interface ElectronAPI {
   saveRoomFile: (dirPath: string, section: 'documents' | 'tasks', filename: string, content: string) => Promise<{ success: boolean; filename?: string; error?: string }>;
   saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
   saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
-  deleteAgent: (dirPath: string, agentName: string) => Promise<{ success: boolean; error?: string }>;
+  deleteAgent: (dirPath: string, agentName: string, memberId?: string) => Promise<{ success: boolean; error?: string }>;
   loadTeams: (
     dirPath: string
   ) => Promise<{

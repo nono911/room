@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSkill: (dirPath, name, content, source) => ipcRenderer.invoke('save-skill', { dirPath, name, content, source }),
   previewAgentSkills: (dirPath, agent) => ipcRenderer.invoke('preview-agent-skills', { dirPath, agent }),
   saveAgent: (dirPath, agent) => ipcRenderer.invoke('save-agent', { dirPath, agent }),
-  deleteAgent: (dirPath, agentName) => ipcRenderer.invoke('delete-agent', { dirPath, agentName }),
+  deleteAgent: (dirPath, agentName, memberId) => ipcRenderer.invoke('delete-agent', { dirPath, agentName, memberId }),
   loadTeams: (dirPath) => ipcRenderer.invoke('load-teams', { dirPath }),
   saveTeam: (dirPath, team) => ipcRenderer.invoke('save-team', { dirPath, team }),
   deleteTeam: (dirPath, teamId) => ipcRenderer.invoke('delete-team', { dirPath, teamId }),
