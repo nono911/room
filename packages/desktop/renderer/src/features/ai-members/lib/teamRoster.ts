@@ -1,4 +1,4 @@
-import type { MemberTeam } from '../../../../shared/types/domain.js';
+import type { MemberTeam } from '../../../types/domain.js';
 
 export interface RosterMember {
   id: string;
