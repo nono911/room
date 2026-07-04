@@ -345,6 +345,11 @@ Focused tests should cover:
 - loading teams from `.room/teams`
 - virtual `Unassigned` computation
 - virtual built-ins excluded from teams and materialized when added
+- malformed member ID rejection in `validateAgentConfig`
+- persisted member ID round-trip through `loadAgents`
+- ID-based member save filename behavior
+- ID-first member deletion for new members
+- legacy name-derived delete fallback for old members without IDs
 - create team wizard payload generation
 - `create-team-with-members` validation and rollback behavior
 - member deletion removing team refs by ID
