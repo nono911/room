@@ -12,9 +12,10 @@ describe('DiscussionTeamSelector', () => {
           {
             id: 'team_product',
             name: 'Product',
+            memberIds: ['mem_pm', 'mem_designer'],
             members: [
-              { id: 'mem_pm', name: 'PM' },
-              { id: 'mem_designer', name: 'Designer' }
+              { id: 'mem_pm', name: 'PM', role: 'PM' },
+              { id: 'mem_designer', name: 'Designer', role: 'Design' }
             ]
           }
         ]}
@@ -35,8 +36,9 @@ describe('DiscussionTeamSelector', () => {
       {
         id: 'team_research',
         name: 'Research',
+        memberIds: ['mem_analyst'],
         members: [
-          { id: 'mem_analyst', name: 'Analyst' }
+          { id: 'mem_analyst', name: 'Analyst', role: 'Research' }
         ]
       }
     ];

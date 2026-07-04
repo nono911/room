@@ -1,5 +1,9 @@
 import React from 'react';
 import type { TeamRoster } from '../../ai-members/lib/teamRoster.js';
+import {
+  appendUniqueDiscussionSelectionValues,
+  removeDiscussionSelectionValue
+} from '../lib/discussionSelection.js';
 
 interface DiscussionTeamSelectorProps {
   teams: TeamRoster[];
@@ -16,12 +20,12 @@ export const DiscussionTeamSelector: React.FC<DiscussionTeamSelectorProps> = ({
 
   const addTeam = (team: TeamRoster) => {
     setSelectedMemberIds((prev) => {
-      const next = [...prev];
-      for (const member of team.members) {
-        if (!member.id || next.includes(member.id)) continue;
-        next.push(member.id);
-      }
-      return next;
+      return appendUniqueDiscussionSelectionValues(
+        prev,
+        team.members
+          .map((member) => member.id)
+          .filter((memberId): memberId is string => typeof memberId === 'string' && memberId.length > 0)
+      );
     });
   };
 
@@ -87,11 +91,12 @@ export const DiscussionTeamSelector: React.FC<DiscussionTeamSelectorProps> = ({
                     type="button"
                     className={`skill-checkbox-chip ${selected ? 'selected' : ''}`}
                     onClick={() => {
-                      if (!member.id) return;
+                      const memberId = member.id;
+                      if (!memberId) return;
                       setSelectedMemberIds((prev) => (
                         selected
-                          ? prev.filter((memberId) => memberId !== member.id)
-                          : [...prev, member.id]
+                          ? removeDiscussionSelectionValue(prev, memberId)
+                          : appendUniqueDiscussionSelectionValues(prev, [memberId])
                       ));
                     }}
                   >

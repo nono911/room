@@ -26,6 +26,7 @@ import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
 import { ContextPickerPanel } from '../components/context/ContextPickerPanel.js';
 import { agentPersonaTemplates, teamPresets } from '../shared/data/staticData.js';
 import { useProviders } from '../features/providers/context/ProvidersContext.js';
+import { createDiscussionSelectionId } from '../features/discussions/lib/discussionSelection.js';
 
 export default function App() {
   const { providers, getModelOptions, detectedClis } = useProviders();
@@ -105,11 +106,19 @@ export default function App() {
   const [taskBoardCards, setTaskBoardCards] = useState<TaskBoardCard[]>([]);
   const [initialSelectedFile, setInitialSelectedFile] = useState<{ section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions'; file: string } | null>(null);
   const {
-    selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionAgents,
+    queueDiscussionAgentSelectionByNames,
     selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
+    appendSelectedDiscussionMemberIds,
+    toggleSelectedDiscussionMemberId,
+    reorderSelectedDiscussionMemberIds,
     selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
-    selectedTemporaryDiscussionAgentIds, setSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedLegacyDiscussionAgentName,
+    selectedTemporaryDiscussionAgentIds,
+    appendSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedTemporaryDiscussionAgentId,
     temporaryDiscussionAgents, setTemporaryDiscussionAgents,
+    clearSelectedDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
@@ -473,8 +482,10 @@ export default function App() {
                               if (tmpl) {
                                 try {
                                   const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
+                                  const memberId = createDiscussionSelectionId('mem', tmpl.name);
 
                                   await api.saveAgent(projectPath!, {
+                                    id: memberId,
                                     name: tmpl.name,
                                     role: tmpl.role,
                                     provider: defaults.provider,
@@ -491,10 +502,9 @@ export default function App() {
                               }
                             }
 
-                            setSelectedDiscussionAgents(nextSelected);
-
                             const workspaceState = await api.openProjectDir(projectPath!);
                             if (workspaceState) {
+                              queueDiscussionAgentSelectionByNames(nextSelected);
                               handleSelectRecentProject(projectPath!);
                             }
                           } else {
@@ -739,12 +749,18 @@ export default function App() {
                 selectedDiscussionAgents={selectedDiscussionAgents}
                 selectedDiscussionMemberIds={selectedDiscussionMemberIds}
                 setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+                appendSelectedDiscussionMemberIds={appendSelectedDiscussionMemberIds}
+                toggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
+                reorderSelectedDiscussionMemberIds={reorderSelectedDiscussionMemberIds}
                 selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
                 setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
+                toggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}
                 selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
-                setSelectedTemporaryDiscussionAgentIds={setSelectedTemporaryDiscussionAgentIds}
+                appendSelectedTemporaryDiscussionAgentIds={appendSelectedTemporaryDiscussionAgentIds}
+                toggleSelectedTemporaryDiscussionAgentId={toggleSelectedTemporaryDiscussionAgentId}
                 temporaryDiscussionAgents={temporaryDiscussionAgents}
                 setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
+                clearSelectedDiscussionAgents={clearSelectedDiscussionAgents}
                 discussionReviewMode={discussionReviewMode}
                 setDiscussionReviewMode={setDiscussionReviewMode}
                 discussionMaxRounds={discussionMaxRounds}

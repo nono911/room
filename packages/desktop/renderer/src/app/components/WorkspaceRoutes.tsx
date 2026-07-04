@@ -96,12 +96,18 @@ interface WorkspaceRoutesProps {
   selectedDiscussionAgents: string[];
   selectedDiscussionMemberIds: string[];
   setSelectedDiscussionMemberIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  appendSelectedDiscussionMemberIds: (memberIds: string[]) => void;
+  toggleSelectedDiscussionMemberId: (memberId: string) => void;
+  reorderSelectedDiscussionMemberIds: (sourceIndex: number, targetIndex: number) => void;
   selectedLegacyDiscussionAgentNames: string[];
   setSelectedLegacyDiscussionAgentNames: (value: string[] | ((prev: string[]) => string[])) => void;
+  toggleSelectedLegacyDiscussionAgentName: (agentName: string) => void;
   selectedTemporaryDiscussionAgentIds: string[];
-  setSelectedTemporaryDiscussionAgentIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  appendSelectedTemporaryDiscussionAgentIds: (agentIds: string[]) => void;
+  toggleSelectedTemporaryDiscussionAgentId: (agentId: string) => void;
   temporaryDiscussionAgents: any[];
   setTemporaryDiscussionAgents: (value: any[] | ((prev: any[]) => any[])) => void;
+  clearSelectedDiscussionAgents: () => void;
   discussionReviewMode: any;
   setDiscussionReviewMode: (value: any) => void;
   discussionMaxRounds: number;
@@ -254,12 +260,18 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     selectedDiscussionAgents,
     selectedDiscussionMemberIds,
     setSelectedDiscussionMemberIds,
+    appendSelectedDiscussionMemberIds,
+    toggleSelectedDiscussionMemberId,
+    reorderSelectedDiscussionMemberIds,
     selectedLegacyDiscussionAgentNames,
     setSelectedLegacyDiscussionAgentNames,
+    toggleSelectedLegacyDiscussionAgentName,
     selectedTemporaryDiscussionAgentIds,
-    setSelectedTemporaryDiscussionAgentIds,
+    appendSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedTemporaryDiscussionAgentId,
     temporaryDiscussionAgents,
     setTemporaryDiscussionAgents,
+    clearSelectedDiscussionAgents,
     discussionReviewMode,
     setDiscussionReviewMode,
     discussionMaxRounds,
@@ -360,12 +372,18 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         selectedDiscussionAgents={selectedDiscussionAgents}
         selectedDiscussionMemberIds={selectedDiscussionMemberIds}
         setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+        appendSelectedDiscussionMemberIds={appendSelectedDiscussionMemberIds}
+        toggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
+        reorderSelectedDiscussionMemberIds={reorderSelectedDiscussionMemberIds}
         selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
         setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
+        toggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}
         selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
-        setSelectedTemporaryDiscussionAgentIds={setSelectedTemporaryDiscussionAgentIds}
+        appendSelectedTemporaryDiscussionAgentIds={appendSelectedTemporaryDiscussionAgentIds}
+        toggleSelectedTemporaryDiscussionAgentId={toggleSelectedTemporaryDiscussionAgentId}
         temporaryDiscussionAgents={temporaryDiscussionAgents}
         setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
+        clearSelectedDiscussionAgents={clearSelectedDiscussionAgents}
         discussionReviewMode={discussionReviewMode}
         setDiscussionReviewMode={setDiscussionReviewMode}
         discussionMaxRounds={discussionMaxRounds}

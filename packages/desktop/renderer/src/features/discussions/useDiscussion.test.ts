@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDiscussionSelection } from './useDiscussion.js';
+import { resolveDiscussionSelection } from './lib/discussionSelection.js';
 
 describe('resolveDiscussionSelection', () => {
   it('resolves saved member ids and temporary agent ids into execution names', () => {
@@ -12,8 +12,8 @@ describe('resolveDiscussionSelection', () => {
       ],
       selectedDiscussionMemberIds: ['mem_analyst_b', 'missing_member', 'mem_designer'],
       temporaryDiscussionAgents: [
-        { id: 'tmp_red', name: 'Red Team', role: 'Review' },
-        { id: 'tmp_blue', name: 'Blue Team', role: 'Review' }
+        { id: 'tmp_red', name: 'Red Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' },
+        { id: 'tmp_blue', name: 'Blue Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' }
       ],
       selectedTemporaryDiscussionAgentIds: ['tmp_blue', 'missing_temp', 'tmp_red']
     });
