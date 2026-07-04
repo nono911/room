@@ -502,10 +502,9 @@ export default function App() {
                               }
                             }
 
-                            const workspaceState = await api.openProjectDir(projectPath!);
-                            if (workspaceState) {
+                            const reopened = await handleSelectRecentProject(projectPath!);
+                            if (reopened) {
                               queueDiscussionAgentSelectionByNames(nextSelected);
-                              handleSelectRecentProject(projectPath!);
                             }
                           } else {
                             setErrorMsg(res.error || 'Failed to initialize .room.');

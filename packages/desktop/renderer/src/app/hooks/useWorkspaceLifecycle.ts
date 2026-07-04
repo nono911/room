@@ -108,6 +108,7 @@ export function useWorkspaceLifecycle({
       if (result.isRoomProject) {
         await loadProjectData(result.path);
       }
+      return true;
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to open recent project. It might have been deleted or moved.');
       setRecentProjects(prev => {
@@ -115,6 +116,7 @@ export function useWorkspaceLifecycle({
         localStorage.setItem('recentProjects', JSON.stringify(filtered));
         return filtered;
       });
+      return false;
     } finally {
       setLoading(false);
     }
