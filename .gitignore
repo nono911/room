@@ -3,6 +3,7 @@ node_modules/
 
 # ROOM workspace state
 .room/
+.worktrees/
 
 # Build output
 dist/
