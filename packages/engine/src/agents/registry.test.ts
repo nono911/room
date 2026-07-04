@@ -90,11 +90,37 @@ describe('member id handling', () => {
     await saveAgent(dir, { ...base, name: '../escape' });
 
     const files = await fs.readdir(path.join(dir, '.room', 'members'));
-    expect(files).toContain('escape.json');
+    expect(files).toContain(`${encodeURIComponent('../escape'.toLowerCase())}.json`);
 
-    const saved = await fs.readFile(path.join(dir, '.room', 'members', 'escape.json'), 'utf-8');
+    const saved = await fs.readFile(path.join(dir, '.room', 'members', `${encodeURIComponent('../escape'.toLowerCase())}.json`), 'utf-8');
     expect(JSON.parse(saved).name).toBe('../escape');
     await expect(fs.access(path.join(dir, '.room', 'escape.json'))).rejects.toThrow();
     await expect(fs.access(path.join(dir, 'escape.json'))).rejects.toThrow();
+  });
+
+  it('keeps distinct non-ascii member names on separate saved files', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-member-save-nonascii-'));
+
+    await saveAgent(dir, {
+      name: 'ผู้วิจัย',
+      role: 'UX',
+      provider: 'gemini',
+      systemPrompt: 'Research interface needs.'
+    });
+    await saveAgent(dir, {
+      name: '研究者',
+      role: 'UX',
+      provider: 'gemini',
+      systemPrompt: 'Research interface needs.'
+    });
+
+    const files = (await fs.readdir(path.join(dir, '.room', 'members'))).sort();
+    expect(files).toHaveLength(2);
+    expect(files[0]).not.toBe(files[1]);
+
+    const contents = await Promise.all(
+      files.map(async file => JSON.parse(await fs.readFile(path.join(dir, '.room', 'members', file), 'utf-8')) as { name: string })
+    );
+    expect(contents.map(item => item.name).sort()).toEqual(['ผู้วิจัย', '研究者']);
   });
 });

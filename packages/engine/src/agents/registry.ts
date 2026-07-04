@@ -57,14 +57,8 @@ function normalizeMemberId(value: unknown): string | undefined {
   return trimmed;
 }
 
-function sanitizeAgentFileBase(value: string): string {
-  const trimmed = value.trim().toLowerCase();
-  const baseName = path.basename(trimmed);
-  const safeBase = baseName
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return safeBase || 'agent';
+function encodeAgentFileBase(value: string): string {
+  return encodeURIComponent(value.trim().toLowerCase());
 }
 
 export function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentConfig } | { success: false; error: string } {
@@ -217,7 +211,7 @@ export async function saveAgent(dirPath: string, agent: AgentConfig): Promise<vo
   const agentsDir = path.join(dirPath, '.room', 'members');
   await fs.mkdir(agentsDir, { recursive: true });
 
-  const fileBase = validated.agent.id || sanitizeAgentFileBase(validated.agent.name);
+  const fileBase = validated.agent.id || encodeAgentFileBase(validated.agent.name);
   const filePath = path.join(agentsDir, `${fileBase}.json`);
   await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
 }
