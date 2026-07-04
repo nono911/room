@@ -217,7 +217,7 @@ export function useAgentManagement({
     setNewAgentStdinFormat(agent.stdinFormat || 'text');
     setNewAgentPermissionMode(agent.permissionMode || 'safe');
     setEditingSkillSource('skills');
-    setActiveTab(`Agent:${agent.name}`);
+    setActiveTab(`Agent:${agent.id || agent.name}`);
   };
 
   const handleSaveAgent = async (event: FormEvent) => {
@@ -356,7 +356,7 @@ export function useAgentManagement({
       const res = await api.deleteAgent(projectPath, agentName, member?.id);
       if (res.success) {
         await loadProjectData(projectPath);
-        if (activeTab === `Agent:${agentName}`) {
+        if (activeTab === `Agent:${agentName}` || (member?.id && activeTab === `Agent:${member.id}`)) {
           setActiveTab('AI Members');
           resetAgentForm();
         }

@@ -2,6 +2,7 @@ import { OverviewScreen } from '../../components/screens/OverviewScreen.js';
 import { FilesScreen } from '../../features/workspace-files/components/FilesScreen.js';
 import { AIMembersScreen } from '../../features/ai-members/components/AIMembersScreen.js';
 import { AgentEditorScreen } from '../../features/ai-members/components/AgentEditorScreen.js';
+import { TeamDetailScreen } from '../../features/ai-members/components/TeamDetailScreen.js';
 import { DiscussionsScreen } from '../../features/discussions/components/DiscussionsScreen.js';
 import { TaskRunScreen } from '../../features/task-run/components/TaskRunScreen.js';
 import { DocumentsScreen } from '../../features/workspace-files/components/DocumentsScreen.js';
@@ -15,6 +16,8 @@ import {
   agentPersonaTemplates,
   teamPresets
 } from '../../shared/data/staticData.js';
+import { api } from '../../shared/ipc/client.js';
+import { buildTeamRosters } from '../../features/ai-members/lib/teamRoster.js';
 
 interface WorkspaceRoutesProps {
   activeTab: string;
@@ -443,15 +446,55 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
   if (activeTab === 'AI Members' || activeTab === 'Agents') {
     return (
       <AIMembersScreen
+        projectPath={projectPath}
         projectData={projectData}
         aiMemberDetailsExpanded={aiMemberDetailsExpanded}
         setAiMemberDetailsExpanded={setAiMemberDetailsExpanded}
         resetAgentForm={resetAgentForm}
         setActiveTab={setActiveTab}
         teamPresets={teamPresets}
-        handleAddTeamPreset={handleAddTeamPreset}
+        loadProjectData={loadProjectData}
         startEditAgent={startEditAgent}
         handleDeleteAgent={handleDeleteAgent}
+      />
+    );
+  }
+
+  if (activeTab.startsWith('Team:')) {
+    const teamId = activeTab.slice('Team:'.length);
+    const { userTeams, unassigned } = buildTeamRosters(
+      projectData?.agents || [],
+      projectData?.teams || [],
+      projectData?.unassignedMemberIds || []
+    );
+    const team = [...userTeams, unassigned].find(candidate => candidate.id === teamId);
+
+    if (!projectPath || !team) {
+      return (
+        <div style={{ padding: '32px', color: 'hsl(var(--text-muted))' }}>
+          Team not found.
+        </div>
+      );
+    }
+
+    const availableMembers = (projectData?.agents || []).filter(
+      (agent: any) => !agent.isVirtual && typeof agent.id === 'string' && agent.id.length > 0
+    );
+
+    return (
+      <TeamDetailScreen
+        projectPath={projectPath}
+        team={team}
+        availableMembers={availableMembers}
+        existingNames={availableMembers.map((agent: any) => String(agent.name))}
+        existingSkillFiles={projectData?.skills || []}
+        api={{
+          updateTeamMembers: api.updateTeamMembers,
+          addMembersToTeam: api.addMembersToTeam
+        }}
+        reloadProjectData={() => loadProjectData(projectPath)}
+        setActiveTab={setActiveTab}
+        startEditAgent={startEditAgent}
       />
     );
   }

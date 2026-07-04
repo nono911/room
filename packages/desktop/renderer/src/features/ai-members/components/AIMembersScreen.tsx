@@ -1,53 +1,101 @@
 import React from 'react';
-import type { ProjectData, MaskedProvider } from '../../../types/domain.js';
+import { api } from '../../../shared/ipc/client.js';
+import type { ProjectData } from '../../../types/domain.js';
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
+import { buildTeamRosters } from '../lib/teamRoster.js';
+import { TeamCard } from './TeamCard.js';
+import {
+  CreateTeamWizard,
+  type TemplateRowDraft
+} from './CreateTeamWizard.js';
 
 interface AIMembersScreenProps {
+  projectPath: string | null;
   projectData: ProjectData | null;
   aiMemberDetailsExpanded: boolean;
   setAiMemberDetailsExpanded: (value: boolean | ((prev: boolean) => boolean)) => void;
   resetAgentForm: () => void;
   setActiveTab: (tab: string) => void;
   teamPresets: Array<{ name: string; description: string; roles: string[] }>;
-  handleAddTeamPreset: (teamName: string) => void;
+  loadProjectData: (path: string) => Promise<void>;
   startEditAgent: (agent: any) => void;
   handleDeleteAgent: (agentName: string) => void;
 }
 
-const LEGACY_PROVIDER_IDS: Record<string, string> = {
-  Gemini: 'gemini',
-  Claude: 'anthropic',
-  Codex: 'openai'
-};
-
-const normalizeProviderId = (value: string) => LEGACY_PROVIDER_IDS[value] || value;
-
-const providerLabel = (providers: MaskedProvider[], id: string) =>
-  providers.find(provider => provider.id === normalizeProviderId(id))?.label || id;
-
 export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
+  projectPath,
   projectData,
   aiMemberDetailsExpanded,
   setAiMemberDetailsExpanded,
   resetAgentForm,
   setActiveTab,
   teamPresets,
-  handleAddTeamPreset,
-  startEditAgent,
-  handleDeleteAgent
+  loadProjectData
 }) => {
-  const { providers, detectedClis, scanClis } = useProviders();
+  const { detectedClis, scanClis } = useProviders();
   const [toolchainScanLoading, setToolchainScanLoading] = React.useState<boolean>(false);
+  const [showCreateTeam, setShowCreateTeam] = React.useState(false);
+  const [wizardSeed, setWizardSeed] = React.useState<{
+    name: string;
+    description: string;
+    templateRows: TemplateRowDraft[];
+  } | null>(null);
+  const [teamOperationError, setTeamOperationError] = React.useState<string | null>(null);
   const agents = projectData?.agents || [];
+  const { userTeams, unassigned } = buildTeamRosters(
+    agents,
+    projectData?.teams || [],
+    projectData?.unassignedMemberIds || []
+  );
+  const visibleTeams = unassigned.members.length > 0 ? [...userTeams, unassigned] : userTeams;
+  const shouldShowRecommendedTeams = userTeams.length === 0 && !showCreateTeam;
+  const teamGridColumns = `repeat(auto-fit, minmax(${aiMemberDetailsExpanded ? '300px' : '250px'}, 1fr))`;
+
+  const openCreateTeamWizard = (seed?: { name: string; description: string; templateRows: TemplateRowDraft[] }) => {
+    setWizardSeed(seed || null);
+    setTeamOperationError(null);
+    setShowCreateTeam(true);
+  };
+
+  const buildSeedRows = (roles: string[]): TemplateRowDraft[] =>
+    roles.map(role => ({
+      id: globalThis.crypto?.randomUUID?.() || `${role}-${Math.random().toString(36).slice(2, 8)}`,
+      templateName: role,
+      count: 1
+    }));
+
+  const handleCreateTeam = async (
+    team: { name: string; description?: string },
+    members: Array<{
+      name: string;
+      role: string;
+      provider: string;
+      modelName?: string;
+      systemPrompt: string;
+      skills: string[];
+    }>,
+    skillDrafts: Array<{ name: string; content: string }>
+  ) => {
+    if (!projectPath) return;
+
+    setTeamOperationError(null);
+    const response = await api.createTeamWithMembers(projectPath, team, members, skillDrafts);
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to create team.');
+    }
+
+    await loadProjectData(projectPath);
+    setShowCreateTeam(false);
+    setWizardSeed(null);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', width: '100%' }}>
-      {/* Dashboard Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: 'white' }}>AI Members</h3>
           <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-muted))', margin: '4px 0 0 0' }}>
-            Create role-based personas from templates or custom instructions. Saved AI members live in <code>.room/members/</code>.
+            Organize saved AI members into working teams first, then edit the people inside each team when you need to.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -69,8 +117,7 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
           </button>
           <button
             onClick={() => {
-              resetAgentForm();
-              setActiveTab('Agent:New');
+              openCreateTeamWizard();
             }}
             className="btn-primary"
             style={{ padding: '10px 20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
@@ -78,263 +125,150 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
             <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
+            Create Team
+          </button>
+          <button
+            onClick={() => {
+              resetAgentForm();
+              setActiveTab('Agent:New');
+            }}
+            className="btn-secondary"
+            style={{ padding: '10px 16px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+          >
             Register AI Member
           </button>
         </div>
       </div>
 
-      <div style={{
-        background: 'hsl(var(--bg-card))',
-        border: '1px solid hsl(var(--border-dim))',
-        borderRadius: '8px',
-        padding: '18px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '14px'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div>
-            <h4 style={{ fontSize: '0.95rem', margin: 0, color: 'white' }}>Recommended Teams</h4>
-            <p style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', margin: '4px 0 0 0' }}>
-              Add a starter team for a common workflow. Existing members are skipped.
-            </p>
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
-          {teamPresets.map(team => {
-            const missingRoles = team.roles.filter(role => !agents.some((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase()));
-            const allAdded = missingRoles.length === 0;
-            return (
-              <div
-                key={team.name}
-                style={{
-                  background: 'hsl(var(--bg-input))',
-                  border: '1px solid hsl(var(--border-dim))',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  minHeight: '156px'
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '0.86rem', color: 'white', fontWeight: 600 }}>{team.name}</div>
-                  <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5, marginTop: '3px' }}>
-                    {team.description}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1, alignContent: 'flex-start' }}>
-                  {team.roles.map(role => {
-                    const matchedAgent = agents.find((agent: any) => String(agent.name).toLowerCase() === role.toLowerCase());
-                    const isCustomized = matchedAgent && !matchedAgent.isVirtual;
-                    return (
-                      <span
-                        key={role}
-                        style={{
-                          background: isCustomized ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-card))',
-                          border: isCustomized ? '1px solid hsl(var(--accent-purple) / 0.35)' : '1px solid hsl(var(--border-dim))',
-                          color: isCustomized ? 'hsl(var(--text-secondary))' : 'hsl(var(--text-muted))',
-                          fontSize: '0.7rem',
-                          padding: '4px 8px',
-                          borderRadius: '14px'
-                        }}
-                      >
-                        {role}{isCustomized ? ' · custom' : ' · default'}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '34px', fontSize: '0.8rem', color: 'hsl(var(--text-success))', paddingLeft: '2px' }}>
-                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>Team active</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Registered Agents Grid */}
-      {agents.length === 0 ? (
-        <div style={{ padding: '60px 40px', textAlign: 'center', color: 'hsl(var(--text-muted))', border: '1px dashed hsl(var(--border-dim))', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          <svg width="40" height="40" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" style={{ color: 'hsl(var(--text-muted))' }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span>No AI members registered in this workspace. Add a recommended team or register one manually.</span>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: aiMemberDetailsExpanded ? 'repeat(auto-fill, minmax(320px, 1fr))' : 'repeat(auto-fill, minmax(260px, 1fr))', gap: aiMemberDetailsExpanded ? '20px' : '10px' }}>
-          {agents.map((agent: any, idx: number) => {
-            const providerClass = normalizeProviderId(agent.provider).toLowerCase();
-            return (
-              <div key={idx} style={{
-                background: 'hsl(var(--bg-card))',
-                border: '1px solid hsl(var(--border-dim))',
-                borderLeft: `4px solid ${
-                  providerClass === 'claude' ? 'hsl(var(--accent-purple))' :
-                  providerClass === 'gemini' ? 'hsl(var(--accent-blue))' :
-                  providerClass === 'codex' ? 'hsl(var(--accent-orange))' : 'hsl(var(--accent-green))'
-                }`,
-                borderRadius: '12px',
-                padding: aiMemberDetailsExpanded ? '16px 20px' : '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: aiMemberDetailsExpanded ? '12px' : '8px',
-                position: 'relative'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'white', display: 'flex', alignItems: 'center' }}>
-                      {agent.name}
-                      {agent.isVirtual && (
-                        <span style={{ fontSize: '0.65rem', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'hsl(var(--text-muted))', padding: '1px 5px', borderRadius: '3px', marginLeft: '6px', textTransform: 'uppercase', fontWeight: 500 }}>
-                          Default
-                        </span>
-                      )}
-                    </h4>
-                    <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 500, marginTop: '2px' }}>{agent.role}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Edit Button */}
-                    <button 
-                      className="agent-action-btn"
-                      onClick={() => startEditAgent(agent)}
-                      title={agent.isVirtual ? 'Customize Agent Prompt' : 'Edit Agent Config'}
-                    >
-                      <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
-                    {/* Delete Button */}
-                    {!agent.isVirtual && (
-                      <button 
-                        className="agent-action-btn delete"
-                        onClick={() => handleDeleteAgent(agent.name)}
-                        title="Delete Agent Customization"
-                      >
-                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <span style={{
-                    backgroundColor: 
-                    providerClass === 'claude' ? 'rgba(139, 92, 246, 0.1)' : 
-                    providerClass === 'gemini' ? 'rgba(59, 130, 246, 0.1)' : 
-                    providerClass === 'codex' ? 'rgba(249, 115, 22, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                    color: 
-                    providerClass === 'claude' ? 'hsl(var(--accent-purple))' : 
-                    providerClass === 'gemini' ? 'hsl(var(--accent-blue))' : 
-                    providerClass === 'codex' ? 'hsl(var(--accent-orange))' : 'hsl(var(--accent-green))',
-                    fontSize: '0.7rem',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase'
-                  }}>
-                    {providerLabel(providers, agent.provider)}
-                  </span>
-                  {agent.provider !== 'Local CLI' && agent.modelName && (
-                    <span style={{
-                      fontSize: '0.7rem',
-                      color: 'hsl(var(--text-secondary))',
-                      backgroundColor: 'hsl(var(--bg-input))',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      border: '1px solid hsl(var(--border-dim))'
-                    }}>
-                      {agent.modelName}
-                    </span>
-                  )}
-                  {agent.provider === 'Local CLI' && (
-                    <>
-                      <span style={{
-                        fontSize: '0.7rem',
-                        color: 'hsl(var(--text-muted))',
-                        backgroundColor: 'hsl(var(--bg-input))',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        border: '1px solid hsl(var(--border-dim))',
-                        fontFamily: 'monospace'
-                      }}>
-                        {agent.cliPreset && agent.cliPreset !== 'none' ? `Preset: ${agent.cliPreset === 'claude' ? 'Claude Code' : agent.cliPreset === 'gemini' ? 'Gemini CLI' : agent.cliPreset === 'codex' ? 'Codex CLI' : agent.cliPreset === 'copilot' ? 'GitHub Copilot CLI' : agent.cliPreset === 'codewhale' ? 'CodeWhale' : agent.cliPreset === 'agy' ? 'Antigravity CLI' : agent.cliPreset}` : `$ ${agent.command}`}
-                      </span>
-                      <span style={{
-                        fontSize: '0.7rem',
-                        color: 'hsl(var(--text-secondary))',
-                        backgroundColor: 'hsl(var(--bg-input))',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        border: '1px solid hsl(var(--border-dim))'
-                      }}>
-                        {agent.modelName ? `Model: ${agent.modelName}` : 'Model: Default CLI config'}
-                      </span>
-                      {agent.permissionMode === 'dangerous' && (
-                        <span style={{
-                          fontSize: '0.7rem',
-                          color: '#ef4444',
-                          backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                          fontFamily: 'monospace'
-                        }}>
-                          dangerous permissions enabled
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {aiMemberDetailsExpanded && (
-                  <div style={{
-                    fontSize: '0.8rem',
-                    color: 'hsl(var(--text-secondary))',
-                    lineHeight: '1.5',
-                    background: 'hsl(var(--bg-input))',
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    border: '1px solid hsl(var(--border-dim))',
-                    maxHeight: '60px',
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {agent.systemPrompt}
-                  </div>
-                )}
-
-                {aiMemberDetailsExpanded && agent.skills && agent.skills.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 'auto', paddingTop: '8px' }}>
-                    {agent.skills.map((skill: string) => (
-                      <span key={skill} style={{
-                        backgroundColor: 'hsl(var(--bg-input))',
-                        color: 'hsl(var(--text-muted))',
-                        fontSize: '0.65rem',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        border: '1px solid hsl(var(--border-dim))',
-                        fontWeight: 500
-                      }}>
-                        {skill.replace('.md', '').replace(/-/g, ' ')}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {teamOperationError && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.28)', borderRadius: '8px', padding: '12px 14px', color: '#fca5a5', fontSize: '0.84rem' }}>
+          {teamOperationError}
         </div>
       )}
 
-      {/* Collapsible Local CLI ToolchainAccordion */}
+      {showCreateTeam && (
+        <CreateTeamWizard
+          existingNames={agents.map((agent: any) => String(agent.name))}
+          existingSkillFiles={projectData?.skills || []}
+          initialTeamName={wizardSeed?.name || ''}
+          initialDescription={wizardSeed?.description || ''}
+          initialTemplateRows={wizardSeed?.templateRows}
+          onCancel={() => {
+            setShowCreateTeam(false);
+            setWizardSeed(null);
+          }}
+          onCreate={async (team, members, skillDrafts) => {
+            try {
+              await handleCreateTeam(team, members, skillDrafts);
+            } catch (error) {
+              setTeamOperationError(error instanceof Error ? error.message : 'Failed to create team.');
+            }
+          }}
+        />
+      )}
+
+      {shouldShowRecommendedTeams && (
+        <div
+          style={{
+            background: 'rgba(15, 23, 42, 0.68)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '8px',
+            padding: '18px 20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px'
+          }}
+        >
+          <div>
+            <h4 style={{ fontSize: '0.95rem', margin: 0, color: 'white' }}>Recommended Teams</h4>
+            <p style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', margin: '4px 0 0 0' }}>
+              Start from a team recipe, then inspect and edit every generated member before anything is saved.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: teamGridColumns, gap: '10px' }}>
+            {teamPresets.map(team => (
+              <button
+                key={team.name}
+                type="button"
+                onClick={() =>
+                  openCreateTeamWizard({
+                    name: team.name,
+                    description: team.description,
+                    templateRows: buildSeedRows(team.roles)
+                  })
+                }
+                style={{
+                  textAlign: 'left',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '8px',
+                  padding: '14px',
+                  background: 'rgba(2, 6, 23, 0.5)',
+                  color: 'inherit',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  minHeight: '164px'
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.88rem', color: 'white', fontWeight: 600 }}>{team.name}</div>
+                  <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5, marginTop: '4px' }}>
+                    {team.description}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignContent: 'flex-start' }}>
+                  {team.roles.map(role => (
+                    <span
+                      key={`${team.name}-${role}`}
+                      style={{
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        border: '1px solid rgba(129, 140, 248, 0.22)',
+                        color: 'rgb(199, 210, 254)',
+                        fontSize: '0.68rem',
+                        padding: '4px 8px',
+                        borderRadius: '999px'
+                      }}
+                    >
+                      {role}
+                    </span>
+                  ))}
+                </div>
+                <span style={{ marginTop: 'auto', fontSize: '0.76rem', color: 'hsl(var(--text-secondary))' }}>
+                  Open starter in wizard
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {visibleTeams.length > 0 && (
+        <div
+          style={{
+            background: 'rgba(15, 23, 42, 0.68)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '8px',
+            padding: '18px 20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px'
+          }}
+        >
+          <div>
+            <h4 style={{ fontSize: '0.95rem', margin: 0, color: 'white' }}>Teams</h4>
+            <p style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', margin: '4px 0 0 0' }}>
+              Open a team to reorder members, assign saved members, or add fresh members from templates.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: teamGridColumns, gap: '10px' }}>
+            {visibleTeams.map(team => (
+              <TeamCard key={team.id} team={team} onOpen={() => setActiveTab(`Team:${team.id}`)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <details className="collapsible-container">
         <summary className="collapsible-summary">
           <span>🔍 Local CLI Toolchain Status ({detectedClis.filter(c => c.available).length} Detected)</span>
