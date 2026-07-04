@@ -172,4 +172,83 @@ describe('useDiscussionSelection', () => {
     expect(result.current.selectedDiscussionMemberIds).toEqual(['mem_planner', 'mem_reviewer']);
     expect(result.current.selectedDiscussionAgents).toEqual(['Red Team', 'Planner', 'Reviewer']);
   });
+
+  it('preserves mixed participant order when member ids are updated through the setter path', () => {
+    const { result } = renderHook(() => useDiscussionSelection({
+      projectData: {
+        projectMd: '',
+        archMd: '',
+        tasks: [],
+        decisions: [],
+        reviews: [],
+        documents: [],
+        discussions: [],
+        skills: [],
+        agents: [
+          { id: 'mem_planner', name: 'Planner', role: 'Planning' },
+          { id: 'mem_reviewer', name: 'Reviewer', role: 'QA' },
+          { id: 'mem_writer', name: 'Writer', role: 'Writing' }
+        ]
+      }
+    }));
+
+    act(() => {
+      result.current.setTemporaryDiscussionAgents([
+        { id: 'tmp_red', name: 'Red Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' }
+      ]);
+      result.current.appendSelectedDiscussionMemberIds(['mem_planner']);
+      result.current.appendSelectedTemporaryDiscussionAgentIds(['tmp_red']);
+      result.current.appendSelectedDiscussionMemberIds(['mem_reviewer']);
+    });
+
+    act(() => {
+      result.current.setSelectedDiscussionMemberIds((prev) => [...prev, 'mem_writer']);
+    });
+
+    expect(result.current.selectedDiscussionParticipantKeys).toEqual([
+      'member:mem_planner',
+      'tmp:tmp_red',
+      'member:mem_reviewer',
+      'member:mem_writer'
+    ]);
+    expect(result.current.selectedDiscussionAgents).toEqual(['Planner', 'Red Team', 'Reviewer', 'Writer']);
+  });
+
+  it('removes only the requested member ids through the setter path', () => {
+    const { result } = renderHook(() => useDiscussionSelection({
+      projectData: {
+        projectMd: '',
+        archMd: '',
+        tasks: [],
+        decisions: [],
+        reviews: [],
+        documents: [],
+        discussions: [],
+        skills: [],
+        agents: [
+          { id: 'mem_planner', name: 'Planner', role: 'Planning' },
+          { id: 'mem_reviewer', name: 'Reviewer', role: 'QA' }
+        ]
+      }
+    }));
+
+    act(() => {
+      result.current.setTemporaryDiscussionAgents([
+        { id: 'tmp_red', name: 'Red Team', role: 'Review', provider: 'gemini', systemPrompt: 'Prompt' }
+      ]);
+      result.current.appendSelectedDiscussionMemberIds(['mem_planner']);
+      result.current.appendSelectedTemporaryDiscussionAgentIds(['tmp_red']);
+      result.current.appendSelectedDiscussionMemberIds(['mem_reviewer']);
+    });
+
+    act(() => {
+      result.current.setSelectedDiscussionMemberIds(['mem_reviewer']);
+    });
+
+    expect(result.current.selectedDiscussionParticipantKeys).toEqual([
+      'tmp:tmp_red',
+      'member:mem_reviewer'
+    ]);
+    expect(result.current.selectedDiscussionAgents).toEqual(['Red Team', 'Reviewer']);
+  });
 });

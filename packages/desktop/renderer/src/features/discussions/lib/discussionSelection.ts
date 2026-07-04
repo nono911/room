@@ -194,8 +194,11 @@ export function replaceDiscussionParticipantKeysOfKind(
   const nextKeys = dedupeDiscussionParticipantKeys(
     values.map((value) => createDiscussionParticipantKey(kind, value))
   );
+  const nextKeySet = new Set(nextKeys);
+  const existingKindKeys = participantKeys.filter((key) => parseDiscussionParticipantKey(key)?.kind === kind);
+  const existingKindKeySet = new Set(existingKindKeys);
   const nextParticipantKeys: DiscussionParticipantKey[] = [];
-  let inserted = false;
+  const emittedKindKeys = new Set<DiscussionParticipantKey>();
 
   for (const key of participantKeys) {
     const parsed = parseDiscussionParticipantKey(key);
@@ -204,14 +207,19 @@ export function replaceDiscussionParticipantKeysOfKind(
       continue;
     }
 
-    if (!inserted) {
-      nextParticipantKeys.push(...nextKeys);
-      inserted = true;
+    if (!nextKeySet.has(key) || emittedKindKeys.has(key)) {
+      continue;
     }
+
+    nextParticipantKeys.push(key);
+    emittedKindKeys.add(key);
   }
 
-  if (!inserted) {
-    nextParticipantKeys.push(...nextKeys);
+  for (const key of nextKeys) {
+    if (existingKindKeySet.has(key)) {
+      continue;
+    }
+    nextParticipantKeys.push(key);
   }
 
   return dedupeDiscussionParticipantKeys(nextParticipantKeys);
