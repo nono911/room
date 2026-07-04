@@ -193,7 +193,10 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
         typeof agent.id === 'string' && agent.id.length > 0
     );
 
-    setPendingDiscussionAgentNames([]);
+    if (pendingDiscussionAgentNames.length > 0) {
+      return;
+    }
+
     if (savedAgents.length > 0) {
       const validIds = new Set(savedAgents.map((agent) => agent.id));
       setSelectedDiscussionMemberIdsState((prev) => {
@@ -217,7 +220,7 @@ export function useDiscussionSelection({ projectData }: UseDiscussionSelectionOp
     }
 
     clearSelectedDiscussionAgents();
-  }, [clearSelectedDiscussionAgents]);
+  }, [clearSelectedDiscussionAgents, pendingDiscussionAgentNames.length]);
 
   return {
     selectedDiscussionAgents,

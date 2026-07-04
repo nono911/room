@@ -18,7 +18,7 @@ describe('useDiscussionSelection', () => {
     const initialProps: { projectData: ProjectData } = {
       projectData: {
         ...baseProjectData,
-        agents: []
+        agents: [] as ProjectData['agents']
       }
     };
     const { result, rerender } = renderHook(
@@ -42,6 +42,59 @@ describe('useDiscussionSelection', () => {
           { id: 'mem_planner', name: 'Planner', role: 'Planning' },
           { id: 'mem_reviewer', name: 'Reviewer', role: 'QA' }
         ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(result.current.selectedDiscussionMemberIds).toEqual(['mem_planner', 'mem_reviewer']);
+    });
+
+    expect(result.current.selectedDiscussionAgents).toEqual(['Planner', 'Reviewer']);
+  });
+
+  it('does not replace queued preset names with default saved agents during reload', async () => {
+    const baseProjectData: Omit<ProjectData, 'agents'> = {
+      projectMd: '',
+      archMd: '',
+      tasks: [],
+      decisions: [],
+      reviews: [],
+      documents: [],
+      discussions: [],
+      skills: []
+    };
+    const loadedAgents: ProjectData['agents'] = [
+      { id: 'mem_default', name: 'Default', role: 'Generalist' },
+      { id: 'mem_planner', name: 'Planner', role: 'Planning' },
+      { id: 'mem_reviewer', name: 'Reviewer', role: 'QA' }
+    ];
+    const { result, rerender } = renderHook(
+      ({ projectData }: { projectData: ProjectData }) => useDiscussionSelection({ projectData }),
+      {
+        initialProps: {
+          projectData: {
+            ...baseProjectData,
+            agents: [] as ProjectData['agents']
+          }
+        }
+      }
+    );
+
+    act(() => {
+      result.current.queueDiscussionAgentSelectionByNames(['Planner', 'Reviewer']);
+    });
+
+    act(() => {
+      result.current.selectDefaultDiscussionAgents(loadedAgents);
+    });
+
+    expect(result.current.selectedDiscussionMemberIds).toEqual([]);
+    expect(result.current.selectedDiscussionAgents).toEqual([]);
+
+    rerender({
+      projectData: {
+        ...baseProjectData,
+        agents: loadedAgents
       }
     });
 
