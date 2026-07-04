@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import type { ProjectData, TaskBoardCard, UIMessage } from '../../types/domain.js';
 import { api } from '../../shared/ipc/client.js';
 import {
@@ -20,6 +20,90 @@ interface UseDiscussionDeps {
   setErrorMsg: (value: string | null) => void;
 }
 
+type PersistedDiscussionAgent = {
+  id?: string;
+  name: string;
+  isVirtual?: boolean;
+};
+
+type TemporaryDiscussionAgent = {
+  id: string;
+  name: string;
+};
+
+interface ResolveDiscussionSelectionOptions {
+  projectAgents: PersistedDiscussionAgent[];
+  selectedDiscussionMemberIds: string[];
+  selectedLegacyDiscussionAgentNames?: string[];
+  temporaryDiscussionAgents: TemporaryDiscussionAgent[];
+  selectedTemporaryDiscussionAgentIds: string[];
+}
+
+interface DiscussionSelectionResolution {
+  selectedSavedNames: string[];
+  selectedLegacyNames: string[];
+  selectedTemporaryNames: string[];
+  selectedAgentNames: string[];
+}
+
+function dedupeStringsInOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function getPersistedDiscussionAgents(projectData: ProjectData | null): PersistedDiscussionAgent[] {
+  return (projectData?.agents || []).filter((agent: PersistedDiscussionAgent) => !agent.isVirtual);
+}
+
+function getSavedDiscussionAgentsById(projectAgents: PersistedDiscussionAgent[]): Map<string, PersistedDiscussionAgent & { id: string }> {
+  return new Map(
+    projectAgents
+      .filter((agent): agent is PersistedDiscussionAgent & { id: string } => typeof agent.id === 'string' && agent.id.length > 0)
+      .map((agent) => [agent.id, agent])
+  );
+}
+
+function getTemporaryDiscussionAgentsById(temporaryDiscussionAgents: TemporaryDiscussionAgent[]): Map<string, TemporaryDiscussionAgent> {
+  return new Map(temporaryDiscussionAgents.map((agent) => [agent.id, agent]));
+}
+
+export function resolveDiscussionSelection({
+  projectAgents,
+  selectedDiscussionMemberIds,
+  selectedLegacyDiscussionAgentNames = [],
+  temporaryDiscussionAgents,
+  selectedTemporaryDiscussionAgentIds
+}: ResolveDiscussionSelectionOptions): DiscussionSelectionResolution {
+  const memberById = getSavedDiscussionAgentsById(projectAgents);
+  const temporaryAgentById = getTemporaryDiscussionAgentsById(temporaryDiscussionAgents);
+  const availablePersistedNames = new Set(projectAgents.map((agent) => agent.name));
+  const selectedSavedNames = selectedDiscussionMemberIds
+    .map((memberId) => memberById.get(memberId)?.name)
+    .filter((name): name is string => Boolean(name));
+  const selectedLegacyNames = selectedLegacyDiscussionAgentNames
+    .filter((name) => availablePersistedNames.has(name));
+  const selectedTemporaryNames = selectedTemporaryDiscussionAgentIds
+    .map((temporaryId) => temporaryAgentById.get(temporaryId)?.name)
+    .filter((name): name is string => Boolean(name));
+
+  return {
+    selectedSavedNames,
+    selectedLegacyNames,
+    selectedTemporaryNames,
+    selectedAgentNames: [...selectedSavedNames, ...selectedLegacyNames, ...selectedTemporaryNames]
+  };
+}
+
 export function useDiscussion({
   projectPath,
   projectData,
@@ -30,7 +114,9 @@ export function useDiscussion({
   setLoading,
   setErrorMsg
 }: UseDiscussionDeps) {
-  const [selectedDiscussionAgents, setSelectedDiscussionAgents] = useState<string[]>([]);
+  const [selectedDiscussionMemberIds, setSelectedDiscussionMemberIds] = useState<string[]>([]);
+  const [selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames] = useState<string[]>([]);
+  const [selectedTemporaryDiscussionAgentIds, setSelectedTemporaryDiscussionAgentIds] = useState<string[]>([]);
   const [temporaryDiscussionAgents, setTemporaryDiscussionAgents] = useState<any[]>([]);
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
@@ -49,6 +135,104 @@ export function useDiscussion({
   const [activeDiscussionRunId, setActiveDiscussionRunId] = useState<string | null>(null);
   const [discussionInterruptMessage, setDiscussionInterruptMessage] = useState<string>('');
   const [discussionInterruptPending, setDiscussionInterruptPending] = useState<boolean>(false);
+  const persistedDiscussionAgents = getPersistedDiscussionAgents(projectData);
+  const {
+    selectedSavedNames,
+    selectedLegacyNames,
+    selectedTemporaryNames,
+    selectedAgentNames: selectedDiscussionAgents
+  } = resolveDiscussionSelection({
+    projectAgents: persistedDiscussionAgents,
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
+    temporaryDiscussionAgents,
+    selectedTemporaryDiscussionAgentIds
+  });
+
+  useEffect(() => {
+    const savedAgentIds = new Set(
+      persistedDiscussionAgents
+        .filter((agent): agent is PersistedDiscussionAgent & { id: string } => typeof agent.id === 'string' && agent.id.length > 0)
+        .map((agent) => agent.id)
+    );
+    const persistedNames = new Set(persistedDiscussionAgents.map((agent) => agent.name));
+    const temporaryIds = new Set(
+      (temporaryDiscussionAgents as TemporaryDiscussionAgent[])
+        .map((agent) => agent.id)
+        .filter((agentId): agentId is string => typeof agentId === 'string' && agentId.length > 0)
+    );
+
+    setSelectedDiscussionMemberIds((prev) => {
+      const next = dedupeStringsInOrder(prev.filter((memberId) => savedAgentIds.has(memberId)));
+      return arraysEqual(prev, next) ? prev : next;
+    });
+    setSelectedLegacyDiscussionAgentNames((prev) => {
+      const next = dedupeStringsInOrder(prev.filter((agentName) => persistedNames.has(agentName)));
+      return arraysEqual(prev, next) ? prev : next;
+    });
+    setSelectedTemporaryDiscussionAgentIds((prev) => {
+      const next = dedupeStringsInOrder(prev.filter((agentId) => temporaryIds.has(agentId)));
+      return arraysEqual(prev, next) ? prev : next;
+    });
+  }, [persistedDiscussionAgents, temporaryDiscussionAgents]);
+
+  const setSelectedDiscussionAgents = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+    const previous = [...selectedSavedNames, ...selectedLegacyNames, ...selectedTemporaryNames];
+    const nextNames = typeof value === 'function' ? value(previous) : value;
+    const remainingSavedIdsByName = new Map<string, string[]>();
+    const remainingLegacyNames = new Set(
+      persistedDiscussionAgents
+        .filter((agent) => !agent.id)
+        .map((agent) => agent.name)
+    );
+    const remainingTemporaryIdsByName = new Map<string, string[]>();
+
+    for (const agent of persistedDiscussionAgents) {
+      if (!agent.id) continue;
+      const queue = remainingSavedIdsByName.get(agent.name) || [];
+      queue.push(agent.id);
+      remainingSavedIdsByName.set(agent.name, queue);
+    }
+
+    for (const agent of temporaryDiscussionAgents as TemporaryDiscussionAgent[]) {
+      const queue = remainingTemporaryIdsByName.get(agent.name) || [];
+      queue.push(agent.id);
+      remainingTemporaryIdsByName.set(agent.name, queue);
+    }
+
+    const nextMemberIds: string[] = [];
+    const nextLegacyNames: string[] = [];
+    const nextTemporaryIds: string[] = [];
+
+    for (const agentName of nextNames) {
+      const savedIds = remainingSavedIdsByName.get(agentName);
+      if (savedIds && savedIds.length > 0) {
+        const nextMemberId = savedIds.shift();
+        if (nextMemberId) {
+          nextMemberIds.push(nextMemberId);
+          continue;
+        }
+      }
+
+      if (remainingLegacyNames.has(agentName)) {
+        nextLegacyNames.push(agentName);
+        remainingLegacyNames.delete(agentName);
+        continue;
+      }
+
+      const temporaryIds = remainingTemporaryIdsByName.get(agentName);
+      if (temporaryIds && temporaryIds.length > 0) {
+        const nextTemporaryId = temporaryIds.shift();
+        if (nextTemporaryId) {
+          nextTemporaryIds.push(nextTemporaryId);
+        }
+      }
+    }
+
+    setSelectedDiscussionMemberIds(dedupeStringsInOrder(nextMemberIds));
+    setSelectedLegacyDiscussionAgentNames(dedupeStringsInOrder(nextLegacyNames));
+    setSelectedTemporaryDiscussionAgentIds(dedupeStringsInOrder(nextTemporaryIds));
+  }, [persistedDiscussionAgents, selectedLegacyNames, selectedSavedNames, selectedTemporaryNames, temporaryDiscussionAgents]);
 
   const resetDiscussion = () => {
     setDiscussionMessages([]);
@@ -58,21 +242,40 @@ export function useDiscussion({
     setLastDiscussionTopic('');
     setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
     setTemporaryDiscussionAgents([]);
+    setSelectedTemporaryDiscussionAgentIds([]);
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
   };
 
   const selectDefaultDiscussionAgents = (agents: any[]) => {
-    const registeredAgents = (agents || []).filter((agent: any) => !agent.isVirtual);
+    const registeredAgents = (agents || []).filter((agent: PersistedDiscussionAgent) => !agent.isVirtual);
+    const savedAgents = registeredAgents.filter(
+      (agent: PersistedDiscussionAgent): agent is PersistedDiscussionAgent & { id: string } =>
+        typeof agent.id === 'string' && agent.id.length > 0
+    );
+
+    if (savedAgents.length > 0) {
+      const validIds = new Set(savedAgents.map((agent) => agent.id));
+      setSelectedDiscussionMemberIds((prev) => {
+        const next = prev.filter((memberId) => validIds.has(memberId));
+        if (next.length > 0) return next;
+        return savedAgents.slice(0, 2).map((agent) => agent.id);
+      });
+      setSelectedLegacyDiscussionAgentNames([]);
+      return;
+    }
+
     if (registeredAgents.length > 0) {
-      const names = registeredAgents.map((agent: any) => agent.name);
-      setSelectedDiscussionAgents(prev => {
-        const validPrev = prev.filter(name => names.includes(name));
-        if (validPrev.length > 0) return validPrev;
+      const names = registeredAgents.map((agent: PersistedDiscussionAgent) => agent.name);
+      setSelectedLegacyDiscussionAgentNames((prev) => {
+        const next = prev.filter((name) => names.includes(name));
+        if (next.length > 0) return next;
         return names.slice(0, 2);
       });
+      setSelectedDiscussionMemberIds([]);
     } else {
-      setSelectedDiscussionAgents([]);
+      setSelectedDiscussionMemberIds([]);
+      setSelectedLegacyDiscussionAgentNames([]);
     }
   };
 
@@ -143,6 +346,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setDiscussionMessages([]);
     setActiveDiscussionRunId(null);
     setTemporaryDiscussionAgents([]);
+    setSelectedTemporaryDiscussionAgentIds([]);
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
   };
@@ -293,12 +497,12 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   const handleSendDiscussion = async () => {
     if (!userInputTopic.trim() || !projectPath) return;
-    const availableAgentNames = new Set([
-      ...(projectData?.agents || []).map((agent: any) => agent.name),
-      ...temporaryDiscussionAgents.map((agent: any) => agent.name)
-    ]);
-    const validSelectedAgents = selectedDiscussionAgents.filter(name => availableAgentNames.has(name));
-    if (selectedDiscussionAgents.length === 0) {
+    const validSelectedAgents = [...selectedSavedNames, ...selectedLegacyNames, ...selectedTemporaryNames];
+    if (
+      selectedDiscussionMemberIds.length === 0
+      && selectedLegacyDiscussionAgentNames.length === 0
+      && selectedTemporaryDiscussionAgentIds.length === 0
+    ) {
       setErrorMsg('Please select at least one participating agent.');
       return;
     }
@@ -564,6 +768,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   return {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds, setSelectedTemporaryDiscussionAgentIds,
     temporaryDiscussionAgents, setTemporaryDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,

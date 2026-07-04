@@ -94,7 +94,12 @@ interface WorkspaceRoutesProps {
   highlightedDiscussionMessage: any;
   selectedDiscussionContextRefs: string[];
   selectedDiscussionAgents: string[];
-  setSelectedDiscussionAgents: (value: string[] | ((prev: string[]) => string[])) => void;
+  selectedDiscussionMemberIds: string[];
+  setSelectedDiscussionMemberIds: (value: string[] | ((prev: string[]) => string[])) => void;
+  selectedLegacyDiscussionAgentNames: string[];
+  setSelectedLegacyDiscussionAgentNames: (value: string[] | ((prev: string[]) => string[])) => void;
+  selectedTemporaryDiscussionAgentIds: string[];
+  setSelectedTemporaryDiscussionAgentIds: (value: string[] | ((prev: string[]) => string[])) => void;
   temporaryDiscussionAgents: any[];
   setTemporaryDiscussionAgents: (value: any[] | ((prev: any[]) => any[])) => void;
   discussionReviewMode: any;
@@ -247,7 +252,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     highlightedDiscussionMessage,
     selectedDiscussionContextRefs,
     selectedDiscussionAgents,
-    setSelectedDiscussionAgents,
+    selectedDiscussionMemberIds,
+    setSelectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
+    setSelectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds,
+    setSelectedTemporaryDiscussionAgentIds,
     temporaryDiscussionAgents,
     setTemporaryDiscussionAgents,
     discussionReviewMode,
@@ -348,7 +358,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         toggleContextSelection={toggleContextSelection}
         getContextLabel={getContextLabel}
         selectedDiscussionAgents={selectedDiscussionAgents}
-        setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+        selectedDiscussionMemberIds={selectedDiscussionMemberIds}
+        setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+        selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
+        setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
+        selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
+        setSelectedTemporaryDiscussionAgentIds={setSelectedTemporaryDiscussionAgentIds}
         temporaryDiscussionAgents={temporaryDiscussionAgents}
         setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
         discussionReviewMode={discussionReviewMode}

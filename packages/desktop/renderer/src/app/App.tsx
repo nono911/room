@@ -106,6 +106,9 @@ export default function App() {
   const [initialSelectedFile, setInitialSelectedFile] = useState<{ section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions'; file: string } | null>(null);
   const {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds, setSelectedTemporaryDiscussionAgentIds,
     temporaryDiscussionAgents, setTemporaryDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
@@ -734,7 +737,12 @@ export default function App() {
                 highlightedDiscussionMessage={highlightedDiscussionMessage}
                 selectedDiscussionContextRefs={selectedDiscussionContextRefs}
                 selectedDiscussionAgents={selectedDiscussionAgents}
-                setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+                selectedDiscussionMemberIds={selectedDiscussionMemberIds}
+                setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+                selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
+                setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
+                selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
+                setSelectedTemporaryDiscussionAgentIds={setSelectedTemporaryDiscussionAgentIds}
                 temporaryDiscussionAgents={temporaryDiscussionAgents}
                 setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
                 discussionReviewMode={discussionReviewMode}

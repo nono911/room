@@ -9,6 +9,8 @@ import { useProviders } from '../../providers/context/ProvidersContext.js';
 import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
 import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
 import { AgentClonePicker } from '../../ai-members/components/AgentClonePicker.js';
+import { buildTeamRosters } from '../../ai-members/lib/teamRoster.js';
+import { DiscussionTeamSelector } from './DiscussionTeamSelector.js';
 
 interface DiscussionsScreenProps {
   projectPath: string | null;
@@ -32,7 +34,12 @@ interface DiscussionsScreenProps {
   toggleContextSelection: (target: 'task' | 'discussion', ref: string) => void;
   getContextLabel: (ref: string) => string;
   selectedDiscussionAgents: string[];
-  setSelectedDiscussionAgents: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedDiscussionMemberIds: string[];
+  setSelectedDiscussionMemberIds: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedLegacyDiscussionAgentNames: string[];
+  setSelectedLegacyDiscussionAgentNames: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedTemporaryDiscussionAgentIds: string[];
+  setSelectedTemporaryDiscussionAgentIds: React.Dispatch<React.SetStateAction<string[]>>;
   temporaryDiscussionAgents: any[];
   setTemporaryDiscussionAgents: React.Dispatch<React.SetStateAction<any[]>>;
   discussionReviewMode: boolean;
@@ -72,6 +79,18 @@ const getSavedDocumentFilename = (text: string): string | null => {
   return match?.[1]?.trim() || null;
 };
 
+const createDiscussionSelectionId = (prefix: 'mem' | 'tmp', name: string): string => {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 24) || 'member';
+  const suffix = globalThis.crypto?.randomUUID?.().replace(/-/g, '').slice(0, 10)
+    || Math.random().toString(36).slice(2, 12);
+  return `${prefix}_${slug}_${suffix}`;
+};
+
 export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   projectPath,
   loadProjectData,
@@ -94,7 +113,12 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   toggleContextSelection,
   getContextLabel,
   selectedDiscussionAgents,
-  setSelectedDiscussionAgents,
+  selectedDiscussionMemberIds,
+  setSelectedDiscussionMemberIds,
+  selectedLegacyDiscussionAgentNames,
+  setSelectedLegacyDiscussionAgentNames,
+  selectedTemporaryDiscussionAgentIds,
+  setSelectedTemporaryDiscussionAgentIds,
   temporaryDiscussionAgents,
   setTemporaryDiscussionAgents,
   discussionReviewMode,
@@ -130,7 +154,23 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   const [draggedIndex, setDraggedIndex] = React.useState<number | null>(null);
   const { providers, detectedClis, getModelOptions } = useProviders();
   const registeredProjectAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
+  const savedDiscussionAgents = registeredProjectAgents.filter((agent: any) => typeof agent.id === 'string' && agent.id.length > 0);
+  const legacyDiscussionAgents = registeredProjectAgents.filter((agent: any) => !agent.id);
   const discussionAgents = [...registeredProjectAgents, ...temporaryDiscussionAgents];
+  const savedDiscussionAgentsById = new Map(savedDiscussionAgents.map((agent: any) => [agent.id, agent]));
+  const temporaryDiscussionAgentsById = new Map(temporaryDiscussionAgents.map((agent: any) => [agent.id, agent]));
+  const selectedSavedDiscussionAgents = selectedDiscussionMemberIds
+    .map((memberId) => savedDiscussionAgentsById.get(memberId))
+    .filter((agent): agent is any => agent !== undefined);
+  const selectedTemporaryDiscussionAgents = selectedTemporaryDiscussionAgentIds
+    .map((agentId) => temporaryDiscussionAgentsById.get(agentId))
+    .filter((agent): agent is any => agent !== undefined);
+  const { userTeams, unassigned } = buildTeamRosters(
+    projectData?.agents || [],
+    projectData?.teams || [],
+    projectData?.unassignedMemberIds || []
+  );
+  const discussionTeams = unassigned.members.length > 0 ? [...userTeams, unassigned] : userTeams;
   const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
 
   const handleAddTemplateAgents = async (templateName: string, count: number, lifecycle: AgentLifecycle) => {
@@ -154,10 +194,21 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
       });
 
       if (lifecycle === 'temporary') {
-        setTemporaryDiscussionAgents(prev => [...prev, ...instances]);
-        setSelectedDiscussionAgents(prev => [...prev, ...instances.map(agent => agent.name)]);
+        const temporaryInstances = instances.map((agent) => ({
+          ...agent,
+          id: createDiscussionSelectionId('tmp', agent.name)
+        }));
+        setTemporaryDiscussionAgents(prev => [...prev, ...temporaryInstances]);
+        setSelectedTemporaryDiscussionAgentIds((prev) => [
+          ...prev,
+          ...temporaryInstances.map((agent) => agent.id)
+        ]);
       } else {
-        for (const instance of instances) {
+        const persistentInstances = instances.map((agent) => ({
+          ...agent,
+          id: createDiscussionSelectionId('mem', agent.name)
+        }));
+        for (const instance of persistentInstances) {
           const res = await api.saveAgent(projectPath, instance);
           if (!res.success) {
             alert(res.error || `Failed to save ${instance.name}.`);
@@ -165,7 +216,10 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           }
         }
         await loadProjectData(projectPath);
-        setSelectedDiscussionAgents(prev => [...prev, ...instances.map(agent => agent.name)]);
+        setSelectedDiscussionMemberIds((prev) => [
+          ...prev,
+          ...persistentInstances.map((agent) => agent.id)
+        ]);
       }
     } catch (err: any) {
       alert(err.message || 'Error occurred while adding template agents.');
@@ -188,7 +242,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
     const sourceIdx = Number(e.dataTransfer.getData('text/plain'));
     if (isNaN(sourceIdx) || sourceIdx === targetIndex) return;
 
-    setSelectedDiscussionAgents(prev => {
+    setSelectedDiscussionMemberIds((prev) => {
       const next = [...prev];
       const [removed] = next.splice(sourceIdx, 1);
       next.splice(targetIndex, 0, removed);
@@ -320,12 +374,17 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                       if (loading) return;
                       // Auto-register any unregistered agents in the preset
                       const registeredAgents = projectData?.agents || [];
-                      const nextSelected: string[] = [];
+                      const nextSelectedMemberIds: string[] = [];
+                      const nextSelectedLegacyNames: string[] = [];
 
                       for (const roleName of preset.roles) {
                         const alreadyRegistered = registeredAgents.find((a: any) => a.name.toLowerCase() === roleName.toLowerCase());
                         if (alreadyRegistered) {
-                          nextSelected.push(alreadyRegistered.name);
+                          if (alreadyRegistered.id) {
+                            nextSelectedMemberIds.push(alreadyRegistered.id);
+                          } else {
+                            nextSelectedLegacyNames.push(alreadyRegistered.name);
+                          }
                         } else {
                           const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
                           if (tmpl) {
@@ -335,7 +394,9 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                               const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
 
                               if (projectPath) {
+                                const memberId = createDiscussionSelectionId('mem', tmpl.name);
                                 const res = await api.saveAgent(projectPath, {
+                                  id: memberId,
                                   name: tmpl.name,
                                   role: tmpl.role,
                                   provider: defaults.provider,
@@ -346,7 +407,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                                   permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
                                 });
                                 if (res.success) {
-                                  nextSelected.push(tmpl.name);
+                                  nextSelectedMemberIds.push(memberId);
                                 }
                               }
                             } catch (err) {
@@ -358,7 +419,9 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                       if (projectPath) {
                         await loadProjectData(projectPath);
                       }
-                      setSelectedDiscussionAgents(nextSelected);
+                      setSelectedDiscussionMemberIds(nextSelectedMemberIds);
+                      setSelectedLegacyDiscussionAgentNames(nextSelectedLegacyNames);
+                      setSelectedTemporaryDiscussionAgentIds([]);
                     }}
                     style={{
                       padding: '14px',
@@ -459,137 +522,268 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         />
       </div>
 
-      {/* Dynamic Agent Selector with Drag & Drop Reordering */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 16px', background: 'hsl(var(--bg-sidebar))', borderRadius: '12px', border: '1px solid hsl(var(--border-dim))', marginTop: '8px', marginBottom: '8px', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase', marginRight: '4px' }}>
-          AI Members:
-        </span>
-        <>
-            {discussionAgents.length === 0 && (
-              <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
-            )}
-            {/* 1. Selected & Draggable Agents */}
-            {selectedDiscussionAgents.map((agentName, index) => {
-              const agent = discussionAgents.find((a: any) => a.name === agentName);
-              if (!agent) return null;
-              return (
-                <div
-                  key={agent.name}
-                  draggable={true}
-                  onDragStart={(e) => handleDragStart(e, index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragEnd={() => setDraggedIndex(null)}
-                  className="skill-checkbox-chip selected"
-                  style={{
-                    fontSize: '0.75rem',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'grab',
-                    opacity: draggedIndex === index ? 0.5 : 1,
-                    border: '1px solid hsl(var(--accent-purple) / 0.5)',
-                    background: 'hsl(var(--bg-input))',
-                    userSelect: 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title="Drag to reorder workflow sequence"
-                >
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'hsl(var(--accent-purple))',
-                    color: 'white',
-                    borderRadius: '50%',
-                    width: '16px',
-                    height: '16px',
-                    fontSize: '0.62rem',
-                    fontWeight: 700,
-                    lineHeight: 1
-                  }}>
-                    {index + 1}
-                  </span>
-                  <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
-                  {temporaryDiscussionAgents.some((temp: any) => temp.name === agent.name) && (
-                    <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>temp</span>
-                  )}
-                  <span 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedDiscussionAgents(prev => prev.filter(name => name !== agent.name));
-                    }}
-                    style={{
-                      cursor: 'pointer',
-                      marginLeft: '4px',
-                      color: 'hsl(var(--text-muted))',
-                      fontSize: '0.85rem',
-                      lineHeight: 1,
-                      fontWeight: 'bold'
-                    }}
-                    title="Deselect member"
-                  >
-                    ×
-                  </span>
-                </div>
-              );
-            })}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', marginBottom: '8px' }}>
+        {discussionTeams.length > 0 && (
+          <DiscussionTeamSelector
+            teams={discussionTeams}
+            selectedMemberIds={selectedDiscussionMemberIds}
+            setSelectedMemberIds={setSelectedDiscussionMemberIds}
+          />
+        )}
 
-            {/* 2a. Available but Unselected Agents */}
-            {discussionAgents
-              .filter((agent: any) => !selectedDiscussionAgents.includes(agent.name))
-              .map((agent: any) => (
-                <div 
-                  key={agent.name} 
-                  className="skill-checkbox-chip"
-                  onClick={() => {
-                    setSelectedDiscussionAgents(prev => [...prev, agent.name]);
-                  }}
-                  style={{
-                    fontSize: '0.75rem',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    cursor: 'pointer',
-                    border: '1px dashed hsl(var(--border-dim))',
-                    background: 'transparent',
-                    userSelect: 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <span style={{ color: 'hsl(var(--text-muted))' }}>+</span>
-                  <span style={{ color: 'hsl(var(--text-secondary))' }}>{agent.name}</span>
-                </div>
-              ))}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 16px', background: 'hsl(var(--bg-sidebar))', borderRadius: '12px', border: '1px solid hsl(var(--border-dim))', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', fontWeight: 600, textTransform: 'uppercase', marginRight: '4px' }}>
+            AI Members:
+          </span>
+          {discussionAgents.length === 0 && (
+            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>No AI members registered.</span>
+          )}
 
-            <AgentClonePicker
-              disabled={loading}
-              busy={localRegistering}
-              onAdd={handleAddTemplateAgents}
-            />
-
-            {/* 3. Clear button if any selected */}
-            {selectedDiscussionAgents.length > 0 && (
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setSelectedDiscussionAgents([])}
+          {selectedSavedDiscussionAgents.map((agent, index) => (
+            <div
+              key={agent.id}
+              draggable={true}
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => handleDrop(e, index)}
+              onDragEnd={() => setDraggedIndex(null)}
+              className="skill-checkbox-chip selected"
+              style={{
+                fontSize: '0.75rem',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'grab',
+                opacity: draggedIndex === index ? 0.5 : 1,
+                border: '1px solid hsl(var(--accent-purple) / 0.5)',
+                background: 'hsl(var(--bg-input))',
+                userSelect: 'none',
+                transition: 'all 0.15s ease'
+              }}
+              title="Drag to reorder saved members"
+            >
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'hsl(var(--accent-purple))',
+                color: 'white',
+                borderRadius: '50%',
+                width: '16px',
+                height: '16px',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                lineHeight: 1
+              }}>
+                {index + 1}
+              </span>
+              <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedDiscussionMemberIds((prev) => prev.filter((memberId) => memberId !== agent.id));
+                }}
                 style={{
-                  padding: '3px 8px',
-                  fontSize: '0.68rem',
-                  height: 'auto',
-                  borderRadius: '4px',
-                  marginLeft: 'auto'
+                  cursor: 'pointer',
+                  marginLeft: '4px',
+                  color: 'hsl(var(--text-muted))',
+                  fontSize: '0.85rem',
+                  lineHeight: 1,
+                  fontWeight: 'bold'
+                }}
+                title="Deselect member"
+              >
+                ×
+              </span>
+            </div>
+          ))}
+
+          {selectedLegacyDiscussionAgentNames.map((agentName) => (
+            <div
+              key={`legacy:${agentName}`}
+              className="skill-checkbox-chip selected"
+              style={{
+                fontSize: '0.75rem',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: '1px solid hsl(var(--accent-purple) / 0.5)',
+                background: 'hsl(var(--bg-input))'
+              }}
+            >
+              <span style={{ fontWeight: 500, color: 'white' }}>{agentName}</span>
+              <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>legacy</span>
+              <span
+                onClick={() => {
+                  setSelectedLegacyDiscussionAgentNames((prev) => prev.filter((name) => name !== agentName));
+                }}
+                style={{
+                  cursor: 'pointer',
+                  marginLeft: '4px',
+                  color: 'hsl(var(--text-muted))',
+                  fontSize: '0.85rem',
+                  lineHeight: 1,
+                  fontWeight: 'bold'
+                }}
+                title="Deselect member"
+              >
+                ×
+              </span>
+            </div>
+          ))}
+
+          {selectedTemporaryDiscussionAgents.map((agent) => (
+            <div
+              key={agent.id}
+              className="skill-checkbox-chip selected"
+              style={{
+                fontSize: '0.75rem',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: '1px solid hsl(var(--accent-purple) / 0.5)',
+                background: 'hsl(var(--bg-input))'
+              }}
+            >
+              <span style={{ fontWeight: 500, color: 'white' }}>{agent.name}</span>
+              <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>temp</span>
+              <span
+                onClick={() => {
+                  setSelectedTemporaryDiscussionAgentIds((prev) => prev.filter((agentId) => agentId !== agent.id));
+                }}
+                style={{
+                  cursor: 'pointer',
+                  marginLeft: '4px',
+                  color: 'hsl(var(--text-muted))',
+                  fontSize: '0.85rem',
+                  lineHeight: 1,
+                  fontWeight: 'bold'
+                }}
+                title="Deselect member"
+              >
+                ×
+              </span>
+            </div>
+          ))}
+
+          {savedDiscussionAgents
+            .filter((agent: any) => !selectedDiscussionMemberIds.includes(agent.id))
+            .map((agent: any) => (
+              <div
+                key={agent.id}
+                className="skill-checkbox-chip"
+                onClick={() => {
+                  setSelectedDiscussionMemberIds((prev) => [...prev, agent.id]);
+                }}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                  border: '1px dashed hsl(var(--border-dim))',
+                  background: 'transparent',
+                  userSelect: 'none',
+                  transition: 'all 0.15s ease'
                 }}
               >
-                Clear Workflow
-              </button>
-            )}
-          </>
+                <span style={{ color: 'hsl(var(--text-muted))' }}>+</span>
+                <span style={{ color: 'hsl(var(--text-secondary))' }}>{agent.name}</span>
+              </div>
+            ))}
+
+          {legacyDiscussionAgents
+            .filter((agent: any) => !selectedLegacyDiscussionAgentNames.includes(agent.name))
+            .map((agent: any) => (
+              <div
+                key={`legacy-option:${agent.name}`}
+                className="skill-checkbox-chip"
+                onClick={() => {
+                  setSelectedLegacyDiscussionAgentNames((prev) => [...prev, agent.name]);
+                }}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                  border: '1px dashed hsl(var(--border-dim))',
+                  background: 'transparent',
+                  userSelect: 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span style={{ color: 'hsl(var(--text-muted))' }}>+</span>
+                <span style={{ color: 'hsl(var(--text-secondary))' }}>{agent.name}</span>
+              </div>
+            ))}
+
+          {temporaryDiscussionAgents
+            .filter((agent: any) => !selectedTemporaryDiscussionAgentIds.includes(agent.id))
+            .map((agent: any) => (
+              <div
+                key={agent.id}
+                className="skill-checkbox-chip"
+                onClick={() => {
+                  setSelectedTemporaryDiscussionAgentIds((prev) => [...prev, agent.id]);
+                }}
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                  border: '1px dashed hsl(var(--border-dim))',
+                  background: 'transparent',
+                  userSelect: 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span style={{ color: 'hsl(var(--text-muted))' }}>+</span>
+                <span style={{ color: 'hsl(var(--text-secondary))' }}>{agent.name}</span>
+                <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.66rem' }}>temp</span>
+              </div>
+            ))}
+
+          <AgentClonePicker
+            disabled={loading}
+            busy={localRegistering}
+            onAdd={handleAddTemplateAgents}
+          />
+
+          {selectedDiscussionAgents.length > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setSelectedDiscussionMemberIds([]);
+                setSelectedLegacyDiscussionAgentNames([]);
+                setSelectedTemporaryDiscussionAgentIds([]);
+              }}
+              style={{
+                padding: '3px 8px',
+                fontSize: '0.68rem',
+                height: 'auto',
+                borderRadius: '4px',
+                marginLeft: 'auto'
+              }}
+            >
+              Clear Workflow
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '10px 16px', background: 'hsl(var(--bg-input))', borderRadius: '8px', border: '1px solid hsl(var(--border-dim))', marginBottom: '8px', alignItems: 'center' }}>
