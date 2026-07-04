@@ -114,12 +114,16 @@ export function registerAgentsIpc(): void {
         );
       }
 
+      const seenPaths = new Set<string>();
       let deleted = false;
       for (const filePath of filePaths) {
+        if (seenPaths.has(filePath)) {
+          continue;
+        }
+        seenPaths.add(filePath);
         try {
           await fs.unlink(filePath);
           deleted = true;
-          break;
         } catch {}
       }
       if (!deleted) {

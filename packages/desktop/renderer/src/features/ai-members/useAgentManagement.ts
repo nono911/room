@@ -248,6 +248,7 @@ export function useAgentManagement({
       }
 
       const res = await api.saveAgent(projectPath, {
+        id: editingAgent?.id,
         name: newAgentName.trim(),
         role: newAgentRole.trim(),
         provider: newAgentProvider,
