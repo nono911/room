@@ -33,6 +33,7 @@ A template is a built-in persona blueprint from ROOM, such as `UX`, `Developer`,
 
 A member is a saved AI agent configuration in `.room/members/*.json`. Each member has its own:
 
+- stable `id`
 - name
 - role
 - provider
@@ -41,11 +42,11 @@ A member is a saved AI agent configuration in `.room/members/*.json`. Each membe
 - skills
 - local CLI execution settings when applicable
 
-Members are reusable. The same member can appear in multiple teams.
+Members are reusable. The same member can appear in multiple teams. The `id` is the member's stable identity; `name` is editable display/runtime metadata and must not be used as the team reference key.
 
 ### Team
 
-A team is an ordered group of saved member references. Teams live in `.room/teams/*.json` and store member names in workflow order.
+A team is an ordered group of saved member references. Teams live in `.room/teams/*.json` and store member IDs in workflow order.
 
 Example:
 
@@ -53,7 +54,7 @@ Example:
 {
   "name": "UX/UI",
   "description": "Design review and interface strategy team",
-  "memberNames": ["UX Researcher", "UX Interaction Designer", "UX Visual Critic"],
+  "memberIds": ["mem_ux_researcher_01", "mem_ux_interaction_01", "mem_ux_visual_critic_01"],
   "createdAt": "2026-07-04T00:00:00.000Z",
   "updatedAt": "2026-07-04T00:00:00.000Z"
 }
@@ -95,11 +96,26 @@ Add one file per team:
 .room/teams/*.json
 ```
 
-Team filenames should be generated from a sanitized slug of the team name. Team contents store display `name`, optional `description`, ordered `memberNames`, `createdAt`, and `updatedAt`.
+Team filenames should be generated from a sanitized slug of the team name. Team contents store display `name`, optional `description`, ordered `memberIds`, `createdAt`, and `updatedAt`.
 
 ### References
 
-Teams reference members by member name in the first version. When a member is renamed, team references must be updated. When a member is deleted, all team references to that member must be removed.
+Teams reference members by stable member ID in the first version. Renaming a member updates the member file only; team references remain valid. When a member is deleted, all team references to that member ID must be removed.
+
+New member files should include an `id`. For team-created members, file names should use the stable ID rather than the display name. Existing legacy member files that do not have an ID are still readable. When a legacy member is explicitly added to a team or edited through the team-first UI, the main process must materialize a stable ID for that member before saving team references.
+
+## Built-In Virtual Agents
+
+ROOM currently appends built-in virtual agents when no saved member overrides a template. These virtual agents are not saved members and must not appear in user-created teams or `Unassigned`.
+
+Virtual agents should be treated as template/source material:
+
+- show them in template and recommended-team creation flows
+- hide them from saved team membership lists
+- hide them from `Unassigned`
+- materialize them into `.room/members` when a user adds one to a team
+
+Materialization creates a saved member with a stable `id`, editable `name`, provider/model defaults, prompt, and skills. After materialization, the saved member behaves like any other member.
 
 ## AI Members Page
 
@@ -197,9 +213,9 @@ Before creating, user can edit:
 
 ### Step 5: Create
 
-Create saved member files first, then create the team file referencing the new members in review order.
+Create saved member files first, then create the team file referencing the new member IDs in review order.
 
-If any save fails, return an error and do not write a partial team. Already-written member files should be either rolled back or clearly reported for cleanup. The preferred implementation is to validate all payloads before writing files.
+Team creation must use one main-process transaction, not a sequence of renderer calls. The transaction validates all team/member/skill payloads first, writes in controlled order, and either rolls back partial writes or reports exact cleanup paths if rollback fails.
 
 ## Discuss Selection
 
@@ -220,11 +236,13 @@ Each team chip can expand to show member chips. Users can select or deselect ind
 
 ### Dedupe
 
-If multiple selected teams reference the same member, the final participant list dedupes by member name. The first selected occurrence determines position.
+If multiple selected teams reference the same member, the final participant list dedupes by member ID. The first selected occurrence determines position.
 
 ### Ordering
 
-Default order follows `memberNames` in each selected team. If several teams are selected, append teams in selection order. Users can still reorder selected participants in Discuss.
+Default order follows `memberIds` in each selected team. If several teams are selected, append teams in selection order. Users can still reorder selected participants in Discuss.
+
+The current discussion engine still receives agent names. The renderer/main-process roster layer should resolve selected member IDs to current member names immediately before calling discussion/task execution. Long-term engine APIs can move to IDs, but v1 does not require that migration.
 
 ## Task Run Selection
 
@@ -238,12 +256,30 @@ Add team IPC handlers:
 - `save-team`
 - `delete-team`
 - `update-team-members`
+- `create-team-with-members`
 
 Update member deletion:
 
 - delete member file
-- remove the member name from every team file
+- remove the member ID from every team file
 - keep empty teams
+
+Update member save/rename:
+
+- preserve existing `id` when saving an edited member
+- if a legacy member has no `id`, assign one before adding it to a team
+- do not model rename as delete old plus save new for team-managed members
+- if legacy UI code still performs delete plus save, block rename for members referenced by teams until it is replaced with ID-preserving save
+
+Add `create-team-with-members` as the wizard commit operation:
+
+- input: team draft, member drafts, optional skill drafts created by the wizard
+- validate every team and member payload before writing
+- reserve unique member IDs and file paths
+- write member files
+- write team file with `memberIds`
+- rollback written files on failure where possible
+- return any paths that could not be rolled back so the UI can surface cleanup guidance
 
 Update workspace data loading:
 
@@ -262,13 +298,16 @@ Existing workspaces have members but no teams. On first load:
 
 This avoids surprising writes to existing workspaces.
 
+When a legacy member without `id` is added to a team, that explicit user action is allowed to update the member file with a generated stable ID.
+
 ## Error Handling
 
 - Invalid team files should be skipped with an error surfaced in workspace diagnostics or the UI.
 - Missing member references should be ignored in runtime selection and shown as stale references in team detail.
-- Saving a team with duplicate member names should normalize to one reference per team.
+- Saving a team with duplicate member IDs should normalize to one reference per team.
 - Deleting a member must remove that member from all teams.
-- Renaming a member must update all team references.
+- Renaming a member must preserve member ID and must not change team references.
+- Virtual built-in agents must be materialized before they can be stored in a team.
 
 ## Testing
 
@@ -281,10 +320,12 @@ Focused tests should cover:
 
 - loading teams from `.room/teams`
 - virtual `Unassigned` computation
+- virtual built-ins excluded from teams and materialized when added
 - create team wizard payload generation
-- member deletion removing team refs
-- member rename updating team refs
-- Discuss selecting whole teams and deduping member names
+- `create-team-with-members` validation and rollback behavior
+- member deletion removing team refs by ID
+- member rename preserving team refs by ID
+- Discuss selecting whole teams and deduping member IDs
 - migration behavior for existing member-only workspaces
 
 ## Implementation Slices
