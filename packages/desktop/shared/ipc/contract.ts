@@ -5,7 +5,8 @@ import type {
   DetectedAgent,
   MaskedProvider,
   TaskBoardCard,
-  DiscussionIpcEvent
+  DiscussionIpcEvent,
+  MemberTeam
 } from '../types/domain.js';
 
 export interface ElectronAPI {
@@ -18,6 +19,7 @@ export interface ElectronAPI {
     projectMd: string;
     archMd: string;
     hasScanData?: boolean;
+    workspaceDiagnostics?: Array<{ source: string; message: string }>;
     tasks: string[];
     taskRuns?: string[];
     decisions: string[];
@@ -26,6 +28,8 @@ export interface ElectronAPI {
     discussions: string[];
     skills: string[];
     agents: any[];
+    teams?: MemberTeam[];
+    unassignedMemberIds?: string[];
     error?: string;
   }>;
   readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) => Promise<{ success: boolean; content?: string; sourceSection?: string; error?: string }>;
@@ -133,6 +137,22 @@ export interface ElectronAPI {
   saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
   saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
   deleteAgent: (dirPath: string, agentName: string) => Promise<{ success: boolean; error?: string }>;
+  loadTeams: (dirPath: string) => Promise<{ success: boolean; teams?: MemberTeam[]; error?: string; rollbackWarnings?: string[] }>;
+  saveTeam: (dirPath: string, team: any) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;
+  deleteTeam: (dirPath: string, teamId: string) => Promise<{ success: boolean; error?: string; rollbackWarnings?: string[] }>;
+  updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;
+  createTeamWithMembers: (
+    dirPath: string,
+    team: unknown,
+    members: unknown[],
+    skillDrafts?: Array<{ name: string; content: string }>
+  ) => Promise<{ success: boolean; team?: MemberTeam; members?: any[]; rollbackWarnings?: string[]; error?: string }>;
+  addMembersToTeam: (
+    dirPath: string,
+    teamId: string,
+    members: unknown[],
+    skillDrafts?: Array<{ name: string; content: string }>
+  ) => Promise<{ success: boolean; team?: MemberTeam; members?: any[]; rollbackWarnings?: string[]; error?: string }>;
   saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<{ success: boolean; error?: string }>;
   previewAgentSkills: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string } & Partial<SkillPreviewResult>>;
   detectLocalAgents: () => Promise<{ success: boolean; agents?: DetectedAgent[]; error?: string }>;

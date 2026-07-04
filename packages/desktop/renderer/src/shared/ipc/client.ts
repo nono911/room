@@ -51,6 +51,23 @@ export const api = {
     window.electronAPI.saveContextFile(dirPath, filename, content),
   saveAgent: (dirPath: string, agent: any) => window.electronAPI.saveAgent(dirPath, agent),
   deleteAgent: (dirPath: string, agentName: string) => window.electronAPI.deleteAgent(dirPath, agentName),
+  loadTeams: (dirPath: string) => window.electronAPI.loadTeams(dirPath),
+  saveTeam: (dirPath: string, team: any) => window.electronAPI.saveTeam(dirPath, team),
+  deleteTeam: (dirPath: string, teamId: string) => window.electronAPI.deleteTeam(dirPath, teamId),
+  updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) =>
+    window.electronAPI.updateTeamMembers(dirPath, teamId, memberIds),
+  createTeamWithMembers: (
+    dirPath: string,
+    team: unknown,
+    members: unknown[],
+    skillDrafts: Array<{ name: string; content: string }> = []
+  ) => window.electronAPI.createTeamWithMembers(dirPath, team, members, skillDrafts),
+  addMembersToTeam: (
+    dirPath: string,
+    teamId: string,
+    members: unknown[],
+    skillDrafts: Array<{ name: string; content: string }> = []
+  ) => window.electronAPI.addMembersToTeam(dirPath, teamId, members, skillDrafts),
   saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => window.electronAPI.saveSkill(dirPath, name, content, source),
   previewAgentSkills: (dirPath: string, agent: any) => window.electronAPI.previewAgentSkills(dirPath, agent),
   detectLocalAgents: () => window.electronAPI.detectLocalAgents(),

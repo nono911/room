@@ -28,6 +28,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   previewAgentSkills: (dirPath, agent) => ipcRenderer.invoke('preview-agent-skills', { dirPath, agent }),
   saveAgent: (dirPath, agent) => ipcRenderer.invoke('save-agent', { dirPath, agent }),
   deleteAgent: (dirPath, agentName) => ipcRenderer.invoke('delete-agent', { dirPath, agentName }),
+  loadTeams: (dirPath) => ipcRenderer.invoke('load-teams', { dirPath }),
+  saveTeam: (dirPath, team) => ipcRenderer.invoke('save-team', { dirPath, team }),
+  deleteTeam: (dirPath, teamId) => ipcRenderer.invoke('delete-team', { dirPath, teamId }),
+  updateTeamMembers: (dirPath, teamId, memberIds) => ipcRenderer.invoke('update-team-members', { dirPath, teamId, memberIds }),
+  createTeamWithMembers: (dirPath, team, members, skillDrafts = []) =>
+    ipcRenderer.invoke('create-team-with-members', { dirPath, team, members, skillDrafts }),
+  addMembersToTeam: (dirPath, teamId, members, skillDrafts = []) =>
+    ipcRenderer.invoke('add-members-to-team', { dirPath, teamId, members, skillDrafts }),
   detectLocalAgents: () => ipcRenderer.invoke('detect-local-agents'),
   loadProviders: () => ipcRenderer.invoke('load-providers'),
   saveProvider: (provider) => ipcRenderer.invoke('save-provider', provider),

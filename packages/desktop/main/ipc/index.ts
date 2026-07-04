@@ -6,3 +6,4 @@ export { registerProvidersIpc } from './providers.js';
 export { registerMcpIpc } from './mcp.js';
 export { registerFilesIpc } from './files.js';
 export { registerRunControlIpc } from './run-control.js';
+export { registerTeamsIpc } from './teams.js';

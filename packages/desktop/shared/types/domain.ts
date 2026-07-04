@@ -1,7 +1,17 @@
+export interface MemberTeam {
+  id: string;
+  name: string;
+  description?: string;
+  memberIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProjectData {
   projectMd: string;
   archMd: string;
   hasScanData?: boolean;
+  workspaceDiagnostics?: Array<{ source: string; message: string }>;
   tasks: string[];
   taskRuns?: any[];
   decisions: string[];
@@ -10,6 +20,8 @@ export interface ProjectData {
   discussions: string[];
   skills: string[];
   agents: any[];
+  teams?: MemberTeam[];
+  unassignedMemberIds?: string[];
 }
 
 export interface DetectedAgent {
