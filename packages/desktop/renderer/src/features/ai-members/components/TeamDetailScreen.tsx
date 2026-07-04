@@ -45,18 +45,20 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
   const isReadOnlyTeam = Boolean(team.virtual);
 
   const persistMemberIds = async (memberIds: string[]) => {
-    if (isReadOnlyTeam) return;
+    if (isReadOnlyTeam) return false;
     setSaving(true);
     setMutationError(null);
     try {
       const result = await api.updateTeamMembers(projectPath, team.id, memberIds);
       if (!result.success) {
         setMutationError(result.error || 'Failed to update team members.');
-        return;
+        return false;
       }
       await reloadProjectData();
+      return true;
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : 'Failed to update team members.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -73,8 +75,10 @@ export const TeamDetailScreen: React.FC<TeamDetailScreenProps> = ({
 
   const appendExistingMember = async () => {
     if (!selectedMemberId || team.memberIds.includes(selectedMemberId) || isReadOnlyTeam) return;
-    await persistMemberIds([...team.memberIds, selectedMemberId]);
-    setSelectedMemberId('');
+    const didPersist = await persistMemberIds([...team.memberIds, selectedMemberId]);
+    if (didPersist) {
+      setSelectedMemberId('');
+    }
   };
 
   const handleAddTemplateMembers = async (

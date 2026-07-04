@@ -241,7 +241,7 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
         </div>
       )}
 
-      {visibleTeams.length > 0 && (
+      {!shouldShowRecommendedTeams && visibleTeams.length > 0 && (
         <div
           style={{
             background: 'rgba(15, 23, 42, 0.68)',

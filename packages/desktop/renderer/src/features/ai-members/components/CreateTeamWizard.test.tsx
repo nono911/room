@@ -75,4 +75,35 @@ describe('CreateTeamWizard', () => {
       'workspace-implementation.md'
     ]);
   });
+
+  it('preserves member count for preset rows that use alias roles', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <CreateTeamWizard
+        existingNames={[]}
+        existingSkillFiles={[]}
+        onCancel={vi.fn()}
+        onCreate={onCreate}
+        initialTeamName="Editorial"
+        initialTemplateRows={[
+          { id: 'copywriter-row', templateName: 'Copywriter', count: 1 },
+          { id: 'support-row', templateName: 'Support', count: 1 }
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create team' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+
+    const [, members] = onCreate.mock.calls[0];
+
+    expect(members).toHaveLength(2);
+    expect(members.map((member: { role: string }) => member.role)).toEqual(['Copywriter', 'Support']);
+    expect(members.map((member: { name: string }) => member.name)).toEqual([
+      'Copywriter Strategy',
+      'Support Strategy'
+    ]);
+  });
 });

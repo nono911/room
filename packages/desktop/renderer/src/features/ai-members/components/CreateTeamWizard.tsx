@@ -1,11 +1,11 @@
 import React from 'react';
 import type { TemplateSkill } from '../../../types/domain.js';
-import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
 import {
   buildGeneratedDrafts,
   buildProviderOptions,
   buildSkillDraftContent,
   buildSystemPrompt,
+  buildTemplateOptions,
   createRowId,
   DEFAULT_TEMPLATE_NAME,
   mergeDraftEdits,
@@ -83,6 +83,7 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({
   }, [existingNames, templateRows]);
 
   const providerOptions = React.useMemo(() => buildProviderOptions(), []);
+  const templateOptions = React.useMemo(() => buildTemplateOptions(), []);
 
   const updateDraft = (draftId: string, patch: Partial<TeamWizardMemberDraft>) => {
     setMemberDrafts(previous =>
@@ -231,9 +232,9 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({
                   )
                 }
               >
-                {agentPersonaTemplates.map(template => (
-                  <option key={template.name} value={template.name}>
-                    {template.name}
+                {templateOptions.map(templateName => (
+                  <option key={templateName} value={templateName}>
+                    {templateName}
                   </option>
                 ))}
               </select>
