@@ -226,7 +226,10 @@ export function useAgentManagement({
     setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
-      if (editingAgent && editingAgent.name.toLowerCase() !== newAgentName.trim().toLowerCase()) {
+      const isRenamingLegacyMember = editingAgent
+        && !editingAgent.id
+        && editingAgent.name.toLowerCase() !== newAgentName.trim().toLowerCase();
+      if (isRenamingLegacyMember) {
         await api.deleteAgent(projectPath, editingAgent.name, editingAgent.id);
       }
 
