@@ -1238,7 +1238,7 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({ existingName
         role: template.role || template.name,
         personaAngle: variant.personaAngle,
         provider: template.provider || 'gemini',
-        modelName: template.modelName,
+        modelName: undefined,
         skills: [],
         systemPrompt: `${template.prompt || ''}\n\n=== Persona Variant ===\n${variant.personaAngle}`
       }));
