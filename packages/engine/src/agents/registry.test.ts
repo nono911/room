@@ -123,4 +123,32 @@ describe('member id handling', () => {
     );
     expect(contents.map(item => item.name).sort()).toEqual(['ผู้วิจัย', '研究者']);
   });
+
+  it('updates an existing legacy filename instead of forking it', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-member-save-legacy-'));
+    await fs.mkdir(path.join(dir, '.room', 'members'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, '.room', 'members', 'jane doe.json'),
+      JSON.stringify({
+        name: 'Jane Doe',
+        role: 'UX',
+        provider: 'gemini',
+        systemPrompt: 'Research interface needs.'
+      }, null, 2),
+      'utf-8'
+    );
+
+    await saveAgent(dir, {
+      name: 'Jane Doe',
+      role: 'UX',
+      provider: 'gemini',
+      systemPrompt: 'Research interface needs.'
+    });
+
+    const files = (await fs.readdir(path.join(dir, '.room', 'members'))).sort();
+    expect(files).toEqual(['jane doe.json']);
+
+    const saved = await fs.readFile(path.join(dir, '.room', 'members', 'jane doe.json'), 'utf-8');
+    expect(JSON.parse(saved).name).toBe('Jane Doe');
+  });
 });

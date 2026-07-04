@@ -61,6 +61,23 @@ function encodeAgentFileBase(value: string): string {
   return encodeURIComponent(value.trim().toLowerCase());
 }
 
+async function resolveAgentFilePath(agentsDir: string, agent: AgentConfig): Promise<string> {
+  if (agent.id) {
+    return path.join(agentsDir, `${agent.id}.json`);
+  }
+
+  const legacyFileName = `${agent.name.toLowerCase()}.json`;
+  if (!/[\\/]/.test(agent.name)) {
+    const legacyFilePath = path.join(agentsDir, legacyFileName);
+    try {
+      await fs.access(legacyFilePath);
+      return legacyFilePath;
+    } catch {}
+  }
+
+  return path.join(agentsDir, `${encodeAgentFileBase(agent.name)}.json`);
+}
+
 export function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentConfig } | { success: false; error: string } {
   if (!isPlainObject(rawAgent)) {
     return { success: false, error: 'Invalid agent payload.' };
@@ -211,8 +228,7 @@ export async function saveAgent(dirPath: string, agent: AgentConfig): Promise<vo
   const agentsDir = path.join(dirPath, '.room', 'members');
   await fs.mkdir(agentsDir, { recursive: true });
 
-  const fileBase = validated.agent.id || encodeAgentFileBase(validated.agent.name);
-  const filePath = path.join(agentsDir, `${fileBase}.json`);
+  const filePath = await resolveAgentFilePath(agentsDir, validated.agent);
   await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
 }
 
