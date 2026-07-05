@@ -1,4 +1,5 @@
 import { estimateTokenCount, trimTextToTokenBudget } from './tokenBudget.js';
+import { shortMessageRef } from './references.js';
 
 export interface PromptHistoryMessage {
   id?: string;
@@ -191,7 +192,7 @@ function buildPriorMessageInstruction(includedMessageCount: number, omittedMessa
   const omissionClause = omittedMessageCount > 0
     ? ` ${omittedMessageCount} older message(s) exist in the full log but are not included in this prompt, so do not claim to have read them unless summarized here.`
     : '';
-  return `\n\nYou have ${includedMessageCount} previous chat message(s) included in the discussion history for this prompt, including the user's latest message.${omissionClause} Explicitly build on, refine, challenge, or resolve points from the included history instead of answering as a standalone first response. When recording references, cite the visible Message number from this prompt.`;
+  return `\n\nYou have ${includedMessageCount} previous chat message(s) included in the discussion history for this prompt, including the user's latest message.${omissionClause} Explicitly build on, refine, challenge, or resolve points from the included history instead of answering as a standalone first response. When recording references, cite the stable mNNNN id shown in brackets, or the visible Message number if no bracketed id is shown.`;
 }
 
 function toPromptContextMessage(message: PromptHistoryMessage, promptNumber: number, logIndex: number): PromptContextMessage {
@@ -211,16 +212,18 @@ function estimatePromptHistoryMessageTokens(message: PromptHistoryMessage, maxMe
 }
 
 function formatMessageForPromptHistory(message: PromptHistoryMessage, promptNumber: number, maxMessageTokens?: number): string {
+  const refTag = shortMessageRef(message.id);
+  const idPart = refTag ? ` [${refTag}]` : '';
   if (message.type === 'user') {
     const content = fitMessageContentToBudget(message.content, maxMessageTokens);
-    return `--- Message ${promptNumber}: ${message.agentName} ---\n${content}`;
+    return `--- Message ${promptNumber}${idPart}: ${message.agentName} ---\n${content}`;
   }
 
   const cleanedContent = cleanAgentUserContent(message.content);
   const content = fitMessageContentToBudget(isOnlyOmissionNotes(cleanedContent)
     ? '[Previous Local CLI action narration omitted.]'
     : cleanedContent, maxMessageTokens);
-  return `--- Message ${promptNumber}: ${message.agentName} (${message.providerName}) ---\n${content}`;
+  return `--- Message ${promptNumber}${idPart}: ${message.agentName} (${message.providerName}) ---\n${content}`;
 }
 
 function fitMessageContentToBudget(content: string, maxMessageTokens?: number): string {

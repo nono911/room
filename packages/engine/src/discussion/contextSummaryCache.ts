@@ -72,6 +72,27 @@ export function isReusableContextSummaryCache(
     && cache.summaryInputHash === hashSummaryInput(messages, candidateIndexes);
 }
 
+export interface ContextSummaryCacheReuse {
+  exact: boolean;
+  prefix: boolean;
+  uncoveredIndexes: number[];
+}
+
+export function checkContextSummaryCacheReuse(
+  cache: ContextSummaryCache | null,
+  messages: PromptHistoryMessage[],
+  candidateIndexes: number[]
+): ContextSummaryCacheReuse {
+  const noReuse: ContextSummaryCacheReuse = { exact: false, prefix: false, uncoveredIndexes: candidateIndexes };
+  if (!cache || cache.summarizedMessageIndexes.length === 0) return noReuse;
+  const covered = cache.summarizedMessageIndexes;
+  if (covered.length > candidateIndexes.length) return noReuse;
+  if (!covered.every((value, index) => value === candidateIndexes[index])) return noReuse;
+  if (cache.summaryInputHash !== hashSummaryInput(messages, covered)) return noReuse;
+  const uncoveredIndexes = candidateIndexes.slice(covered.length);
+  return { exact: uncoveredIndexes.length === 0, prefix: true, uncoveredIndexes };
+}
+
 export function createContextSummaryCache(
   source: ContextSummarySource,
   contextId: string,

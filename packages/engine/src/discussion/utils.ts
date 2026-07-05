@@ -34,9 +34,9 @@ If you cannot answer from the provided context, say what specific context is mis
 export const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
 At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
 \`\`\`room-refs
-{"references": [{"message": <visible Message number>, "author": "<agent or user name>", "reason": "<why you used it>"}]}
+{"references": [{"id": "<the mNNNN id shown in the message header>", "author": "<agent or user name>", "reason": "<why you used it>"}]}
 \`\`\`
-Use the visible Message number shown in the prompt history, not the full log number. List only messages that genuinely shaped your answer. If you used none, output {"references": []}. Do not mention this block in your prose.`;
+Each history entry header shows its stable id in brackets, for example: --- Message 3 [m0007]: Architect ---. Cite that mNNNN id. If a message header shows no bracketed id, cite its visible Message number as "message": <number> instead. List only messages that genuinely shaped your answer. If you used none, output {"references": []}. Do not mention this block in your prose.`;
 
 export function composeAgentSystemPrompt(basePrompt: string, localCliAgent: boolean, ...sections: string[]): string {
   return [

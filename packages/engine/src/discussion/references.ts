@@ -13,6 +13,11 @@ export interface ReferenceResolutionContext {
   agentName: string;
 }
 
+export function shortMessageRef(id?: string): string {
+  const match = id?.match(/message-(\d{1,6})$/);
+  return match ? `m${match[1]}` : '';
+}
+
 export function parseMessageReferences(
   content: string,
   resolutionContext: ReferenceResolutionContext[] = []
@@ -30,12 +35,20 @@ export function parseMessageReferences(
     for (const entry of list) {
       const author = typeof entry?.author === 'string' ? entry.author.trim() : '';
       const message = Number.isInteger(entry?.message) && entry.message > 0 ? entry.message : undefined;
-      const resolved = message
+      const shortIdMatch = typeof entry?.id === 'string' ? entry.id.trim().match(/^m(\d{1,6})$/i) : null;
+      const resolvedById = shortIdMatch
+        ? resolutionContext.find(contextMessage => {
+            const contextMatch = contextMessage.id?.match(/message-(\d{1,6})$/);
+            return !!contextMatch && Number(contextMatch[1]) === Number(shortIdMatch[1]);
+          })
+        : undefined;
+      const resolvedByNumber = message
         ? resolutionContext.find(contextMessage => contextMessage.promptNumber === message)
         : undefined;
+      const resolved = resolvedById || resolvedByNumber;
       if (!author && !resolved) continue;
       references.push({
-        ...(message && resolved ? { message } : {}),
+        ...(message && resolvedByNumber && resolved === resolvedByNumber ? { message } : {}),
         ...(resolved?.id ? { messageId: resolved.id } : {}),
         author: author || resolved?.agentName,
         reason: typeof entry?.reason === 'string' && entry.reason.trim() ? entry.reason.trim() : undefined

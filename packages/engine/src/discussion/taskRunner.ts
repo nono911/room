@@ -154,7 +154,7 @@ export async function runCodingTaskLoop(
       agentName: 'You',
       providerName: 'User',
       content: task,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Date().toLocaleString()
     }],
     markdownFilename,
     jsonFilename,
@@ -182,7 +182,7 @@ export async function runCodingTaskLoop(
       agentName: 'You',
       providerName: 'User',
       content: `Interrupt & Pivot:\n\n${interruptMessage}`,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: new Date().toLocaleString(),
       round: result.cycles
     };
     result.messages.push(pivotMessage);
@@ -222,7 +222,7 @@ export async function runCodingTaskLoop(
       ...(developer.modelName ? { modelName: developer.modelName } : {}),
       role: developer.role,
       round: cycle,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Date().toLocaleString()
     });
 
     const developerContext = await compileContextWithOptionalSummary(
@@ -286,7 +286,7 @@ ${doerWorkInstructions}
       providerName: developer.provider,
       ...(developer.modelName ? { modelName: developer.modelName } : {}),
       content: developerOutput,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: new Date().toLocaleString(),
       round: cycle,
       contextMessages: developerContext.includedMessages,
       contextMetrics: {
@@ -330,7 +330,7 @@ ${doerWorkInstructions}
         ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
         role: reviewer.role,
         round: cycle,
-        timestamp: new Date().toLocaleTimeString()
+        timestamp: new Date().toLocaleString()
       });
 
       const reviewerContext = await compileContextWithOptionalSummary(
@@ -395,7 +395,7 @@ ${reviewerRules}
         providerName: reviewer.provider,
         ...(reviewer.modelName ? { modelName: reviewer.modelName } : {}),
         content: reviewerOutput,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleString(),
         round: cycle,
         contextMessages: reviewerContext.includedMessages,
         contextMetrics: {

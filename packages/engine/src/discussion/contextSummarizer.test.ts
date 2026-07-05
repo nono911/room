@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldGenerateContextSummary, truncateSummary } from './contextSummarizer.js';
+import { shouldGenerateContextSummary, truncateSummary, updateContextSummary } from './contextSummarizer.js';
 
 describe('contextSummarizer', () => {
   it('truncates long summaries at a readable boundary with an explicit note', () => {
@@ -29,5 +29,27 @@ describe('contextSummarizer', () => {
       minSummaryCandidateChars: 10,
       maxSummaryChars: 6000
     })).toBe(true);
+  });
+
+  it('sends the previous summary plus only the uncovered messages', async () => {
+    let captured = '';
+    const provider = {
+      execute: async (prompt: string) => {
+        captured = prompt;
+        return 'updated summary';
+      }
+    };
+    const messages = [0, 1, 2, 3].map(index => ({
+      agentName: `Agent ${index}`,
+      providerName: 'Claude',
+      content: `content ${index}`,
+      timestamp: '10:00'
+    }));
+    const result = await updateContextSummary(provider, 'sys', 'old summary', messages, [2, 3]);
+    expect(result).toBe('updated summary');
+    expect(captured).toContain('old summary');
+    expect(captured).toContain('content 2');
+    expect(captured).toContain('content 3');
+    expect(captured).not.toContain('content 0');
   });
 });

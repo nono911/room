@@ -16,6 +16,7 @@ import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, type ActionExecutionResult } from './actionExecutor.js';
 import { parseQualityGateResult, type QualityGateResult } from './approvalDetector.js';
 import { type TaskCard } from './taskBoard.js';
+import { buildBudgetedTranscript } from './contextBuilder.js';
 
 export function pickModerator(agents: AgentConfig[], moderatorName?: string): AgentConfig | undefined {
   if (moderatorName) {
@@ -56,7 +57,7 @@ export async function evaluateDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = renderDiscussionMarkdown(discussionLog);
+  const transcript = buildBudgetedTranscript(discussionLog);
   const prompt = `Evaluate whether this ROOM chat has answered the user's goal well enough to stop.
 
 Do not add new creative or implementation work unless it is needed to explain a gap.
@@ -132,7 +133,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
     agentName: moderator.name,
     providerName: moderator.provider,
     content: displayContent,
-    timestamp: new Date().toLocaleTimeString(),
+    timestamp: new Date().toLocaleString(),
     contextMessages
   });
   await appendMessageCreatedEvent('discussion', discussionId, discussionLog.messages[discussionLog.messages.length - 1]);
@@ -167,7 +168,7 @@ export async function generateTasksFromDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = renderDiscussionMarkdown(discussionLog);
+  const transcript = buildBudgetedTranscript(discussionLog);
   const prompt = `Convert the outcome of this ROOM chat into a structured task board plan.
 
 Output requirements:

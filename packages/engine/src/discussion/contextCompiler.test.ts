@@ -49,8 +49,8 @@ describe('compileDiscussionContext', () => {
     expect(context.summaryCandidateIndexes).toEqual([1, 2, 3, 4]);
     expect(context.totalLogMessages).toBe(8);
     expect(context.historyBlock).toContain('4 older message(s) are omitted');
-    expect(context.historyBlock).toContain('--- Message 1: User 1 ---');
-    expect(context.historyBlock).toContain('--- Message 4: User 8 ---');
+    expect(context.historyBlock).toContain('--- Message 1 [m0001]: User 1 ---');
+    expect(context.historyBlock).toContain('--- Message 4 [m0008]: User 8 ---');
   });
 
   it('can retain the latest user message even when the first user anchor is disabled', () => {
@@ -242,5 +242,14 @@ describe('compileDiscussionContext', () => {
     expect(context.historyBlock).toContain('console.log("I am running a test");');
     expect(context.historyBlock).toContain('And outside again:');
     expect(context.historyBlock).not.toContain('I am running a check.');
+  });
+
+  it('shows the stable short id in each history header', () => {
+    const compiled = compileDiscussionContext([
+      message(1, 'user'),
+      message(2)
+    ], '');
+    expect(compiled.historyBlock).toContain('--- Message 1 [m0001]: User 1 ---');
+    expect(compiled.historyBlock).toContain('--- Message 2 [m0002]: Agent 2 (Local CLI) ---');
   });
 });

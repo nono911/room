@@ -55,6 +55,33 @@ ${transcript}`;
   return truncateSummary(summary.trim(), policy.maxSummaryChars);
 }
 
+export const MAX_UNSUMMARIZED_OMITTED_MESSAGES = 4;
+
+export async function updateContextSummary(
+  provider: Provider,
+  systemPrompt: string,
+  previousSummary: string,
+  messages: PromptHistoryMessage[],
+  uncoveredIndexes: number[],
+  policy: ContextSummaryPolicy = DEFAULT_CONTEXT_SUMMARY_POLICY
+): Promise<string> {
+  const transcript = uncoveredIndexes
+    .map(index => formatSummaryInputMessage(index, messages[index]))
+    .join('\n\n');
+  const prompt = `Update this existing summary of omitted ROOM messages with the newly omitted messages below.
+
+Existing summary:
+${previousSummary}
+
+Newly omitted messages:
+${transcript}
+
+Merge them into one updated summary. Preserve user goals and constraints, decisions made, open findings or unresolved objections, required changes, files/modules mentioned, and the current plan/status. Keep the result under ${policy.maxSummaryChars} characters. Return only the updated summary.`;
+
+  const summary = await provider.execute(prompt, systemPrompt);
+  return truncateSummary(summary.trim(), policy.maxSummaryChars);
+}
+
 export function truncateSummary(summary: string, maxSummaryChars: number): string {
   if (summary.length <= maxSummaryChars) {
     return summary;

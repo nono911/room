@@ -19,14 +19,15 @@ import {
 import {
   compileContextWithOptionalSummary,
   readFirstExistingFile,
+  composeProjectContext,
+  loadWorkspaceMemoryContext,
+  buildSkillsContext,
   autoMatchSkills,
-  resolveSkillPath,
   isReviewerAgent,
   buildReviewProtocol
 } from './contextBuilder.js';
 import { parseMessageReferences, type MessageReference } from './references.js';
 import { isExplicitlyApproved } from './approvalDetector.js';
-import { parseSkillFrontmatter } from '../skills/parser.js';
 
 const DISCUSSION_PROTOCOL = `=== Discussion Protocol ===
 Speak in the first person as your assigned AI member role.
@@ -122,7 +123,6 @@ export async function runDiscussionLoop(
     title: discussionLog.title
   });
 
-  let projectContext = '';
   const overview = await readFirstExistingFile([
     path.join(dirPath, '.room', 'context', 'overview.md'),
     path.join(dirPath, '.room', 'workspace.md'),
@@ -132,13 +132,13 @@ export async function runDiscussionLoop(
     path.join(dirPath, '.room', 'context', 'structure.md'),
     path.join(dirPath, '.room', 'architecture', 'current.md')
   ]);
-  projectContext = overview;
-  if (structure) {
-    projectContext += `\n\nWorkspace Structure:\n${structure}`;
-  }
-  if (options.additionalContext?.trim()) {
-    projectContext += `\n\nSelected Context:\n${options.additionalContext.trim()}`;
-  }
+  const workspaceMemory = await loadWorkspaceMemoryContext(dirPath, 2500, discussionId);
+  const projectContext = composeProjectContext({
+    overview,
+    structure,
+    additionalContext: options.additionalContext,
+    workspaceMemory
+  });
 
   const userMessage: DiscussionMessage = {
     id: nextStableMessageId(discussionId, discussionLog.messages),
@@ -146,7 +146,7 @@ export async function runDiscussionLoop(
     agentName: options.userLabel || 'You',
     providerName: 'User',
     content: topic,
-    timestamp: new Date().toLocaleTimeString()
+    timestamp: new Date().toLocaleString()
   };
   discussionLog.messages.push(userMessage);
   await appendMessageCreatedEvent('discussion', discussionId, userMessage);
@@ -165,7 +165,7 @@ export async function runDiscussionLoop(
       agentName: options.userLabel || 'You',
       providerName: 'User',
       content: `Interrupt & Pivot:\n\n${interruptMessage}`,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Date().toLocaleString()
     };
     discussionLog.messages.push(pivotMessage);
     discussionLog.status = 'interrupted';
@@ -207,7 +207,7 @@ export async function runDiscussionLoop(
         ...(agent.modelName ? { modelName: agent.modelName } : {}),
         role: agent.role,
         round,
-        timestamp: new Date().toLocaleTimeString()
+        timestamp: new Date().toLocaleString()
       });
 
       const mentionedPaths: string[] = [];
@@ -225,20 +225,7 @@ export async function runDiscussionLoop(
         ...autoMatchedSkills
       ]));
 
-      let skillsContext = '';
-      if (allSkillFiles.length > 0) {
-        skillsContext = '\n\n=== Active Skills ===\n';
-        for (const skillFile of allSkillFiles) {
-          try {
-            const resolvedSkillPath = await resolveSkillPath(dirPath, skillFile);
-            const skillContent = await fs.readFile(resolvedSkillPath, 'utf-8');
-            const parsed = parseSkillFrontmatter(skillContent);
-            skillsContext += `\n[Skill: ${skillFile}]\n${parsed.content.trim()}\n`;
-          } catch (err: any) {
-            console.error(`Error loading skill ${skillFile}:`, err.message);
-          }
-        }
-      }
+      const skillsContext = await buildSkillsContext(dirPath, allSkillFiles);
 
       const compiledContext = await compileContextWithOptionalSummary(
         dirPath,
@@ -246,9 +233,15 @@ export async function runDiscussionLoop(
         discussionId,
         discussionLog.messages,
         projectContext,
-        agents,
+        workflowAgents,
         getProvider,
-        assertAgentExecutionAllowed
+        assertAgentExecutionAllowed,
+        summaryEvent => options.onEvent?.({
+          type: summaryEvent.type,
+          discussionId,
+          round,
+          ...(summaryEvent.error ? { error: summaryEvent.error } : {})
+        })
       );
       const contextMessages = compiledContext.includedMessages;
       const priorMessageInstruction = compiledContext.priorMessageInstruction;
@@ -355,7 +348,7 @@ export async function runDiscussionLoop(
         providerName: agent.provider,
         ...(agent.modelName ? { modelName: agent.modelName } : {}),
         content: response,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleString(),
         contextMessages,
         contextMetrics: {
           ...compiledContext.metrics,

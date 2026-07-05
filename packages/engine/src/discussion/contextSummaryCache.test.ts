@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkContextSummaryCacheReuse,
   createContextSummaryCache,
   hashSummaryInput,
   isReusableContextSummaryCache,
@@ -45,5 +46,49 @@ describe('contextSummaryCache', () => {
   it('compares exact ordered index sets', () => {
     expect(sameOrderedIndexes([1, 2], [1, 2])).toBe(true);
     expect(sameOrderedIndexes([1, 2], [2, 1])).toBe(false);
+  });
+});
+
+function cacheMessages(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `discussion-1:message-${String(index + 1).padStart(4, '0')}`,
+    type: 'agent' as const,
+    agentName: `Agent ${index}`,
+    providerName: 'Claude',
+    content: `content ${index}`,
+    timestamp: '10:00'
+  }));
+}
+
+describe('checkContextSummaryCacheReuse', () => {
+  const cacheReuseMessages = cacheMessages(10);
+
+  it('reports exact reuse when candidates match the cache', () => {
+    const cache = createContextSummaryCache('discussion', 'discussion-1', cacheReuseMessages, [1, 2, 3], 'sum');
+    expect(checkContextSummaryCacheReuse(cache, cacheReuseMessages, [1, 2, 3]))
+      .toEqual({ exact: true, prefix: true, uncoveredIndexes: [] });
+  });
+
+  it('reports prefix reuse with the uncovered tail', () => {
+    const cache = createContextSummaryCache('discussion', 'discussion-1', cacheReuseMessages, [1, 2, 3], 'sum');
+    expect(checkContextSummaryCacheReuse(cache, cacheReuseMessages, [1, 2, 3, 4, 5]))
+      .toEqual({ exact: false, prefix: true, uncoveredIndexes: [4, 5] });
+  });
+
+  it('rejects non-prefix candidate sets', () => {
+    const cache = createContextSummaryCache('discussion', 'discussion-1', cacheReuseMessages, [1, 2, 3], 'sum');
+    expect(checkContextSummaryCacheReuse(cache, cacheReuseMessages, [2, 3, 4]).prefix).toBe(false);
+  });
+
+  it('rejects when covered message content changed', () => {
+    const cache = createContextSummaryCache('discussion', 'discussion-1', cacheReuseMessages, [1, 2, 3], 'sum');
+    const mutated = cacheMessages(10);
+    mutated[2] = { ...mutated[2], content: 'edited' };
+    expect(checkContextSummaryCacheReuse(cache, mutated, [1, 2, 3, 4]).prefix).toBe(false);
+  });
+
+  it('rejects a null cache', () => {
+    expect(checkContextSummaryCacheReuse(null, cacheReuseMessages, [1, 2]))
+      .toEqual({ exact: false, prefix: false, uncoveredIndexes: [1, 2] });
   });
 });

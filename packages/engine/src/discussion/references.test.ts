@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMessageReferences } from './references.js';
+import { parseMessageReferences, shortMessageRef } from './references.js';
 
 describe('parseMessageReferences', () => {
   it('extracts references and strips the block from content', () => {
@@ -62,5 +62,44 @@ describe('parseMessageReferences', () => {
     const result = parseMessageReferences('Plain answer.');
     expect(result.references).toEqual([]);
     expect(result.cleaned).toBe('Plain answer.');
+  });
+});
+
+describe('shortMessageRef', () => {
+  it('shortens a stable message id', () => {
+    expect(shortMessageRef('discussion-1:message-0007')).toBe('m0007');
+  });
+
+  it('returns empty for missing or unrecognized ids', () => {
+    expect(shortMessageRef(undefined)).toBe('');
+    expect(shortMessageRef('something-else')).toBe('');
+  });
+});
+
+describe('parseMessageReferences with short ids', () => {
+  const context = [
+    { promptNumber: 1, id: 'discussion-1:message-0002', agentName: 'You' },
+    { promptNumber: 2, id: 'discussion-1:message-0007', agentName: 'Architect' }
+  ];
+
+  it('resolves an id-based reference to the full message id', () => {
+    const content = 'Reply.\n```room-refs\n{"references": [{"id": "m0007", "reason": "built on it"}]}\n```';
+    const { references } = parseMessageReferences(content, context);
+    expect(references).toEqual([
+      { messageId: 'discussion-1:message-0007', author: 'Architect', reason: 'built on it' }
+    ]);
+  });
+
+  it('prefers id resolution over a mismatched message number', () => {
+    const content = 'Reply.\n```room-refs\n{"references": [{"id": "m0002", "message": 2, "reason": "r"}]}\n```';
+    const { references } = parseMessageReferences(content, context);
+    expect(references[0].messageId).toBe('discussion-1:message-0002');
+    expect(references[0].author).toBe('You');
+  });
+
+  it('still resolves legacy number-only references', () => {
+    const content = 'Reply.\n```room-refs\n{"references": [{"message": 2, "author": "Architect", "reason": "r"}]}\n```';
+    const { references } = parseMessageReferences(content, context);
+    expect(references[0].messageId).toBe('discussion-1:message-0007');
   });
 });
