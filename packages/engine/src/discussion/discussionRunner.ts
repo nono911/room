@@ -13,6 +13,7 @@ import {
   localCliNoFinalAnswerMessage,
   renderDiscussionMarkdown,
   composeAgentSystemPrompt,
+  parseSkipTurn,
   REFERENCE_TRACING_PROTOCOL
 } from './utils.js';
 import {
@@ -31,6 +32,9 @@ const DISCUSSION_PROTOCOL = `=== Discussion Protocol ===
 Speak in the first person as your assigned AI member role.
 Maintain a professional, constructive team tone.
 Your replies should be direct, specific, and build upon prior team responses.
+Keep each reply under roughly 300 words unless the user explicitly asks for exhaustive detail.
+Do not restate points already made in the discussion history; reference them by their visible Message number and add only new reasoning, objections, evidence, or decisions.
+If you have nothing material to add this turn, reply with exactly "SKIP: <one short line saying why>" and nothing else.
 Ensure all files, lines, and commands you reference are valid within the workspace.`;
 
 
@@ -301,17 +305,32 @@ export async function runDiscussionLoop(
           }
         });
         response = cleanAgentUserContent(response, dirPath);
-        const parsedRefs = parseMessageReferences(response, contextMessages);
-        messageReferences = parsedRefs.references;
-        if (parsedRefs.cleaned) {
-          response = parsedRefs.cleaned;
-        }
-        if (agent.provider === 'Local CLI' && isOnlyOmissionNotes(response)) {
-          agentFailed = true;
-          failedAgentRuns++;
-          response = localCliNoFinalAnswerMessage(agent.name);
-        } else {
+        const skipReason = parseSkipTurn(response);
+        if (skipReason) {
           successfulAgentRuns++;
+          response = `[${agent.name} skipped this turn: ${skipReason}]`;
+          options.onEvent?.({
+            type: 'agent_skipped',
+            discussionId,
+            agentName: agent.name,
+            providerName: agent.provider,
+            ...(agent.modelName ? { modelName: agent.modelName } : {}),
+            round,
+            reason: skipReason
+          });
+        } else {
+          const parsedRefs = parseMessageReferences(response, contextMessages);
+          messageReferences = parsedRefs.references;
+          if (parsedRefs.cleaned) {
+            response = parsedRefs.cleaned;
+          }
+          if (agent.provider === 'Local CLI' && isOnlyOmissionNotes(response)) {
+            agentFailed = true;
+            failedAgentRuns++;
+            response = localCliNoFinalAnswerMessage(agent.name);
+          } else {
+            successfulAgentRuns++;
+          }
         }
       } catch (err: any) {
         agentFailed = true;
@@ -401,4 +420,3 @@ export async function runDiscussionLoop(
   });
   return discussionLog;
 }
-

@@ -49,6 +49,15 @@ export function composeAgentSystemPrompt(basePrompt: string, localCliAgent: bool
   ].join('\n\n');
 }
 
+export function parseSkipTurn(response: string): string | null {
+  const trimmed = response.trim();
+  if (!trimmed || trimmed.length > 400) return null;
+  const match = trimmed.match(/^SKIP:\s*([\s\S]*)$/);
+  if (!match) return null;
+  const reason = match[1].split('\n')[0].trim();
+  return reason || 'No additional points.';
+}
+
 export function isDeveloperAgent(agent: AgentConfig): boolean {
   const text = `${agent.name} ${agent.role}`.toLowerCase();
   if (text.includes('planner')) return false;

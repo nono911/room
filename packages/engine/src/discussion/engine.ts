@@ -253,3 +253,5 @@ export class DiscussionEngine {
 }
 export type { DiscussionMessage, DiscussionLog, CodingTaskResult } from './types.js';
 export { type QualityGateResult };
+export { safeDocumentSlug, stripExternalFileLinks } from './utils.js';
+export { globToRegex } from './contextBuilder.js';
