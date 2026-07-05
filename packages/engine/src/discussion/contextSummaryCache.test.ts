@@ -38,7 +38,9 @@ describe('contextSummaryCache', () => {
 
   it('validates sidecar ids by source', () => {
     expect(() => validateContextSummaryId('discussion', 'discussion-123')).not.toThrow();
+    expect(() => validateContextSummaryId('discussion', 'discussion-design-review')).not.toThrow();
     expect(() => validateContextSummaryId('coding-task', 'task-123')).not.toThrow();
+    expect(() => validateContextSummaryId('coding-task', 'task-card-001')).not.toThrow();
     expect(() => validateContextSummaryId('discussion', '../discussion-123')).toThrow();
     expect(() => validateContextSummaryId('coding-task', 'discussion-123')).toThrow();
   });

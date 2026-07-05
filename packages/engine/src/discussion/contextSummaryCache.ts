@@ -23,7 +23,7 @@ export interface ContextSummaryCacheInput {
 }
 
 export function validateContextSummaryId(source: ContextSummarySource, contextId: string): void {
-  const pattern = source === 'discussion' ? /^discussion-\d+$/ : /^task-\d+$/;
+  const pattern = source === 'discussion' ? /^discussion-[\w-]+$/ : /^task-[\w-]+$/;
   if (!pattern.test(contextId)) {
     throw new Error(`Invalid ${source} context summary id.`);
   }
