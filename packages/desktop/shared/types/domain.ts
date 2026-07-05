@@ -170,6 +170,22 @@ export type DiscussionIpcEvent =
       type: 'discussion_failed';
       discussionId: string;
       error: string;
+    }
+  | {
+      type: 'context_summary_failed';
+      discussionId: string;
+      round: number;
+      error?: string;
+    }
+  | {
+      type: 'context_summary_generated';
+      discussionId: string;
+      round: number;
+    }
+  | {
+      type: 'context_summary_reused';
+      discussionId: string;
+      round: number;
     };
 
 export type LocalCliPermissionMode = 'safe' | 'dangerous';

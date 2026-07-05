@@ -82,3 +82,24 @@ export const advanceAgentProgressMessage = (message: UIMessage): UIMessage => {
 };
 
 export const getDiscussionIdFromFile = (filename: string): string => filename.replace(/\.(md|json)$/i, '');
+
+export const appendContextSummaryFailedMessage = (
+  prev: UIMessage[],
+  event: { discussionId: string; error?: string }
+): UIMessage[] => {
+  const id = `${event.discussionId}:context-summary-failed`;
+  if (prev.some(msg => msg.id === id)) return prev;
+
+  return [
+    ...prev,
+    {
+      id,
+      author: 'System Engine',
+      role: 'system',
+      time: new Date().toLocaleTimeString(),
+      text: event.error
+        ? `Context summarization failed — agents may be missing older discussion context. (${event.error})`
+        : 'Context summarization failed — agents may be missing older discussion context.'
+    }
+  ];
+};

@@ -3,6 +3,7 @@ import type { ProjectData, TaskBoardCard, UIMessage } from '../../types/domain.j
 import { api } from '../../shared/ipc/client.js';
 import {
   advanceAgentProgressMessage,
+  appendContextSummaryFailedMessage,
   formatAgentDisplayName,
   formatDiscussionLogMessages,
   getAgentProgressMessage,
@@ -465,6 +466,15 @@ This task note was created from a ROOM discussion. Refine it before treating it 
           }
         ]);
         setDiscussionInterruptPending(false);
+        return;
+      }
+
+      if (event.type === 'context_summary_generated' || event.type === 'context_summary_reused') {
+        return;
+      }
+
+      if (event.type === 'context_summary_failed') {
+        setDiscussionMessages(prev => appendContextSummaryFailedMessage(prev, event));
         return;
       }
 
