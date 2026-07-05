@@ -33,6 +33,17 @@ ROOM is in early active development. The core desktop workflow works, but APIs, 
 
 Use it today if you are comfortable with local-first tools and occasional rough edges. Treat `.room/` as workspace data that should be reviewed before committing to another repository.
 
+## What Changed Recently
+
+ROOM has moved from a simple "saved AI members plus chat" prototype toward a fuller team workspace:
+
+- AI Members are now organized around teams. You can start from recommended team recipes, inspect and edit generated members before saving, create custom teams, reorder members, and add existing or newly generated members to a team.
+- Discussions can select teams, saved members, legacy agent names, and temporary cloned members while preserving the mixed participant order across reloads and continued chats.
+- AI members now have stable ids behind the scenes, so renames and team membership changes are less fragile than filename/name-only references.
+- Long discussion and task runs now use stronger context budgeting, stable message ids, reference tracing, skip turns, approval tracking, and reusable context-summary sidecars.
+- Safe-mode Local CLI discussion members can opt into `Read-only tools` per discussion. ROOM swaps the prompt policy and enforces CLI flags so Claude gets built-in read/web tools only and Codex runs with a read-only sandbox.
+- The desktop app has broader test coverage around team creation, discussion selection, IPC behavior, workspace lifecycle, and renderer integration.
+
 ## Quick Start
 
 Requires Node.js 18+ and npm. Packaging currently targets macOS (arm64); development mode works anywhere Electron runs.
@@ -44,7 +55,7 @@ npm run install:all
 npm run dev:desktop
 ```
 
-Then open a workspace folder in the app, initialize `.room/`, add AI members, and start a discussion. AI providers (built-in Gemini/Claude/OpenAI plus any OpenAI-compatible endpoint) are configured in `Settings`; Local CLI members such as `claude`, `codex`, or `gemini` work without API keys if the CLI is installed and authenticated on your machine.
+Then open a workspace folder in the app, initialize `.room/`, create or choose an AI team, and start a discussion. AI providers (built-in Gemini/Claude/OpenAI plus any OpenAI-compatible endpoint) are configured in `Settings`; Local CLI members such as `claude`, `codex`, or `gemini` work without API keys if the CLI is installed and authenticated on your machine.
 
 ## How ROOM Works
 
@@ -85,7 +96,9 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 - Desktop workspace UI built with Electron, React, and Vite.
 - `.room/` workspace memory for context, tasks, discussions, documents, roles, AI members, MCP config, and workspace settings.
 - Workspace file browser for previewing files inside the selected workspace.
+- Team-first AI member management: recommended team recipes, custom teams, member generation, reorderable team membership, and stable member ids.
 - Multi-agent Discussions with near-realtime sequential streaming.
+- Discussion participant selection from teams, saved members, legacy agent names, and temporary cloned members, with mixed ordering preserved.
 - Chat history for saved discussions, with support for continuing an existing chat or starting a new one.
 - Context Picker for sending workspace overview, structure, files, documents, tasks, or previous discussions into a run.
 - Context compiler that preserves the current topic and recent messages while capping prompt history for long local CLI runs.
@@ -99,6 +112,7 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 - AI member templates and team presets for software, film/story, research, writing, business planning, and design work.
 - Provider registry: built-in Gemini / Claude (Anthropic) / OpenAI plus any OpenAI-compatible endpoint (Groq, OpenRouter, Mistral, DeepSeek, xAI, Together, Ollama, LM Studio, or custom base URLs) with per-provider keys, model discovery, and connection tests.
 - Local CLI provider support with safe mode by default and explicit dangerous permission opt-in.
+- Per-discussion `Read-only tools` mode for safe Local CLI members, including prompt-policy switching and CLI-level read-only enforcement for supported presets.
 - Repository scanner that updates `.room/context/overview.md`, `.room/context/structure.md`, and `.room/context/project-map.json`.
 - Context, Documents, Tasks, Discussions, Roles, and AI Members screens in the desktop app.
 - Per-workspace MCP server configuration for stdio-based MCP tools.
@@ -135,7 +149,7 @@ Current renderer boundaries:
 - `packages/desktop/renderer/src/app/components/WorkspaceRoutes.tsx`: maps workspace tabs to feature screens. New tabs should usually be registered here, not directly inside `App.tsx`.
 - `packages/desktop/renderer/src/features/discussions/`: discussion state, streaming, and discussion UI.
 - `packages/desktop/renderer/src/features/task-run/`: task run state, streaming, and task run UI.
-- `packages/desktop/renderer/src/features/ai-members/`: AI member screens and management hook.
+- `packages/desktop/renderer/src/features/ai-members/`: AI member screens, team creation/editing, roster helpers, and management hook.
 - `packages/desktop/renderer/src/features/providers/`: provider settings, project settings, and provider context.
 - `packages/desktop/renderer/src/features/workspace-files/`: files, documents, tasks, decisions, and context screens.
 - `packages/desktop/renderer/src/shared/`: reusable components, hooks, IPC client, static data, markdown rendering, and pure helpers.
@@ -146,6 +160,7 @@ Current main-process boundaries:
 - `packages/desktop/main/ipc/*.ts`: feature-oriented IPC modules.
 - `packages/desktop/main/ipc/provider-store.ts`: provider and API key persistence.
 - `packages/desktop/main/ipc/config-store.ts`: `.room/config.json` and `.room/mcp.json` validation/loading.
+- `packages/desktop/main/ipc/team-store.ts` and `teams.ts`: `.room/teams/` persistence, team membership updates, and team-with-members creation.
 - `packages/desktop/main/ipc/workspace-context.ts` and `workspace-files.ts`: context search and workspace file listing helpers.
 
 When adding a desktop feature, prefer this shape:
@@ -196,7 +211,7 @@ The engine package has a Vitest suite covering the context compiler, reference t
 npm test -w packages/engine
 ```
 
-The desktop package has a small Vitest suite for app/runtime behavior:
+The desktop package has Vitest coverage for app/runtime behavior, team workflows, discussion selection, IPC adapters, and workspace hooks:
 
 ```bash
 npm test -w packages/desktop
@@ -215,7 +230,7 @@ npm run build:desktop
 1. Open ROOM and choose a workspace folder.
 2. If the folder has no `.room/`, click `Initialize .room/ directory`.
 3. Click `Scan Repository` to update workspace context when the workspace is a codebase.
-4. Go to `AI Members` to add specialists from role templates or custom instructions.
+4. Go to `AI Members` to start from a recommended team, create a custom team, or manage saved specialists.
 5. Go to `Discussions` when you want AI members to think together, critique ideas, explore options, or make decisions.
 6. Go to `Task Run` when you want one AI member to produce work and other AI members to review it before the run is considered done.
 7. Use `Context`, `Files`, `Documents`, and `Tasks` to inspect workspace material and saved artifacts.
@@ -251,8 +266,10 @@ Discussion controls:
 
 - `Chat History`: load a saved discussion and continue it.
 - `New Chat`: start a fresh thread when you want a new direction.
+- `Participants`: select whole teams, individual saved members, legacy agent names, or temporary clones while preserving order.
 - `Context Picker`: attach workspace context, files, docs, tasks, or previous discussion transcripts.
 - `Resolve over rounds`: keep cycling through selected AI members for plan/review workflows.
+- `Read-only tools`: let safe-mode Local CLI members inspect workspace files and search the web for this discussion without intentionally granting write access.
 - `Quality Gate`: ask a moderator-style member to decide whether another focused discussion round is needed.
 - `Summarize Chat`: save a durable memory artifact into `.room/documents/`.
 
@@ -311,6 +328,8 @@ ROOM supports local AI CLI workflows. For a Local CLI AI member, choose one of t
 
 Local CLI AI members run in safe mode by default. Dangerous mode is gated by workspace settings and should only be enabled for trusted workspaces and trusted prompts because it can grant broader filesystem, tool, or network access depending on the CLI preset.
 
+In Discussions, the `Read-only tools` toggle gives safe-mode Local CLI members a narrow inspection path for that run. Claude receives only built-in read/web tools (`Read`, `Grep`, `Glob`, `LS`, `WebSearch`, `WebFetch`), Codex uses a read-only sandbox, and custom commands or dangerous-mode agents keep their existing behavior. MCP servers are not automatically added to the read-only allowlist because ROOM cannot prove arbitrary MCP tools are state-free.
+
 For Local CLI AI members, `Model Name` can be left on `Default CLI Model`. ROOM will then omit the model override and let the selected CLI use its own configured default. Choose a listed model or `Custom Model...` only when you want ROOM to pass an explicit model name.
 
 ## Security Notes
@@ -318,10 +337,11 @@ For Local CLI AI members, `Model Name` can be left on `Default CLI Model`. ROOM 
 ROOM is local-first, but it can still run powerful tools:
 
 - Local CLI agents may execute commands, inspect files, or modify a workspace depending on the selected CLI and permission mode.
+- `Read-only tools` reduces write risk for supported safe-mode CLI presets, but it can still expose local workspace content to the selected model or web-capable CLI.
 - Custom Local CLI commands are treated as dangerous because they are arbitrary command execution.
 - MCP servers are local processes configured by the workspace and should be reviewed before use.
 - Do not store API keys, credentials, or private machine-specific secrets in committed `.room/` files.
-- Review `.room/config.json`, `.room/mcp.json`, and `.room/members/` before sharing a workspace.
+- Review `.room/config.json`, `.room/mcp.json`, `.room/members/`, and `.room/teams/` before sharing a workspace.
 
 ## CLI Usage
 
@@ -408,6 +428,7 @@ On disk this is represented as:
   roles/
   skills/
   members/
+  teams/
   config.json
   mcp.json
   events.jsonl
@@ -426,6 +447,7 @@ Important files:
 - `.room/roles/`: reusable role templates and legacy skill files.
 - `.room/skills/`: reusable skill instructions used by AI members.
 - `.room/members/`: saved AI member profiles, prompts, providers, and models.
+- `.room/teams/`: saved team definitions and ordered member ids.
 - `.room/config.json`: scanner agent, model, and permission settings.
 - `.room/mcp.json`: MCP server definitions.
 
@@ -485,9 +507,9 @@ Use Conventional Commits (`feat(engine): ...`, `fix(desktop): ...`). See [AGENTS
 
 - Better first-run onboarding and example workspaces.
 - Knowledge graph and trace views derived from the `.room/events.jsonl` provenance log.
-- Test coverage for the desktop app and provider execution (the engine already has a Vitest suite).
+- More provider execution tests and smoke coverage for packaged desktop builds.
 - Stronger markdown/document rendering for saved discussions, summaries, and task artifacts.
-- Improved Local CLI model detection and provider-specific execution policies.
+- Richer Local CLI model detection, provider-specific execution policies, and future explicit allowlists for safe MCP tools.
 - Cross-platform packaging and release automation.
 - Clearer plugin, skill, and MCP extension patterns.
 
