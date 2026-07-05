@@ -131,7 +131,7 @@ function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
 }
 
 export function registerDiscussionsIpc(): void {
-  ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
+  ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, allowReadOnlyTools, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
     const safeRequestedDiscussionId = typeof requestedDiscussionId === 'string' && /^discussion-\d+$/.test(requestedDiscussionId)
       ? requestedDiscussionId
       : '';
@@ -156,6 +156,7 @@ export function registerDiscussionsIpc(): void {
         {
           onEvent: sendDiscussionEvent,
           reviewMode: !!reviewMode,
+          allowReadOnlyTools: !!allowReadOnlyTools,
           additionalContext,
           temporaryAgents: safeTemporaryAgents,
           getInterruptMessage: () => getRunInterruptMessage(discussionId)

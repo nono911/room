@@ -110,6 +110,7 @@ export default function App() {
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
+    discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools,
     discussionModeratorName, setDiscussionModeratorName,
     discussionAutoSummary, setDiscussionAutoSummary,
     discussionSummaryAgentName, setDiscussionSummaryAgentName,
@@ -747,6 +748,8 @@ export default function App() {
                 setDiscussionMaxRounds={setDiscussionMaxRounds}
                 discussionQualityGate={discussionQualityGate}
                 setDiscussionQualityGate={setDiscussionQualityGate}
+                discussionAllowReadOnlyTools={discussionAllowReadOnlyTools}
+                setDiscussionAllowReadOnlyTools={setDiscussionAllowReadOnlyTools}
                 discussionModeratorName={discussionModeratorName}
                 setDiscussionModeratorName={setDiscussionModeratorName}
                 discussionAutoSummary={discussionAutoSummary}

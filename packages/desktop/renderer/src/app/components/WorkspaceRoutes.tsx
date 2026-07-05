@@ -15,6 +15,7 @@ import {
   agentPersonaTemplates,
   teamPresets
 } from '../../shared/data/staticData.js';
+import type React from 'react';
 
 interface WorkspaceRoutesProps {
   activeTab: string;
@@ -102,6 +103,8 @@ interface WorkspaceRoutesProps {
   setDiscussionMaxRounds: (value: number) => void;
   discussionQualityGate: any;
   setDiscussionQualityGate: (value: any) => void;
+  discussionAllowReadOnlyTools: boolean;
+  setDiscussionAllowReadOnlyTools: React.Dispatch<React.SetStateAction<boolean>>;
   discussionModeratorName: string;
   setDiscussionModeratorName: (value: string) => void;
   discussionAutoSummary: boolean;
@@ -257,6 +260,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setDiscussionMaxRounds,
     discussionQualityGate,
     setDiscussionQualityGate,
+    discussionAllowReadOnlyTools,
+    setDiscussionAllowReadOnlyTools,
     discussionModeratorName,
     setDiscussionModeratorName,
     discussionAutoSummary,
@@ -358,6 +363,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setDiscussionMaxRounds={setDiscussionMaxRounds}
         discussionQualityGate={discussionQualityGate}
         setDiscussionQualityGate={setDiscussionQualityGate}
+        discussionAllowReadOnlyTools={discussionAllowReadOnlyTools}
+        setDiscussionAllowReadOnlyTools={setDiscussionAllowReadOnlyTools}
         discussionModeratorName={discussionModeratorName}
         setDiscussionModeratorName={setDiscussionModeratorName}
         discussionAutoSummary={discussionAutoSummary}

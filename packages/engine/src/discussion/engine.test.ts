@@ -186,6 +186,34 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(log.messages.find(message => message.agentName === 'ReviewerA' && message.content.includes('approval already given'))?.content)
       .toBe('[ReviewerA skipped this turn: approval already given]');
   });
+
+  it('passes read-only tool access to safe local CLI agents when enabled', async () => {
+    const dir = await createWorkspaceWithAgents([localCliAgent('Doer', 'Doer')]);
+    const execSpy = vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValueOnce('Answer.');
+
+    const engine = new DiscussionEngine(dir);
+    await engine.runDiscussion('discussion-201', 'Tools on', 'Check the workspace', ['Doer'], 1, {
+      allowReadOnlyTools: true
+    });
+
+    const [, systemPrompt, execOptions] = execSpy.mock.calls[0];
+    expect(execOptions?.toolAccess).toBe('read-only');
+    expect(systemPrompt).toContain('Read-Only Tools Policy');
+    expect(systemPrompt).not.toContain('Do not inspect the workspace');
+  });
+
+  it('keeps local CLI agents tool-free by default', async () => {
+    const dir = await createWorkspaceWithAgents([localCliAgent('Doer', 'Doer')]);
+    const execSpy = vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValueOnce('Answer.');
+
+    const engine = new DiscussionEngine(dir);
+    await engine.runDiscussion('discussion-202', 'Tools off', 'Check the workspace', ['Doer'], 1, {});
+
+    const [, systemPrompt, execOptions] = execSpy.mock.calls[0];
+    expect(execOptions?.toolAccess).toBe('none');
+    expect(systemPrompt).toContain('Do not inspect the workspace');
+    expect(systemPrompt).not.toContain('Read-Only Tools Policy');
+  });
 });
 
 describe('globToRegex', () => {

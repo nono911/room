@@ -3,10 +3,13 @@ export interface ProviderConfig {
   modelName?: string;
 }
 
+export type ToolAccess = 'none' | 'read-only';
+
 export interface ProviderExecuteOptions {
   onChunk?: (chunk: string) => void;
   timeoutMs?: number;
   signal?: AbortSignal;
+  toolAccess?: ToolAccess;
 }
 
 export interface Provider {

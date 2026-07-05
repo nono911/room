@@ -14,6 +14,7 @@ import {
   renderDiscussionMarkdown,
   composeAgentSystemPrompt,
   parseSkipTurn,
+  LOCAL_CLI_READ_TOOLS_POLICY,
   REFERENCE_TRACING_PROTOCOL
 } from './utils.js';
 import {
@@ -64,6 +65,7 @@ export interface DiscussionRunOptions {
   userLabel?: string;
   getInterruptMessage?: () => string | null;
   temporaryAgents?: AgentConfig[];
+  allowReadOnlyTools?: boolean;
 }
 
 export async function runDiscussionLoop(
@@ -269,9 +271,13 @@ export async function runDiscussionLoop(
         }
       }
 
+      const readOnlyToolsEnabled = !!options.allowReadOnlyTools
+        && agent.provider === 'Local CLI'
+        && agent.permissionMode !== 'dangerous';
       const systemPrompt = composeAgentSystemPrompt(
         agent.systemPrompt,
-        agent.provider === 'Local CLI',
+        agent.provider === 'Local CLI' && !readOnlyToolsEnabled,
+        readOnlyToolsEnabled ? LOCAL_CLI_READ_TOOLS_POLICY : '',
         DISCUSSION_PROTOCOL,
         hasReferableHistory ? REFERENCE_TRACING_PROTOCOL : '',
         skillsContext,
@@ -287,6 +293,7 @@ export async function runDiscussionLoop(
       let messageReferences: MessageReference[] = [];
       try {
         response = await provider.execute(prompt, systemPrompt, {
+          toolAccess: readOnlyToolsEnabled ? 'read-only' : 'none',
           onChunk: (chunk: string) => {
             options.onEvent?.({
               type: 'agent_chunk',

@@ -31,7 +31,7 @@ export const api = {
     dirPath: string,
     topic: string,
     agentNames?: string[],
-    options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
+    options?: { maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
   ) => window.electronAPI.runDiscussion(dirPath, topic, agentNames, options),
   runTask: (
     dirPath: string,

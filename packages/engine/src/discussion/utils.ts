@@ -31,6 +31,13 @@ Do not inspect the workspace with shell commands, file listing, permission check
 Do not narrate intended tool use such as "I will list files", "Let's read config", or "I am running on model...".
 If you cannot answer from the provided context, say what specific context is missing and ask for it.`;
 
+export const LOCAL_CLI_READ_TOOLS_POLICY = `=== Local CLI Read-Only Tools Policy ===
+You may read files, list directories, and search file contents inside the active workspace, and search the web when it materially improves your answer.
+Do not create, modify, or delete files, change configuration, or run commands that change any state.
+Do not narrate tool use such as "I will read the file" or raw tool logs; use tools silently and return only your final answer.
+Cite real workspace paths for anything you report from files.
+If required context is still missing after inspection, say exactly what is missing.`;
+
 export const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
 At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
 \`\`\`room-refs

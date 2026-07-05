@@ -37,7 +37,7 @@ export interface ElectronAPI {
     dirPath: string,
     topic: string,
     agentNames?: string[],
-    options?: { maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
+    options?: { maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
   ) => Promise<{
     success: boolean;
     summary?: { filename: string; content: string };

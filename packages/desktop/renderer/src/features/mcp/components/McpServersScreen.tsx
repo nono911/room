@@ -186,7 +186,7 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
           {serverKeys.length === 0 ? (
             <div style={{ padding: '20px 10px', textAlign: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.8rem' }}>
-              No servers configured.
+              No servers configured. Read-only discussion tools allow built-in file and web inspection only; MCP servers are not automatically allowed because their tools may change state.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

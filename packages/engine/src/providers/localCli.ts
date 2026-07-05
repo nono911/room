@@ -4,6 +4,7 @@ import { StringDecoder } from 'string_decoder';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
+import { applyReadOnlyToolArgs, resolveToolAccess } from './toolAccess.js';
 import { resolveOnPath, resolvePathDirs } from '../agents/detection.js';
 import { normalizeLocalCliModelName } from '../agents/localCliPolicy.js';
 import { parseShellArgs } from '../shellArgs.js';
@@ -97,6 +98,7 @@ export class LocalCliProvider implements Provider {
       let mcpOwnerId = '';
       let mcpContentHash = '';
       let previousMcpContent: string | null = null;
+      const toolAccess = resolveToolAccess(options?.toolAccess, this.permissionMode);
       const mcpConfigPath = path.join(this.cwd, '.room', 'mcp.json');
       const targetMcpPath = path.join(this.cwd, '.mcp.json');
       const ownerMcpPath = path.join(this.cwd, '.mcp.json.room-owner');
@@ -270,6 +272,10 @@ export class LocalCliProvider implements Provider {
         }
         bin = parts[0];
         args = parts.slice(1);
+      }
+
+      if (toolAccess === 'read-only' && this.cliPreset !== 'none') {
+        args = applyReadOnlyToolArgs(this.cliPreset, args, []);
       }
 
       console.log(`[Local CLI Provider] Spawning binary: ${bin} with args: ${args.join(' ')}`);

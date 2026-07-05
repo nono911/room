@@ -41,6 +41,8 @@ interface DiscussionsScreenProps {
   setDiscussionMaxRounds: (value: number) => void;
   discussionQualityGate: boolean;
   setDiscussionQualityGate: React.Dispatch<React.SetStateAction<boolean>>;
+  discussionAllowReadOnlyTools: boolean;
+  setDiscussionAllowReadOnlyTools: React.Dispatch<React.SetStateAction<boolean>>;
   discussionModeratorName: string;
   setDiscussionModeratorName: (value: string) => void;
   discussionAutoSummary: boolean;
@@ -103,6 +105,8 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   setDiscussionMaxRounds,
   discussionQualityGate,
   setDiscussionQualityGate,
+  discussionAllowReadOnlyTools,
+  setDiscussionAllowReadOnlyTools,
   discussionModeratorName,
   setDiscussionModeratorName,
   discussionAutoSummary,
@@ -601,6 +605,18 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
             onChange={(e) => setDiscussionReviewMode(e.target.checked)}
           />
           Resolve over rounds
+        </label>
+        <label
+          title="Let safe-mode CLI members read workspace files and search the web this discussion."
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}
+        >
+          <input
+            type="checkbox"
+            checked={discussionAllowReadOnlyTools}
+            disabled={loading}
+            onChange={(e) => setDiscussionAllowReadOnlyTools(e.target.checked)}
+          />
+          Read-only tools
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))' }}>
           Max rounds

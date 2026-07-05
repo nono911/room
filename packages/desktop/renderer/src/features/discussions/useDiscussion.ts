@@ -36,6 +36,7 @@ export function useDiscussion({
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
   const [discussionQualityGate, setDiscussionQualityGate] = useState<boolean>(false);
+  const [discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools] = useState<boolean>(false);
   const [discussionModeratorName, setDiscussionModeratorName] = useState<string>('');
   const [discussionAutoSummary, setDiscussionAutoSummary] = useState<boolean>(false);
   const [discussionSummaryAgentName, setDiscussionSummaryAgentName] = useState<string>('__project__');
@@ -494,6 +495,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     try {
       const res = await api.runDiscussion(projectPath, userTopic, validSelectedAgents, {
         reviewMode: discussionReviewMode,
+        allowReadOnlyTools: discussionAllowReadOnlyTools,
         maxRounds: discussionReviewMode ? discussionMaxRounds : 1,
         contextRefs,
         discussionId: activeDiscussionId || undefined,
@@ -578,6 +580,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
+    discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools,
     discussionModeratorName, setDiscussionModeratorName,
     discussionAutoSummary, setDiscussionAutoSummary,
     discussionSummaryAgentName, setDiscussionSummaryAgentName,
