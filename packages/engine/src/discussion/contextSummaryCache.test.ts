@@ -1,9 +1,14 @@
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   checkContextSummaryCacheReuse,
+  contextSummaryCachePath,
   createContextSummaryCache,
   hashSummaryInput,
   isReusableContextSummaryCache,
+  readContextSummaryCache,
   sameOrderedIndexes,
   validateContextSummaryId
 } from './contextSummaryCache.js';
@@ -48,6 +53,16 @@ describe('contextSummaryCache', () => {
   it('compares exact ordered index sets', () => {
     expect(sameOrderedIndexes([1, 2], [1, 2])).toBe(true);
     expect(sameOrderedIndexes([1, 2], [2, 1])).toBe(false);
+  });
+
+  it('treats corrupted cache JSON as a cache miss', async () => {
+    const dirPath = await fs.mkdtemp(path.join(os.tmpdir(), 'room-cache-'));
+    const input = { dirPath, source: 'discussion' as const, contextId: 'discussion-123' };
+    await fs.mkdir(path.dirname(contextSummaryCachePath(input)), { recursive: true });
+    await fs.writeFile(contextSummaryCachePath(input), '{ broken json', 'utf-8');
+
+    await expect(readContextSummaryCache(input)).resolves.toBeNull();
+    await fs.rm(dirPath, { recursive: true, force: true });
   });
 });
 

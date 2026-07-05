@@ -131,12 +131,24 @@ export async function compileContextWithOptionalSummary(
   }
 }
 
-export function buildBudgetedTranscript(log: DiscussionLog, maxHistoryTokens = 20000): string {
+export function buildBudgetedTranscript(log: DiscussionLog, maxHistoryTokens = 20000, omittedSummary = ''): string {
   const compiled = compileDiscussionContext(log.messages, '', {
     maxHistoryTokens,
-    maxMessageTokens: Math.min(3500, maxHistoryTokens)
+    maxMessageTokens: Math.min(3500, maxHistoryTokens),
+    summary: omittedSummary
   });
   return `# ${log.title}\n\n## Current Topic\n${log.topic || 'Untitled'}\n\n## Status\n${log.status}\n\n## Transcript\n${compiled.historyBlock}`;
+}
+
+export async function buildBudgetedTranscriptWithCache(
+  dirPath: string,
+  source: ContextSummarySource,
+  contextId: string,
+  log: DiscussionLog,
+  maxHistoryTokens = 20000
+): Promise<string> {
+  const cache = await readContextSummaryCache({ dirPath, source, contextId });
+  return buildBudgetedTranscript(log, maxHistoryTokens, cache?.summary);
 }
 
 export function composeProjectContext(input: {
@@ -170,17 +182,19 @@ export async function loadWorkspaceMemoryContext(
 
   const adrs = await listMarkdownByMtime(
     path.join(dirPath, '.room', 'decisions'),
-    file => /^ADR-/i.test(file)
+    file => /^ADR-/i.test(file),
+    3
   );
-  for (const adr of adrs.slice(0, 3)) {
+  for (const adr of adrs) {
     sections.push(`[Decision: ${adr.name}]\n${adr.content.trim()}`);
   }
 
   const summaries = await listMarkdownByMtime(
     path.join(dirPath, '.room', 'documents'),
-    file => file.endsWith('-summary.md') && (!excludeId || !file.includes(excludeId))
+    file => file.endsWith('-summary.md') && (!excludeId || !file.includes(excludeId)),
+    2
   );
-  for (const doc of summaries.slice(0, 2)) {
+  for (const doc of summaries) {
     sections.push(`[Past Discussion Summary: ${doc.name}]\n${doc.content.trim()}`);
   }
 
@@ -214,7 +228,8 @@ export async function buildSkillsContext(
 
 async function listMarkdownByMtime(
   dir: string,
-  match: (file: string) => boolean
+  match: (file: string) => boolean,
+  limit: number
 ): Promise<{ name: string; content: string }[]> {
   try {
     const files = (await fs.readdir(dir)).filter(file => file.toLowerCase().endsWith('.md') && match(file));
@@ -223,7 +238,7 @@ async function listMarkdownByMtime(
       mtimeMs: (await fs.stat(path.join(dir, name))).mtimeMs
     })));
     stats.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    return Promise.all(stats.map(async ({ name }) => ({
+    return Promise.all(stats.slice(0, limit).map(async ({ name }) => ({
       name,
       content: await fs.readFile(path.join(dir, name), 'utf-8')
     })));
@@ -394,7 +409,7 @@ export async function summarizeDiscussionLoop(
 
   await assertAgentExecutionAllowed(summaryAgent);
   const provider = getProvider(summaryAgent);
-  const transcript = buildBudgetedTranscript(discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
   const prompt = `Summarize this ROOM chat into a durable workspace memory document.
 
 Focus on the useful state that should survive after the raw chat becomes too long.

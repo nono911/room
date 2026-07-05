@@ -134,6 +134,29 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(result.messages.at(-1)?.content).toContain('Pivot the task before review.');
     expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
   });
+
+  it('treats a reviewer SKIP turn as approval in review mode', async () => {
+    const dir = await createWorkspaceWithAgents([
+      localCliAgent('Doer', 'Doer'),
+      localCliAgent('Reviewer', 'Reviewer')
+    ]);
+    vi.spyOn(LocalCliProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Implementation proposal.')
+      .mockResolvedValueOnce('SKIP: no remaining findings');
+
+    const engine = new DiscussionEngine(dir);
+    const log = await engine.runDiscussion(
+      'discussion-101',
+      'Review skip',
+      'Check this proposal',
+      ['Doer', 'Reviewer'],
+      1,
+      { reviewMode: true }
+    );
+
+    expect(log.status).toBe('approved');
+    expect(log.messages.at(-1)?.content).toBe('[Reviewer skipped this turn: no remaining findings]');
+  });
 });
 
 describe('globToRegex', () => {

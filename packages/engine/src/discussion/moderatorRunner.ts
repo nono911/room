@@ -16,7 +16,7 @@ import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, type ActionExecutionResult } from './actionExecutor.js';
 import { parseQualityGateResult, type QualityGateResult } from './approvalDetector.js';
 import { type TaskCard } from './taskBoard.js';
-import { buildBudgetedTranscript } from './contextBuilder.js';
+import { buildBudgetedTranscriptWithCache } from './contextBuilder.js';
 
 export function pickModerator(agents: AgentConfig[], moderatorName?: string): AgentConfig | undefined {
   if (moderatorName) {
@@ -57,7 +57,7 @@ export async function evaluateDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = buildBudgetedTranscript(discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
   const prompt = `Evaluate whether this ROOM chat has answered the user's goal well enough to stop.
 
 Do not add new creative or implementation work unless it is needed to explain a gap.
@@ -168,7 +168,7 @@ export async function generateTasksFromDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = buildBudgetedTranscript(discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
   const prompt = `Convert the outcome of this ROOM chat into a structured task board plan.
 
 Output requirements:

@@ -70,6 +70,12 @@ describe('buildBudgetedTranscript', () => {
     expect(transcript).toContain('All messages are included');
     expect(transcript).toContain('msg1');
   });
+
+  it('includes the cached omitted-message summary when provided', () => {
+    const transcript = buildBudgetedTranscript(bigLog(60, 4000), 8000, 'Earlier decision: use SQLite.');
+    expect(transcript).toContain('=== Summary of Omitted Messages ===');
+    expect(transcript).toContain('Earlier decision: use SQLite.');
+  });
 });
 
 describe('compileContextWithOptionalSummary', () => {

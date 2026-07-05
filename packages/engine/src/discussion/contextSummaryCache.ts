@@ -43,8 +43,11 @@ export async function readContextSummaryCache(input: ContextSummaryCacheInput): 
       return null;
     }
     return parsed;
-  } catch (err: any) {
-    if (err && err.code === 'ENOENT') {
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+      return null;
+    }
+    if (err instanceof SyntaxError) {
       return null;
     }
     throw err;

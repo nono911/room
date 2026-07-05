@@ -34,7 +34,7 @@ Speak in the first person as your assigned AI member role.
 Maintain a professional, constructive team tone.
 Your replies should be direct, specific, and build upon prior team responses.
 Keep each reply under roughly 300 words unless the user explicitly asks for exhaustive detail.
-Do not restate points already made in the discussion history; reference them by their visible Message number and add only new reasoning, objections, evidence, or decisions.
+Do not restate points already made in the discussion history; reference them by their stable mNNNN id when available, or visible Message number as a fallback, and add only new reasoning, objections, evidence, or decisions.
 If you have nothing material to add this turn, reply with exactly "SKIP: <one short line saying why>" and nothing else.
 Ensure all files, lines, and commands you reference are valid within the workspace.`;
 
@@ -282,6 +282,7 @@ export async function runDiscussionLoop(
 
       let response = '';
       let agentFailed = false;
+      let agentSkipped = false;
       let messageReferences: MessageReference[] = [];
       try {
         response = await provider.execute(prompt, systemPrompt, {
@@ -300,6 +301,7 @@ export async function runDiscussionLoop(
         response = cleanAgentUserContent(response, dirPath);
         const skipReason = parseSkipTurn(response);
         if (skipReason) {
+          agentSkipped = true;
           successfulAgentRuns++;
           response = `[${agent.name} skipped this turn: ${skipReason}]`;
           options.onEvent?.({
@@ -376,7 +378,7 @@ export async function runDiscussionLoop(
       if (interrupted) break;
 
       if (options.reviewMode && isReviewerAgent(agent)) {
-        roundReviewerApprovals.set(agent.name, !agentFailed && isExplicitlyApproved(response));
+        roundReviewerApprovals.set(agent.name, !agentFailed && (agentSkipped || isExplicitlyApproved(response)));
       }
     }
 
