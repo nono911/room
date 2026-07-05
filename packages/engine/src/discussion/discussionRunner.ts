@@ -188,6 +188,7 @@ export async function runDiscussionLoop(
   const reviewerAgents = options.reviewMode
     ? workflowAgents.filter(agent => isReviewerAgent(agent))
     : [];
+  const reviewerApprovalState = new Map<string, boolean>();
 
   for (let round = 1; round <= maxRounds; round++) {
     const roundReviewerApprovals = new Map<string, boolean>();
@@ -378,7 +379,11 @@ export async function runDiscussionLoop(
       if (interrupted) break;
 
       if (options.reviewMode && isReviewerAgent(agent)) {
-        roundReviewerApprovals.set(agent.name, !agentFailed && (agentSkipped || isExplicitlyApproved(response)));
+        const explicitlyApproved = !agentFailed && isExplicitlyApproved(response);
+        const approvedByPriorSkip = !agentFailed && agentSkipped && reviewerApprovalState.get(agent.name) === true;
+        const reviewerApproved = explicitlyApproved || approvedByPriorSkip;
+        reviewerApprovalState.set(agent.name, reviewerApproved);
+        roundReviewerApprovals.set(agent.name, reviewerApproved);
       }
     }
 

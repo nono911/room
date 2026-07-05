@@ -135,7 +135,7 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a reviewer SKIP turn as approval in review mode', async () => {
+  it('does not approve when a reviewer skips before any explicit approval', async () => {
     const dir = await createWorkspaceWithAgents([
       localCliAgent('Doer', 'Doer'),
       localCliAgent('Reviewer', 'Reviewer')
@@ -154,8 +154,37 @@ describe('DiscussionEngine interrupt checkpoints', () => {
       { reviewMode: true }
     );
 
-    expect(log.status).toBe('approved');
+    expect(log.status).toBe('needs_revision');
     expect(log.messages.at(-1)?.content).toBe('[Reviewer skipped this turn: no remaining findings]');
+  });
+
+  it('preserves a reviewer approval when the reviewer skips a later round', async () => {
+    const dir = await createWorkspaceWithAgents([
+      localCliAgent('Doer', 'Doer'),
+      localCliAgent('ReviewerA', 'Reviewer'),
+      localCliAgent('ReviewerB', 'Reviewer')
+    ]);
+    vi.spyOn(LocalCliProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Implementation proposal.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: NEEDS_REVISION\nOPEN_FINDINGS: Needs one more pass.')
+      .mockResolvedValueOnce('Second implementation pass.')
+      .mockResolvedValueOnce('SKIP: approval already given')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
+
+    const engine = new DiscussionEngine(dir);
+    const log = await engine.runDiscussion(
+      'discussion-102',
+      'Review skip after approval',
+      'Check this proposal',
+      ['Doer', 'ReviewerA', 'ReviewerB'],
+      2,
+      { reviewMode: true }
+    );
+
+    expect(log.status).toBe('approved');
+    expect(log.messages.find(message => message.agentName === 'ReviewerA' && message.content.includes('approval already given'))?.content)
+      .toBe('[ReviewerA skipped this turn: approval already given]');
   });
 });
 
