@@ -74,12 +74,7 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
   const openBtn = screen.getByText('Open Existing Workspace');
   fireEvent.click(openBtn);
 
-  // Wait for the mock electron APIs to load and update state (resolves act() warning)
-  await waitFor(() => {
-    expect(screen.getByText('Active Workspace')).toBeDefined();
-  });
-
-  // Dismiss the onboarding tour modal
+  // Wait for the workspace to open and the onboarding tour modal to appear
   await waitFor(() => {
     expect(screen.getByText('Skip')).toBeDefined();
   });
@@ -119,7 +114,7 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
   // Discussions
   fireEvent.click(screen.getByText('Discussions'));
   await waitFor(() => {
-    expect(screen.getByText(/Chat History/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });
 
   // Task Run
@@ -241,7 +236,7 @@ test('handles streaming events correctly during runTask', async () => {
   fireEvent.click(openBtn);
 
   await waitFor(() => {
-    expect(screen.getByText('Active Workspace')).toBeDefined();
+    expect(screen.getByText('Skip')).toBeDefined();
   });
 
   // Skip Onboarding
@@ -457,7 +452,7 @@ test('handles streaming events correctly during runDiscussion', async () => {
   fireEvent.click(openBtn);
 
   await waitFor(() => {
-    expect(screen.getByText('Active Workspace')).toBeDefined();
+    expect(screen.getByText('Skip')).toBeDefined();
   });
 
   // Skip Onboarding
@@ -466,14 +461,14 @@ test('handles streaming events correctly during runDiscussion', async () => {
   // Go to Discussions tab
   fireEvent.click(screen.getAllByText('Discussions').find(el => el.classList.contains('sidebar-nav-label')) as HTMLElement);
   await waitFor(() => {
-    expect(screen.getByText(/Chat History/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });
 
-  // Select AgentDoer
-  const agentCheckbox = screen.getByLabelText(/AgentDoer/i) as HTMLInputElement;
-  fireEvent.change(agentCheckbox, { target: { checked: true } });
+  // Select AgentDoer chip
+  fireEvent.click(screen.getAllByText('AgentDoer').find(el => el.closest('.skill-checkbox-chip')) as HTMLElement);
   await waitFor(() => {
-    expect((screen.getByLabelText(/AgentDoer/i) as HTMLInputElement).checked).toBe(true);
+    const chipName = screen.getAllByText('AgentDoer').find(el => el.closest('.skill-checkbox-chip'));
+    expect(chipName?.closest('.skill-checkbox-chip')?.classList.contains('selected')).toBe(true);
   });
 
   // Fill User Input Topic
@@ -655,7 +650,7 @@ test('discussion path ignores task-* streaming events', async () => {
   fireEvent.click(openBtn);
 
   await waitFor(() => {
-    expect(screen.getByText('Active Workspace')).toBeDefined();
+    expect(screen.getByText('Skip')).toBeDefined();
   });
 
   // Skip Onboarding
@@ -664,12 +659,11 @@ test('discussion path ignores task-* streaming events', async () => {
   // Go to Discussions tab
   fireEvent.click(screen.getAllByText('Discussions').find(el => el.classList.contains('sidebar-nav-label')) as HTMLElement);
   await waitFor(() => {
-    expect(screen.getByText(/Chat History/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });
 
-  // Select AgentDoer
-  const agentCheckbox = screen.getByLabelText(/AgentDoer/i) as HTMLInputElement;
-  fireEvent.change(agentCheckbox, { target: { checked: true } });
+  // Select AgentDoer chip
+  fireEvent.click(screen.getAllByText('AgentDoer').find(el => el.closest('.skill-checkbox-chip')) as HTMLElement);
 
   // Fill User Input Topic
   const topicInput = screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i) as HTMLInputElement;
