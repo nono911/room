@@ -3,7 +3,7 @@ import { api } from '../../shared/ipc/client.js';
 
 interface UseWorkspaceLifecycleOptions {
   clearWorkspaceDerivedState: () => void;
-  loadProjectData: (path: string) => Promise<void>;
+  loadProjectData: (path: string) => Promise<boolean>;
   setLoading: (value: boolean) => void;
   setErrorMsg: (value: string | null) => void;
 }
@@ -105,9 +105,11 @@ export function useWorkspaceLifecycle({
 
       addRecentProject(result.path);
 
-      if (result.isRoomProject) {
-        await loadProjectData(result.path);
+      if (!result.isRoomProject) {
+        return true;
       }
+
+      return await loadProjectData(result.path);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to open recent project. It might have been deleted or moved.');
       setRecentProjects(prev => {
@@ -115,6 +117,7 @@ export function useWorkspaceLifecycle({
         localStorage.setItem('recentProjects', JSON.stringify(filtered));
         return filtered;
       });
+      return false;
     } finally {
       setLoading(false);
     }

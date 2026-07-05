@@ -108,7 +108,7 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
   // AI Members
   fireEvent.click(screen.getByText('AI Members'));
   await waitFor(() => {
-    expect(screen.getByText(/Create role-based personas/i)).toBeDefined();
+    expect(screen.getByText(/Recommended Teams/i)).toBeDefined();
   });
 
   // Discussions
@@ -711,4 +711,3 @@ test('discussion path ignores task-* streaming events', async () => {
     expect(mockUnsubscribe).toHaveBeenCalled();
   });
 });
-

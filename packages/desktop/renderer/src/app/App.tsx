@@ -26,6 +26,7 @@ import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
 import { ContextPickerPanel } from '../components/context/ContextPickerPanel.js';
 import { agentPersonaTemplates, teamPresets } from '../shared/data/staticData.js';
 import { useProviders } from '../features/providers/context/ProvidersContext.js';
+import { createDiscussionSelectionId } from '../features/discussions/lib/discussionSelection.js';
 
 export default function App() {
   const { providers, getModelOptions, detectedClis } = useProviders();
@@ -98,15 +99,29 @@ export default function App() {
   } = useTaskRun({
     projectPath,
     projectData,
-    loadProjectData: (p: string) => loadProjectData(p),
+    loadProjectData: async (p: string) => {
+      await loadProjectData(p);
+    },
     setLoading,
     setErrorMsg
   });
   const [taskBoardCards, setTaskBoardCards] = useState<TaskBoardCard[]>([]);
   const [initialSelectedFile, setInitialSelectedFile] = useState<{ section: 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions'; file: string } | null>(null);
   const {
-    selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
+    queueDiscussionAgentSelectionByNames,
+    selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
+    appendSelectedDiscussionMemberIds,
+    toggleSelectedDiscussionMemberId,
+    reorderSelectedDiscussionParticipants,
+    selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
+    toggleSelectedLegacyDiscussionAgentName,
+    selectedTemporaryDiscussionAgentIds,
+    appendSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedTemporaryDiscussionAgentId,
     temporaryDiscussionAgents, setTemporaryDiscussionAgents,
+    clearSelectedDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
@@ -140,7 +155,9 @@ export default function App() {
   } = useDiscussion({
     projectPath,
     projectData,
-    loadProjectData: (p: string) => loadProjectData(p),
+    loadProjectData: async (p: string) => {
+      await loadProjectData(p);
+    },
     setActiveTab,
     setInitialSelectedFile,
     setTaskBoardCards,
@@ -275,7 +292,6 @@ export default function App() {
     resetAgentForm,
     startEditAgent,
     handleSaveAgent,
-    handleAddTeamPreset,
     handleDeleteAgent,
     handleAddCustomSkill,
     handleSaveEditingSkill,
@@ -285,8 +301,9 @@ export default function App() {
     projectData,
     activeTab,
     setActiveTab,
-    loadProjectData: (pathStr: string) => loadProjectData(pathStr),
-    setSelectedDiscussionAgents,
+    loadProjectData: async (pathStr: string) => {
+      await loadProjectData(pathStr);
+    },
     setErrorMsg
   });
   const { loadRoomFilePreview } = useRoomFilePreview({
@@ -473,8 +490,10 @@ export default function App() {
                               if (tmpl) {
                                 try {
                                   const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
+                                  const memberId = createDiscussionSelectionId('mem', tmpl.name);
 
                                   await api.saveAgent(projectPath!, {
+                                    id: memberId,
                                     name: tmpl.name,
                                     role: tmpl.role,
                                     provider: defaults.provider,
@@ -491,11 +510,9 @@ export default function App() {
                               }
                             }
 
-                            setSelectedDiscussionAgents(nextSelected);
-
-                            const workspaceState = await api.openProjectDir(projectPath!);
-                            if (workspaceState) {
-                              handleSelectRecentProject(projectPath!);
+                            const reopened = await handleSelectRecentProject(projectPath!);
+                            if (reopened) {
+                              queueDiscussionAgentSelectionByNames(nextSelected);
                             }
                           } else {
                             setErrorMsg(res.error || 'Failed to initialize .room.');
@@ -671,7 +688,9 @@ export default function App() {
                 errorMsg={errorMsg}
                 setErrorMsg={setErrorMsg}
                 setActiveTab={setActiveTab}
-                loadProjectData={loadProjectData}
+                loadProjectData={async (pathStr: string) => {
+                  await loadProjectData(pathStr);
+                }}
                 loadWorkspaceCoreData={loadWorkspaceCoreData}
                 loadRoomFilePreview={loadRoomFilePreview}
                 openContextPicker={openContextPicker}
@@ -686,8 +705,6 @@ export default function App() {
                 aiMemberDetailsExpanded={aiMemberDetailsExpanded}
                 setAiMemberDetailsExpanded={setAiMemberDetailsExpanded}
                 resetAgentForm={resetAgentForm}
-                setLoading={setLoading}
-                handleAddTeamPreset={handleAddTeamPreset}
                 startEditAgent={startEditAgent}
                 handleDeleteAgent={handleDeleteAgent}
                 newAgentProvider={newAgentProvider}
@@ -739,9 +756,21 @@ export default function App() {
                 highlightedDiscussionMessage={highlightedDiscussionMessage}
                 selectedDiscussionContextRefs={selectedDiscussionContextRefs}
                 selectedDiscussionAgents={selectedDiscussionAgents}
-                setSelectedDiscussionAgents={setSelectedDiscussionAgents}
+                selectedDiscussionParticipantKeys={selectedDiscussionParticipantKeys}
+                selectedDiscussionMemberIds={selectedDiscussionMemberIds}
+                setSelectedDiscussionMemberIds={setSelectedDiscussionMemberIds}
+                appendSelectedDiscussionMemberIds={appendSelectedDiscussionMemberIds}
+                toggleSelectedDiscussionMemberId={toggleSelectedDiscussionMemberId}
+                reorderSelectedDiscussionParticipants={reorderSelectedDiscussionParticipants}
+                selectedLegacyDiscussionAgentNames={selectedLegacyDiscussionAgentNames}
+                setSelectedLegacyDiscussionAgentNames={setSelectedLegacyDiscussionAgentNames}
+                toggleSelectedLegacyDiscussionAgentName={toggleSelectedLegacyDiscussionAgentName}
+                selectedTemporaryDiscussionAgentIds={selectedTemporaryDiscussionAgentIds}
+                appendSelectedTemporaryDiscussionAgentIds={appendSelectedTemporaryDiscussionAgentIds}
+                toggleSelectedTemporaryDiscussionAgentId={toggleSelectedTemporaryDiscussionAgentId}
                 temporaryDiscussionAgents={temporaryDiscussionAgents}
                 setTemporaryDiscussionAgents={setTemporaryDiscussionAgents}
+                clearSelectedDiscussionAgents={clearSelectedDiscussionAgents}
                 discussionReviewMode={discussionReviewMode}
                 setDiscussionReviewMode={setDiscussionReviewMode}
                 discussionMaxRounds={discussionMaxRounds}

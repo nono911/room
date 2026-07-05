@@ -9,6 +9,7 @@ import {
   getAgentProgressMessage,
   getDiscussionIdFromFile
 } from '../../shared/lib/streaming.js';
+import { useDiscussionSelection } from './useDiscussionSelection.js';
 
 interface UseDiscussionDeps {
   projectPath: string | null;
@@ -31,8 +32,29 @@ export function useDiscussion({
   setLoading,
   setErrorMsg
 }: UseDiscussionDeps) {
-  const [selectedDiscussionAgents, setSelectedDiscussionAgents] = useState<string[]>([]);
-  const [temporaryDiscussionAgents, setTemporaryDiscussionAgents] = useState<any[]>([]);
+  const {
+    selectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
+    selectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames,
+    selectedTemporaryDiscussionAgentIds,
+    temporaryDiscussionAgents,
+    setSelectedDiscussionAgents,
+    queueDiscussionAgentSelectionByNames,
+    setSelectedDiscussionMemberIds,
+    setSelectedLegacyDiscussionAgentNames,
+    setSelectedTemporaryDiscussionAgentIds,
+    setTemporaryDiscussionAgents,
+    appendSelectedDiscussionMemberIds,
+    appendSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedDiscussionMemberId,
+    toggleSelectedLegacyDiscussionAgentName,
+    toggleSelectedTemporaryDiscussionAgentId,
+    reorderSelectedDiscussionParticipants,
+    reorderSelectedDiscussionMemberIds,
+    clearSelectedDiscussionAgents,
+    selectDefaultDiscussionAgents
+  } = useDiscussionSelection({ projectData });
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
   const [discussionQualityGate, setDiscussionQualityGate] = useState<boolean>(false);
@@ -60,22 +82,9 @@ export function useDiscussion({
     setLastDiscussionTopic('');
     setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
     setTemporaryDiscussionAgents([]);
+    clearSelectedDiscussionAgents();
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
-  };
-
-  const selectDefaultDiscussionAgents = (agents: any[]) => {
-    const registeredAgents = (agents || []).filter((agent: any) => !agent.isVirtual);
-    if (registeredAgents.length > 0) {
-      const names = registeredAgents.map((agent: any) => agent.name);
-      setSelectedDiscussionAgents(prev => {
-        const validPrev = prev.filter(name => names.includes(name));
-        if (validPrev.length > 0) return validPrev;
-        return names.slice(0, 2);
-      });
-    } else {
-      setSelectedDiscussionAgents([]);
-    }
   };
 
   const buildDiscussionSummaryMarkdown = () => {
@@ -145,6 +154,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setDiscussionMessages([]);
     setActiveDiscussionRunId(null);
     setTemporaryDiscussionAgents([]);
+    clearSelectedDiscussionAgents();
     setDiscussionInterruptMessage('');
     setDiscussionInterruptPending(false);
   };
@@ -295,12 +305,8 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   const handleSendDiscussion = async () => {
     if (!userInputTopic.trim() || !projectPath) return;
-    const availableAgentNames = new Set([
-      ...(projectData?.agents || []).map((agent: any) => agent.name),
-      ...temporaryDiscussionAgents.map((agent: any) => agent.name)
-    ]);
-    const validSelectedAgents = selectedDiscussionAgents.filter(name => availableAgentNames.has(name));
-    if (selectedDiscussionAgents.length === 0) {
+    const validSelectedAgents = selectedDiscussionAgents;
+    if (validSelectedAgents.length === 0) {
       setErrorMsg('Please select at least one participating agent.');
       return;
     }
@@ -576,7 +582,20 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
   return {
     selectedDiscussionAgents, setSelectedDiscussionAgents,
+    selectedDiscussionParticipantKeys,
+    queueDiscussionAgentSelectionByNames,
+    selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
+    appendSelectedDiscussionMemberIds,
+    toggleSelectedDiscussionMemberId,
+    reorderSelectedDiscussionParticipants,
+    reorderSelectedDiscussionMemberIds,
+    selectedLegacyDiscussionAgentNames, setSelectedLegacyDiscussionAgentNames,
+    toggleSelectedLegacyDiscussionAgentName,
+    selectedTemporaryDiscussionAgentIds, setSelectedTemporaryDiscussionAgentIds,
+    appendSelectedTemporaryDiscussionAgentIds,
+    toggleSelectedTemporaryDiscussionAgentId,
     temporaryDiscussionAgents, setTemporaryDiscussionAgents,
+    clearSelectedDiscussionAgents,
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,

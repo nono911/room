@@ -3,10 +3,10 @@ export interface GeneratedVariant {
   personaAngle: string;
 }
 
-type VariantTemplate = {
+interface VariantTemplate {
   suffix: string;
   angle: string;
-};
+}
 
 const VARIANT_ANGLES: Record<string, VariantTemplate[]> = {
   UX: [

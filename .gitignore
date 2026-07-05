@@ -4,6 +4,7 @@ node_modules/
 # ROOM workspace state
 .room/
 .worktrees/
+.superpowers/
 
 # Build output
 dist/

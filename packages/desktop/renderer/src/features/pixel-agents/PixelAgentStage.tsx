@@ -194,7 +194,7 @@ function getStableIndex(name: string): number {
   return Math.abs(hash);
 }
 
-function resolveSpriteRow(agent: any, fallbackIndex: number): number {
+function resolveSpriteRow(agent: any, _fallbackIndex: number): number {
   const identity = `${normalizeToken(agent?.name)} ${normalizeToken(agent?.role)}`;
   const matches = (pattern: RegExp) => pattern.test(identity);
 

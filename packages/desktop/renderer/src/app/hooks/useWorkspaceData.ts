@@ -37,7 +37,9 @@ export function useWorkspaceData({
         documents: data.documents || [],
         discussions: data.discussions,
         skills: data.skills,
-        agents: data.agents || []
+        agents: data.agents || [],
+        teams: data.teams || [],
+        unassignedMemberIds: data.unassignedMemberIds || []
       });
       return data;
     }
@@ -72,16 +74,20 @@ export function useWorkspaceData({
     }
   };
 
-  const loadProjectData = async (pathStr: string) => {
+  const loadProjectData = async (pathStr: string): Promise<boolean> => {
     try {
       const data = await loadWorkspaceCoreData(pathStr);
-      if (data) {
-        selectDefaultAgents(data.agents || []);
-        await loadProjectConfig(pathStr);
-        await loadTaskBoardCards(pathStr);
+      if (!data) {
+        return false;
       }
+
+      selectDefaultAgents(data.agents || []);
+      await loadProjectConfig(pathStr);
+      await loadTaskBoardCards(pathStr);
+      return true;
     } catch (err: any) {
       setErrorMsg(err.message || 'Error fetching project data.');
+      return false;
     }
   };
 

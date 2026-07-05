@@ -1,18 +1,10 @@
+import type { MemberTeam } from '../../../types/domain.js';
+
 export interface RosterMember {
-  id: string;
+  id?: string;
   name: string;
   role: string;
   isVirtual?: boolean;
-}
-
-export interface MemberTeamLike {
-  id: string;
-  name: string;
-  description?: string;
-  memberIds?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-  [key: string]: unknown;
 }
 
 export interface TeamRoster {
@@ -24,8 +16,8 @@ export interface TeamRoster {
   virtual?: boolean;
 }
 
-function isRealAgent(agent: RosterMember): boolean {
-  return !agent.isVirtual && typeof agent.id === 'string' && agent.id.length > 0;
+function isRealMember(member: RosterMember): member is RosterMember & { id: string } {
+  return !member.isVirtual && typeof member.id === 'string' && member.id.length > 0;
 }
 
 export function dedupeMemberIdsInOrder(memberIds: string[]): string[] {
@@ -41,13 +33,13 @@ export function dedupeMemberIdsInOrder(memberIds: string[]): string[] {
 
 export function buildTeamRosters(
   agents: RosterMember[],
-  teams: MemberTeamLike[] = [],
+  teams: MemberTeam[] = [],
   unassignedMemberIds: string[] = []
 ): { userTeams: TeamRoster[]; unassigned: TeamRoster } {
   const savedAgentsById = new Map<string, RosterMember>();
 
   for (const agent of agents) {
-    if (isRealAgent(agent)) {
+    if (isRealMember(agent)) {
       savedAgentsById.set(agent.id, agent);
     }
   }
@@ -56,7 +48,7 @@ export function buildTeamRosters(
     const memberIds = dedupeMemberIdsInOrder(team.memberIds ?? []);
     const members = memberIds
       .map(id => savedAgentsById.get(id))
-      .filter((member): member is RosterMember => Boolean(member));
+      .filter((member): member is RosterMember => member !== undefined);
 
     return {
       id: team.id,
@@ -68,6 +60,9 @@ export function buildTeamRosters(
   });
 
   const unassignedIds = dedupeMemberIdsInOrder(unassignedMemberIds).filter(id => savedAgentsById.has(id));
+  const unassignedMembers = unassignedIds
+    .map(id => savedAgentsById.get(id))
+    .filter((member): member is RosterMember => member !== undefined);
 
   return {
     userTeams,
@@ -75,9 +70,7 @@ export function buildTeamRosters(
       id: 'unassigned',
       name: 'Unassigned',
       memberIds: unassignedIds,
-      members: unassignedIds
-        .map(id => savedAgentsById.get(id))
-        .filter((member): member is RosterMember => Boolean(member)),
+      members: unassignedMembers,
       virtual: true
     }
   };
