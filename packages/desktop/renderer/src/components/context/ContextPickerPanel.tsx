@@ -18,6 +18,7 @@ interface ContextPickerPanelProps {
   setContextSelection: (target: 'discussion' | 'task', selection: string[]) => void;
   contextSets: ContextSet[];
   contextSetsLoading: boolean;
+  contextSetsMutating: boolean;
   saveContextSet: (name: string, refs: string[]) => Promise<boolean>;
   deleteContextSet: (id: string) => Promise<boolean>;
 }
@@ -38,6 +39,7 @@ export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
   setContextSelection,
   contextSets,
   contextSetsLoading,
+  contextSetsMutating,
   saveContextSet,
   deleteContextSet
 }) => {
@@ -189,6 +191,7 @@ export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
             contextSets={contextSets}
             selectedRefs={selectedRefs}
             loading={contextSetsLoading}
+            mutating={contextSetsMutating}
             onApply={(refs) => setContextSelection(contextPickerTarget, refs)}
             onSave={saveContextSet}
             onDelete={deleteContextSet}

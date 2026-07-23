@@ -171,10 +171,20 @@ export async function createRoomWorkspace(
   await fs.mkdir(temporaryRoot, { recursive: false, mode: 0o700 });
   try {
     const legacyRoot = path.join(sourceRoot, '.room');
-    const canonicalLegacyRoot = await fs.realpath(legacyRoot).catch(() => legacyRoot);
-    const legacyContainsRoomHome = isSameOrNestedPath(canonicalLegacyRoot, canonicalRoomHome);
-    if (options.importLegacy !== false && !legacyContainsRoomHome && await isDirectory(legacyRoot)) {
-      const copyStats = await copyLegacyRoomContents(legacyRoot, temporaryRoot);
+    const canonicalLegacyRoot = await resolveSafeLegacyRoot(
+      legacyRoot,
+      canonicalPath
+    );
+    const legacyContainsRoomHome = canonicalLegacyRoot
+      ? isSameOrNestedPath(canonicalLegacyRoot, canonicalRoomHome)
+      : false;
+    if (options.importLegacy !== false && canonicalLegacyRoot && !legacyContainsRoomHome) {
+      const copyStats = await copyLegacyRoomContents(
+        legacyRoot,
+        temporaryRoot,
+        canonicalLegacyRoot
+      );
+      await stripImportedMachineSkillSelections(temporaryRoot);
       manifest.legacyImport = {
         source: legacyRoot,
         importedAt: now,
@@ -224,31 +234,94 @@ async function writeWorkspaceManifest(roomRoot: string, manifest: RoomWorkspaceM
   await fs.rename(temporaryPath, manifestPath);
 }
 
-async function copyLegacyRoomContents(sourceDir: string, targetDir: string): Promise<CopyStats> {
+async function copyLegacyRoomContents(
+  sourceDir: string,
+  targetDir: string,
+  canonicalLegacyRoot: string
+): Promise<CopyStats> {
   const stats: CopyStats = { fileCount: 0, byteCount: 0, skippedSymlinkCount: 0 };
+  const sourceStat = await fs.lstat(sourceDir);
+  const canonicalSourceDir = await fs.realpath(sourceDir);
+  if (
+    sourceStat.isSymbolicLink()
+    || !sourceStat.isDirectory()
+    || !isSameOrNestedPath(canonicalLegacyRoot, canonicalSourceDir)
+  ) {
+    throw new Error('Legacy ROOM data must remain inside the attached source.');
+  }
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
   for (const entry of entries) {
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(targetDir, entry.name);
-    if (entry.isSymbolicLink()) {
+    const entryStat = await fs.lstat(sourcePath);
+    if (entry.isSymbolicLink() || entryStat.isSymbolicLink()) {
       stats.skippedSymlinkCount += 1;
       continue;
     }
-    if (entry.isDirectory()) {
+    const canonicalSourcePath = await fs.realpath(sourcePath);
+    if (!isSameOrNestedPath(canonicalLegacyRoot, canonicalSourcePath)) {
+      throw new Error('Legacy ROOM data must remain inside the attached source.');
+    }
+    if (entry.isDirectory() && entryStat.isDirectory()) {
       await fs.mkdir(targetPath, { recursive: false });
-      const childStats = await copyLegacyRoomContents(sourcePath, targetPath);
+      const childStats = await copyLegacyRoomContents(
+        sourcePath,
+        targetPath,
+        canonicalLegacyRoot
+      );
       stats.fileCount += childStats.fileCount;
       stats.byteCount += childStats.byteCount;
       stats.skippedSymlinkCount += childStats.skippedSymlinkCount;
       continue;
     }
-    if (!entry.isFile()) continue;
-    const fileStat = await fs.stat(sourcePath);
+    if (!entry.isFile() || !entryStat.isFile()) continue;
     await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
     stats.fileCount += 1;
-    stats.byteCount += fileStat.size;
+    stats.byteCount += entryStat.size;
   }
   return stats;
+}
+
+async function resolveSafeLegacyRoot(
+  legacyRoot: string,
+  canonicalSourceRoot: string
+): Promise<string | null> {
+  const legacyStat = await fs.lstat(legacyRoot).catch(() => null);
+  if (!legacyStat?.isDirectory() || legacyStat.isSymbolicLink()) return null;
+  const canonicalLegacyRoot = await fs.realpath(legacyRoot);
+  const expectedLegacyRoot = path.join(canonicalSourceRoot, '.room');
+  return path.resolve(canonicalLegacyRoot) === path.resolve(expectedLegacyRoot)
+    ? canonicalLegacyRoot
+    : null;
+}
+
+async function stripImportedMachineSkillSelections(roomRoot: string): Promise<void> {
+  for (const directoryName of ['members', 'agents']) {
+    const directoryPath = path.join(roomRoot, directoryName);
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      const filePath = path.join(directoryPath, entry.name);
+      try {
+        const parsed = JSON.parse(await fs.readFile(filePath, 'utf-8')) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+        const agent = parsed as Record<string, unknown>;
+        if (!Array.isArray(agent.skills)) continue;
+        const safeSkills = agent.skills.filter(skill => (
+          typeof skill !== 'string'
+          || !skill.trim().toLowerCase().startsWith('machine://')
+        ));
+        if (safeSkills.length === agent.skills.length) continue;
+        await fs.writeFile(
+          filePath,
+          `${JSON.stringify({ ...agent, skills: safeSkills }, null, 2)}\n`,
+          'utf-8'
+        );
+      } catch {
+        // Invalid legacy agent files remain inert and are ignored by the registry loader.
+      }
+    }
+  }
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
@@ -258,10 +331,6 @@ async function writeFileIfMissing(filePath: string, content: string): Promise<vo
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return;
     throw error;
   }
-}
-
-async function isDirectory(dirPath: string): Promise<boolean> {
-  return fs.stat(dirPath).then(stat => stat.isDirectory()).catch(() => false);
 }
 
 function isRoomWorkspaceManifest(value: unknown): value is RoomWorkspaceManifest {

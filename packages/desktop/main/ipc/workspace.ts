@@ -20,7 +20,7 @@ import {
 import {
   ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT,
   resolveProjectPath, bindCurrentProjectRoot, bindCurrentWorkspace, requireBoundProjectRoot,
-  requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
+  requireBoundWorkspace, resolveCanonicalWithinProject, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, safeReadDir, readFirstExistingFile,
   readMergedDirs
 } from './shared.js';
@@ -263,7 +263,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
       const reviews = await safeReadDir(reviewsDir);
       const discussions = (await safeReadDir(discussionsDir))
         .filter(file => file.toLowerCase().endsWith('.md'));
-      const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
+      const documents = dedupeDiscussionSummaryFiles(await safeReadDir(documentsDir));
       const skills = await readMergedDirs([skillsDir, rolesDir]);
       const machineSkills = await discoverMachineSkills({ forceRefresh: true });
       const agents = await loadAgents(workspace);
@@ -410,7 +410,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const safeFilePath = sanitizeWorkspaceRelativePath(filePath);
-      const resolvedPath = resolveWithinProject(projectRoot, safeFilePath);
+      const resolvedPath = await resolveCanonicalWithinProject(projectRoot, safeFilePath);
       const stat = await fs.stat(resolvedPath);
       if (!stat.isFile() && !stat.isDirectory()) {
         return { success: false, error: 'Selected workspace item does not exist.' };

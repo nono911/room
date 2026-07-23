@@ -1,10 +1,12 @@
 import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { DiscussionEngine, loadAgents, validateAgentConfig, type AgentConfig } from '@room/engine';
+import { DiscussionEngine, loadAgents, type AgentConfig } from '@room/engine';
 import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
-  requireBoundProjectRoot, requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
+  normalizeTemporaryAgents,
+  requireBoundProjectRoot, requireBoundWorkspace, resolveCanonicalWithinProject,
+  resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
 } from './shared.js';
 import { readProjectConfigFromDisk, type ProjectConfig } from './config-store.js';
@@ -56,7 +58,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         label = `Workspace File: ${relPath}`;
         const selectedPath = relPath.startsWith('.room/')
           ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
-          : resolveWithinProject(projectRoot, relPath);
+          : await resolveCanonicalWithinProject(projectRoot, relPath);
         content = await readTextFileWithLimitLocal(
           selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -122,15 +124,6 @@ Use the same natural language as the chat unless the user explicitly asks otherw
     stdinFormat: 'text',
     permissionMode: 'safe'
   };
-}
-
-function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
-  if (!Array.isArray(rawAgents)) return [];
-  return rawAgents
-    .slice(0, 12)
-    .map(rawAgent => validateAgentConfig(rawAgent))
-    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
-    .map(result => result.agent);
 }
 
 export function registerDiscussionsIpc(): void {

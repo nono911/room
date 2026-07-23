@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
-import { DiscussionEngine, loadAgents, loadTaskBoard, validateAgentConfig, type AgentConfig } from '@room/engine';
+import { DiscussionEngine, loadAgents, loadTaskBoard, type AgentConfig } from '@room/engine';
 import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
-  requireBoundProjectRoot, requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
+  normalizeTemporaryAgents,
+  requireBoundProjectRoot, requireBoundWorkspace, resolveCanonicalWithinProject,
+  resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile
 } from './shared.js';
 import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
@@ -54,7 +56,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         label = `Workspace File: ${relPath}`;
         const selectedPath = relPath.startsWith('.room/')
           ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
-          : resolveWithinProject(projectRoot, relPath);
+          : await resolveCanonicalWithinProject(projectRoot, relPath);
         content = await readTextFileWithLimitLocal(
           selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -99,15 +101,6 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
   }
 
   return sections.join('');
-}
-
-function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
-  if (!Array.isArray(rawAgents)) return [];
-  return rawAgents
-    .slice(0, 12)
-    .map(rawAgent => validateAgentConfig(rawAgent))
-    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
-    .map(result => result.agent);
 }
 
 export function registerTasksIpc(): void {

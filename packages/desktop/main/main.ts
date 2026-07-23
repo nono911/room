@@ -1,8 +1,9 @@
-import { app, BrowserWindow, protocol, net } from 'electron';
+import { app, BrowserWindow, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { applyApiKeysToEnvironment } from './ipc/provider-store.js';
+import { isAllowedExternalUrl, isAllowedRendererNavigation } from './navigation-security.js';
 import {
   registerWorkspaceIpc,
   registerDiscussionsIpc,
@@ -27,6 +28,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
+  const isDev = !app.isPackaged;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 850,
@@ -38,7 +40,18 @@ function createWindow() {
     },
   });
 
-  const isDev = !app.isPackaged;
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedRendererNavigation(url, isDev)) {
+      event.preventDefault();
+    }
+  });
+
   if (isDev) {
     net.fetch('http://localhost:5173')
       .then(() => {

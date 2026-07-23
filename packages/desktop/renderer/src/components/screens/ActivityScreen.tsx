@@ -8,6 +8,8 @@ interface ActivityScreenProps {
   activeTaskRunId: string | null;
   lastCodingTaskResult: any;
   setActiveTab: (tab: string) => void;
+  setCodingTaskInput: (value: string) => void;
+  applyTaskTypePreset: (value: string) => void;
   setInitialSelectedFile: (value: { section: ArtifactSection; file: string } | null) => void;
 }
 
@@ -60,12 +62,22 @@ export function ActivityScreen({
   activeTaskRunId,
   lastCodingTaskResult,
   setActiveTab,
+  setCodingTaskInput,
+  applyTaskTypePreset,
   setInitialSelectedFile
 }: ActivityScreenProps) {
   const items = buildActivity(projectData);
   const openItem = (item: ActivityItem) => {
     setInitialSelectedFile({ section: item.section, file: item.file });
     setActiveTab('Artifacts');
+  };
+  const runAgain = () => {
+    const previousTask = String(lastCodingTaskResult?.task || '').trim();
+    if (previousTask) {
+      setCodingTaskInput(previousTask);
+    }
+    applyTaskTypePreset(String(lastCodingTaskResult?.taskType || 'general'));
+    setActiveTab('Run:Execute');
   };
 
   return (
@@ -130,7 +142,7 @@ export function ActivityScreen({
                 Open outcome
               </button>
             )}
-            <button type="button" onClick={() => setActiveTab('Run:Execute')}>Run again</button>
+            <button type="button" onClick={runAgain}>Run again</button>
           </div>
         </section>
       )}

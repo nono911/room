@@ -71,6 +71,57 @@ describe('ROOM Home workspaces', () => {
       .toBe(first.record.manifest.id);
   });
 
+  it('does not import a top-level legacy .room symlink', async () => {
+    const root = await createTemporaryRoot();
+    const sourceRoot = path.join(root, 'source');
+    const outsideRoot = path.join(root, 'outside');
+    const roomHome = path.join(root, 'home');
+    await fs.mkdir(sourceRoot);
+    await fs.mkdir(outsideRoot);
+    await fs.writeFile(path.join(outsideRoot, 'secret.md'), '# Outside\n', 'utf-8');
+    await fs.symlink(outsideRoot, path.join(sourceRoot, '.room'), 'dir');
+
+    const result = await createRoomWorkspace({ sourceRoot, roomHome });
+
+    expect(result.record.manifest.legacyImport).toBeUndefined();
+    await expect(fs.stat(path.join(result.record.roomRoot, 'secret.md'))).rejects.toThrow();
+    expect((await fs.lstat(path.join(sourceRoot, '.room'))).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(path.join(outsideRoot, 'secret.md'), 'utf-8')).toBe('# Outside\n');
+  });
+
+  it('removes machine skill selections from imported legacy agents', async () => {
+    const root = await createTemporaryRoot();
+    const sourceRoot = path.join(root, 'source');
+    const legacyMembers = path.join(sourceRoot, '.room', 'members');
+    const roomHome = path.join(root, 'home');
+    const legacyAgent = {
+      name: 'Imported Reviewer',
+      role: 'Reviewer',
+      provider: 'gemini',
+      systemPrompt: 'Review the work.',
+      skills: ['review.md', 'machine://codex/playwright']
+    };
+    await fs.mkdir(legacyMembers, { recursive: true });
+    await fs.writeFile(
+      path.join(legacyMembers, 'reviewer.json'),
+      JSON.stringify(legacyAgent, null, 2),
+      'utf-8'
+    );
+
+    const result = await createRoomWorkspace({ sourceRoot, roomHome });
+    const imported = JSON.parse(await fs.readFile(
+      path.join(result.record.roomRoot, 'members', 'reviewer.json'),
+      'utf-8'
+    )) as { skills?: string[] };
+    const source = JSON.parse(await fs.readFile(
+      path.join(legacyMembers, 'reviewer.json'),
+      'utf-8'
+    )) as { skills?: string[] };
+
+    expect(imported.skills).toEqual(['review.md']);
+    expect(source.skills).toEqual(['review.md', 'machine://codex/playwright']);
+  });
+
   it('rejects attaching a directory inside ROOM Home', async () => {
     const root = await createTemporaryRoot();
     const roomHome = path.join(root, 'home');

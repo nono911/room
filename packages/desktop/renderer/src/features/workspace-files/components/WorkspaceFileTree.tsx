@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceFileEntry } from '../../../types/domain.js';
 import { api } from '../../../shared/ipc/client.js';
 
@@ -94,31 +94,52 @@ export function WorkspaceFileTree({
   const [loadingDirectories, setLoadingDirectories] = useState<Set<string>>(new Set());
   const [searching, setSearching] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  const sourceGenerationRef = useRef(0);
+  const activeSourceKeyRef = useRef('');
+  const directoryRequestRef = useRef(new Map<string, number>());
+  const sourceKey = `${projectPath}:${refreshToken}`;
+  if (activeSourceKeyRef.current !== sourceKey) {
+    activeSourceKeyRef.current = sourceKey;
+    sourceGenerationRef.current += 1;
+    directoryRequestRef.current.clear();
+  }
 
   const loadDirectory = useCallback(async (directory: string) => {
+    const generation = sourceGenerationRef.current;
+    const requestId = (directoryRequestRef.current.get(directory) || 0) + 1;
+    directoryRequestRef.current.set(directory, requestId);
+    const isCurrentRequest = () => (
+      activeSourceKeyRef.current === sourceKey
+      && sourceGenerationRef.current === generation
+      && directoryRequestRef.current.get(directory) === requestId
+    );
     setLoadingDirectories(current => new Set(current).add(directory));
     try {
       const result = await api.browseWorkspaceFiles(projectPath, directory);
+      if (!isCurrentRequest()) return;
       if (!result.success) {
         onError(result.error || 'Failed to browse workspace files.');
         return;
       }
       setCache(current => ({ ...current, [directory]: result.files || [] }));
     } catch (error) {
+      if (!isCurrentRequest()) return;
       onError(error instanceof Error ? error.message : 'Failed to browse workspace files.');
     } finally {
+      if (!isCurrentRequest()) return;
       setLoadingDirectories(current => {
         const next = new Set(current);
         next.delete(directory);
         return next;
       });
     }
-  }, [projectPath, onError]);
+  }, [projectPath, sourceKey, onError]);
 
   useEffect(() => {
     setCache({});
     setExpanded(new Set());
     setSearchResults([]);
+    setLoadingDirectories(new Set());
     void loadDirectory('');
   }, [projectPath, refreshToken, loadDirectory]);
 
@@ -126,28 +147,37 @@ export function WorkspaceFileTree({
     const normalizedQuery = query.trim();
     if (!normalizedQuery) {
       setSearchResults([]);
+      setSearching(false);
       setTruncated(false);
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setSearching(true);
-      const result = await api.browseWorkspaceFiles(projectPath, '', normalizedQuery);
-      if (!cancelled) {
+      try {
+        const result = await api.browseWorkspaceFiles(projectPath, '', normalizedQuery);
+        if (cancelled) return;
         if (result.success) {
           setSearchResults((result.files || []).filter(item => item.kind === 'file'));
           setTruncated(!!result.truncated);
         } else {
           onError(result.error || 'Failed to search workspace files.');
         }
-        setSearching(false);
+      } catch (error) {
+        if (!cancelled) {
+          onError(error instanceof Error ? error.message : 'Failed to search workspace files.');
+        }
+      } finally {
+        if (!cancelled) {
+          setSearching(false);
+        }
       }
     }, 180);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [projectPath, query, onError]);
+  }, [projectPath, query, refreshToken, onError]);
 
   const toggleDirectory = useCallback((entry: WorkspaceFileEntry) => {
     const willExpand = !expanded.has(entry.path);

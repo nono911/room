@@ -1,5 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const normalizeOptions = (options) => (
+  options && typeof options === 'object' && !Array.isArray(options) ? options : {}
+);
+
+const selectOptions = (options, keys) => {
+  const source = normalizeOptions(options);
+  return Object.fromEntries(keys
+    .filter((key) => source[key] !== undefined)
+    .map((key) => [key, source[key]]));
+};
+
 contextBridge.exposeInMainWorld('electronAPI', {
   selectProjectDir: () => ipcRenderer.invoke('select-project-dir'),
   openProjectDir: (dirPath) => ipcRenderer.invoke('open-project-dir', dirPath),
@@ -16,11 +27,50 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadContextSets: (dirPath) => ipcRenderer.invoke('load-context-sets', { dirPath }),
   saveContextSets: (dirPath, contextSets) => ipcRenderer.invoke('save-context-sets', { dirPath, contextSets }),
   runScan: (dirPath, mainAgent, modelName, allowDangerousCli) => ipcRenderer.invoke('run-scan', { dirPath, mainAgent, modelName, allowDangerousCli }),
-  runDiscussion: (dirPath, topic, agentNames, options = {}) => ipcRenderer.invoke('run-discussion', { dirPath, topic, agentNames, ...options }),
-  runTask: (dirPath, task, options = {}) => ipcRenderer.invoke('run-task', { dirPath, task, ...options }),
+  runDiscussion: (dirPath, topic, agentNames, options = {}) => ipcRenderer.invoke('run-discussion', {
+    dirPath,
+    topic,
+    agentNames,
+    ...selectOptions(options, [
+      'maxRounds',
+      'reviewMode',
+      'allowReadOnlyTools',
+      'contextRefs',
+      'discussionId',
+      'qualityGate',
+      'moderatorName',
+      'autoSummary',
+      'summaryAgentName',
+      'useProjectSummaryAgent',
+      'temporaryAgents'
+    ])
+  }),
+  runTask: (dirPath, task, options = {}) => ipcRenderer.invoke('run-task', {
+    dirPath,
+    task,
+    ...selectOptions(options, [
+      'taskType',
+      'doerName',
+      'reviewerNames',
+      'maxCycles',
+      'contextRefs',
+      'associatedCardId',
+      'continuedFromTaskId',
+      'taskId',
+      'temporaryAgents'
+    ])
+  }),
   interruptRun: (runId, message) => ipcRenderer.invoke('interrupt-run', { runId, message }),
-  summarizeDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('summarize-discussion', { dirPath, discussionId, ...options }),
-  generateTasksFromDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('generate-tasks-from-discussion', { dirPath, discussionId, ...options }),
+  summarizeDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('summarize-discussion', {
+    dirPath,
+    discussionId,
+    ...selectOptions(options, ['agentNames', 'summaryAgentName', 'useProjectSummaryAgent'])
+  }),
+  generateTasksFromDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('generate-tasks-from-discussion', {
+    dirPath,
+    discussionId,
+    ...selectOptions(options, ['moderatorName'])
+  }),
   loadTaskBoard: (dirPath) => ipcRenderer.invoke('load-task-board', { dirPath }),
   onDiscussionEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);

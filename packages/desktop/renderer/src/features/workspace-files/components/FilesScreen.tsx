@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ProjectData, WorkspaceFileEntry, WorkspaceFilePreview } from '../../../types/domain.js';
 import { api } from '../../../shared/ipc/client.js';
 import { FilePreviewPane } from './FilePreviewPane.js';
@@ -45,22 +45,26 @@ export function FilesScreen({
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const previewRequestRef = useRef(0);
 
   useEffect(() => {
+    previewRequestRef.current += 1;
     setSelectedSource(null);
     setSelectedArtifact(null);
     setPreview(null);
     setTab(initialTab);
-  }, [projectPath, initialTab]);
+  }, [projectPath, initialTab, roomSection]);
 
   const openSourceFile = async (file: WorkspaceFileEntry) => {
     if (!projectPath) return;
+    const requestId = ++previewRequestRef.current;
     setLoading(true);
     setSelectedSource(file);
     setSelectedArtifact(null);
     setErrorMsg(null);
     try {
       const result = await api.readWorkspaceFile(projectPath, file.path);
+      if (requestId !== previewRequestRef.current) return;
       if (!result.success || !result.preview) {
         setPreview(null);
         setErrorMsg(result.error || `Failed to preview ${file.path}.`);
@@ -69,9 +73,12 @@ export function FilesScreen({
       setPreview(result.preview);
       localStorage.setItem(`room:last-file:${projectPath}`, file.path);
     } catch (error) {
+      if (requestId !== previewRequestRef.current) return;
       setErrorMsg(error instanceof Error ? error.message : `Failed to preview ${file.path}.`);
     } finally {
-      setLoading(false);
+      if (requestId === previewRequestRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -87,7 +94,7 @@ export function FilesScreen({
       kind: 'file',
       extension: lastPath.split('.').pop()?.toLowerCase()
     });
-  }, [projectPath]);
+  }, [projectPath, initialTab]);
 
   useEffect(() => {
     setRefreshToken(value => value + 1);
@@ -95,12 +102,14 @@ export function FilesScreen({
 
   const openArtifact = async (selection: RoomArtifactSelection) => {
     if (!projectPath) return;
+    const requestId = ++previewRequestRef.current;
     setLoading(true);
     setSelectedArtifact(selection);
     setSelectedSource(null);
     setErrorMsg(null);
     try {
       const result = await api.readRoomFile(projectPath, selection.section, selection.file);
+      if (requestId !== previewRequestRef.current) return;
       if (!result.success) {
         setPreview(null);
         setErrorMsg(result.error || `Failed to preview ${selection.file}.`);
@@ -108,9 +117,12 @@ export function FilesScreen({
       }
       setPreview(roomPreview(result.content || '', selection.file));
     } catch (error) {
+      if (requestId !== previewRequestRef.current) return;
       setErrorMsg(error instanceof Error ? error.message : `Failed to preview ${selection.file}.`);
     } finally {
-      setLoading(false);
+      if (requestId === previewRequestRef.current) {
+        setLoading(false);
+      }
     }
   };
 

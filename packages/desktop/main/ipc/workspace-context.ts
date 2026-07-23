@@ -9,6 +9,7 @@ import {
   WORKSPACE_FILE_READ_LIMIT_BYTES,
   extractMarkdownHeading,
   formatBytes,
+  resolveCanonicalWithinProject,
   resolveProjectPath,
   resolveWithinProject,
   resolveRoomDataRoot,
@@ -222,7 +223,7 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
     const roomRelativePath = roomManaged ? relQuery.slice(ROOM_DIR.length).replace(/^\/+/, '') : '';
     const candidatePath = roomManaged
       ? resolveWithinRoomData(projectRoot, roomRelativePath)
-      : resolveWithinProject(root, relQuery);
+      : await resolveCanonicalWithinProject(root, relQuery);
     const stat = await fs.stat(candidatePath).catch(() => null);
     if (!stat) return;
     if (stat.isFile()) {

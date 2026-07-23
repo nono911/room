@@ -5,6 +5,7 @@ import {
   ROOM_DIR,
   WORKSPACE_FILE_LIMIT,
   resolveProjectPath,
+  resolveCanonicalWithinProject,
   resolveWithinProject
 } from './shared.js';
 
@@ -115,7 +116,7 @@ export async function browseWorkspaceFiles(
     ? relativeDirectory.replace(/\\/g, '/').replace(/^\/+/, '')
     : '';
   const startDir = normalizedDirectory
-    ? resolveWithinProject(root, normalizedDirectory)
+    ? await resolveCanonicalWithinProject(root, normalizedDirectory)
     : root;
   const startStat = await fs.stat(startDir);
   if (!startStat.isDirectory()) {

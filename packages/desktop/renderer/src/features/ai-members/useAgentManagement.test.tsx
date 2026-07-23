@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import type { ProjectData } from '../../types/domain.js';
 
 const {
   saveAgent,
@@ -169,5 +170,84 @@ describe('useAgentManagement save flow', () => {
     expect(result.current.newAgentRole).toBe('Assistant');
     expect(result.current.newAgentPrompt).toBe('Prompt');
     expect(result.current.newAgentSkills).toEqual(['planning.md']);
+  });
+
+  test('clears stale editor state and rejects a missing agent route after switching workspaces', async () => {
+    const setActiveTab = vi.fn();
+    const loadProjectData = vi.fn().mockResolvedValue(undefined);
+    const setErrorMsg = vi.fn();
+    const workspaceA: ProjectData = {
+      projectMd: '',
+      archMd: '',
+      tasks: [],
+      decisions: [],
+      reviews: [],
+      documents: [],
+      discussions: [],
+      skills: [],
+      agents: [{
+        id: 'mem_a',
+        name: 'Workspace A Agent',
+        role: 'Assistant',
+        provider: 'gemini',
+        modelName: 'gemini-1.5-flash',
+        systemPrompt: 'Workspace A prompt',
+        skills: ['a.md']
+      }]
+    };
+    const workspaceB: ProjectData = {
+      ...workspaceA,
+      agents: []
+    };
+    const { result, rerender } = renderHook(
+      ({ projectPath, projectData }) => useAgentManagement({
+        projectPath,
+        projectData,
+        activeTab: 'Agent:mem_a',
+        setActiveTab,
+        loadProjectData,
+        setErrorMsg
+      }),
+      {
+        initialProps: {
+          projectPath: '/workspace/a',
+          projectData: workspaceA as ProjectData | null
+        }
+      }
+    );
+
+    await waitFor(() => expect(result.current.editingAgent?.id).toBe('mem_a'));
+
+    rerender({
+      projectPath: '/workspace/b',
+      projectData: null
+    });
+    await waitFor(() => {
+      expect(result.current.editingAgent).toBeNull();
+      expect(result.current.newAgentName).toBe('');
+    });
+
+    rerender({
+      projectPath: '/workspace/b',
+      projectData: workspaceB
+    });
+    await waitFor(() => expect(setActiveTab).toHaveBeenCalledWith('AI Members'));
+
+    act(() => {
+      result.current.setNewAgentName('Workspace B Agent');
+    });
+    await act(async () => {
+      await result.current.handleSaveAgent({ preventDefault() {} } as React.FormEvent);
+    });
+
+    expect(saveAgent).toHaveBeenLastCalledWith(
+      '/workspace/b',
+      expect.objectContaining({
+        id: undefined,
+        previousName: undefined,
+        name: 'Workspace B Agent'
+      })
+    );
+    expect(setErrorMsg).toHaveBeenLastCalledWith(null);
   });
 });

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
   WORKSPACE_FILE_READ_LIMIT_BYTES,
-  resolveWithinProject,
+  resolveCanonicalWithinProject,
   sanitizeWorkspaceRelativePath
 } from './shared.js';
 
@@ -57,7 +57,7 @@ function getTextMimeType(extension: string): string {
 
 export async function readWorkspaceFilePreview(projectRoot: string, filePath: string) {
   const safeFilePath = sanitizeWorkspaceRelativePath(filePath);
-  const resolvedPath = resolveWithinProject(projectRoot, safeFilePath);
+  const resolvedPath = await resolveCanonicalWithinProject(projectRoot, safeFilePath);
   const stat = await fs.stat(resolvedPath);
   if (!stat.isFile()) {
     return { success: false, error: 'Select a file to preview it.' };

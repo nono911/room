@@ -7,6 +7,7 @@ import { ProvidersProvider } from './features/providers/context/ProvidersContext
 test('renders welcome screen initially, then opens workspace, navigates all tabs, and verifies IPC calls', async () => {
   // Clear localStorage to isolate test run from previous state
   localStorage.clear();
+  localStorage.setItem('room:last-tab:/mock/path/project-x', 'Files');
 
   const mockApi = window.electronAPI as any;
 
@@ -84,6 +85,9 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
   await waitFor(() => {
     expect(screen.queryByText('Skip')).toBeNull();
   });
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText(/Search the full source/i)).toBeDefined();
+  });
 
   // Verify IPC Contract for loading project workspace
   expect(mockApi.selectProjectDir).toHaveBeenCalled();
@@ -97,6 +101,17 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
   fireEvent.click(screen.getByText('Home'));
   await waitFor(() => {
     expect(screen.getByText(/What should this workspace move forward/i)).toBeDefined();
+  });
+
+  // Direct launchers keep the displayed run mode and execution semantics aligned.
+  fireEvent.click(screen.getByRole('button', { name: /ThinkExplore a problem/i }));
+  await waitFor(() => {
+    expect((screen.getByLabelText('Resolve over rounds') as HTMLInputElement).checked).toBe(false);
+  });
+  fireEvent.click(screen.getByText('Home'));
+  fireEvent.click(screen.getByRole('button', { name: /DecideCompare options/i }));
+  await waitFor(() => {
+    expect((screen.getByLabelText('Resolve over rounds') as HTMLInputElement).checked).toBe(true);
   });
 
   // Files

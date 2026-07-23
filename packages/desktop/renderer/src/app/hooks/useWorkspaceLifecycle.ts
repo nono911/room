@@ -3,6 +3,7 @@ import { api } from '../../shared/ipc/client.js';
 
 interface UseWorkspaceLifecycleOptions {
   clearWorkspaceDerivedState: () => void;
+  restoreWorkspaceRoute: (path: string) => void;
   loadProjectData: (path: string) => Promise<boolean>;
   setLoading: (value: boolean) => void;
   setErrorMsg: (value: string | null) => void;
@@ -22,6 +23,7 @@ function loadRecentProjects(): string[] {
 
 export function useWorkspaceLifecycle({
   clearWorkspaceDerivedState,
+  restoreWorkspaceRoute,
   loadProjectData,
   setLoading,
   setErrorMsg
@@ -66,6 +68,7 @@ export function useWorkspaceLifecycle({
       if (!result) return;
 
       clearWorkspaceDerivedState();
+      if (result.isRoomProject) restoreWorkspaceRoute(result.path);
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
       setHasLegacyRoom(!!result.hasLegacyRoom);
@@ -98,6 +101,7 @@ export function useWorkspaceLifecycle({
       }
 
       clearWorkspaceDerivedState();
+      restoreWorkspaceRoute(result.path);
       setProjectPath(result.path);
       setIsRoomProject(true);
       setHasLegacyRoom(false);
@@ -121,6 +125,7 @@ export function useWorkspaceLifecycle({
       }
 
       clearWorkspaceDerivedState();
+      if (result.isRoomProject) restoreWorkspaceRoute(result.path);
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
       setHasLegacyRoom(!!result.hasLegacyRoom);
@@ -153,6 +158,7 @@ export function useWorkspaceLifecycle({
       const res = await api.roomInit(projectPath);
       if (res.success) {
         clearWorkspaceDerivedState();
+        restoreWorkspaceRoute(projectPath);
         setIsRoomProject(true);
         setHasLegacyRoom(false);
         addRecentProject(projectPath);

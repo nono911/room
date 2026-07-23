@@ -14,6 +14,7 @@ describe('useWorkspaceLifecycle', () => {
     const loadProjectData = vi.fn().mockResolvedValue(false);
     const { result } = renderHook(() => useWorkspaceLifecycle({
       clearWorkspaceDerivedState: vi.fn(),
+      restoreWorkspaceRoute: vi.fn(),
       loadProjectData,
       setLoading: vi.fn(),
       setErrorMsg: vi.fn()
@@ -37,8 +38,10 @@ describe('useWorkspaceLifecycle', () => {
     });
 
     const loadProjectData = vi.fn().mockResolvedValue(true);
+    const restoreWorkspaceRoute = vi.fn();
     const { result } = renderHook(() => useWorkspaceLifecycle({
       clearWorkspaceDerivedState: vi.fn(),
+      restoreWorkspaceRoute,
       loadProjectData,
       setLoading: vi.fn(),
       setErrorMsg: vi.fn()
@@ -50,5 +53,6 @@ describe('useWorkspaceLifecycle', () => {
     });
 
     expect(reopened).toBe(true);
+    expect(restoreWorkspaceRoute).toHaveBeenCalledWith('/mock/project');
   });
 });

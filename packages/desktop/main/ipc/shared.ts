@@ -1,6 +1,11 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import type { WorkspaceLocation } from '@room/engine';
+import {
+  isMachineSkillReference,
+  validateAgentConfig,
+  type AgentConfig,
+  type WorkspaceLocation
+} from '@room/engine';
 
 export const ROOM_DIR = '.room';
 export const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'kiro'] as const;
@@ -110,6 +115,41 @@ export function resolveWithinProject(projectRoot: string, ...parts: string[]): s
   return resolved;
 }
 
+export async function resolveCanonicalWithinProject(
+  projectRoot: string,
+  ...parts: string[]
+): Promise<string> {
+  const root = resolveProjectPath(projectRoot);
+  const resolved = resolveWithinProject(root, ...parts);
+  const relativePath = path.relative(root, resolved);
+  let currentPath = root;
+
+  if (relativePath) {
+    for (const segment of relativePath.split(path.sep)) {
+      currentPath = path.join(currentPath, segment);
+      const stat = await fs.lstat(currentPath);
+      if (stat.isSymbolicLink()) {
+        throw new Error('Workspace paths cannot contain symbolic links.');
+      }
+    }
+  }
+
+  const [canonicalRoot, canonicalTarget] = await Promise.all([
+    fs.realpath(root),
+    fs.realpath(resolved)
+  ]);
+  const canonicalRelativePath = path.relative(canonicalRoot, canonicalTarget);
+  if (
+    canonicalRelativePath === '..'
+    || canonicalRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(canonicalRelativePath)
+  ) {
+    throw new Error('Workspace path resolves outside the active source.');
+  }
+
+  return resolved;
+}
+
 export function sanitizeFileName(input: string, fallback = 'untitled'): string {
   const name = path.basename(input || '').trim();
   if (!name) return fallback;
@@ -145,6 +185,18 @@ export function sanitizeAgentFileName(name: string): string {
 export function isObjectWithAllowedKeys(value: unknown, allowedKeys: readonly string[]): boolean {
   if (!isPlainObject(value)) return false;
   return Object.keys(value).every((key) => allowedKeys.includes(key));
+}
+
+export function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
+  if (!Array.isArray(rawAgents)) return [];
+  return rawAgents
+    .slice(0, 12)
+    .map(rawAgent => validateAgentConfig(rawAgent))
+    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
+    .map(result => ({
+      ...result.agent,
+      skills: (result.agent.skills || []).filter(skill => !isMachineSkillReference(skill))
+    }));
 }
 
 export function formatBytes(bytes: number): string {

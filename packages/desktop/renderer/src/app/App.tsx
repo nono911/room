@@ -30,10 +30,49 @@ import { agentPersonaTemplates, teamPresets } from '../shared/data/staticData.js
 import { useProviders } from '../features/providers/context/ProvidersContext.js';
 import { createDiscussionSelectionId } from '../features/discussions/lib/discussionSelection.js';
 
+const RESTORABLE_WORKSPACE_TABS = new Set([
+  'Home',
+  'Activity',
+  'Skills',
+  'Run:Think',
+  'Run:Decide',
+  'Run:Execute',
+  'Run:Review',
+  'AI Members',
+  'Context',
+  'Tasks',
+  'Files',
+  'Artifacts',
+  'Decisions',
+  'Documents',
+  'Reviews',
+  'MCP Servers',
+  'Settings'
+]);
+
+function workspaceTabStorageKey(projectPath: string): string {
+  return `room:last-tab:${projectPath}`;
+}
+
+function loadWorkspaceTab(projectPath: string): string {
+  const saved = localStorage.getItem(workspaceTabStorageKey(projectPath));
+  if (
+    saved
+    && (
+      RESTORABLE_WORKSPACE_TABS.has(saved)
+      || saved.startsWith('Agent:')
+      || saved.startsWith('Team:')
+    )
+  ) {
+    return saved;
+  }
+  return 'Home';
+}
+
 export default function App() {
   const { providers, getModelOptions, detectedClis } = useProviders();
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
-  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem('room:last-tab') || 'Home');
+  const [activeTab, setActiveTab] = useState<string>('Home');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const {
@@ -50,6 +89,7 @@ export default function App() {
     handleCloseProjectWorkspace
   } = useWorkspaceLifecycle({
     clearWorkspaceDerivedState,
+    restoreWorkspaceRoute: (pathStr: string) => setActiveTab(loadWorkspaceTab(pathStr)),
     loadProjectData: (pathStr: string) => loadProjectData(pathStr),
     setLoading,
     setErrorMsg
@@ -167,6 +207,13 @@ export default function App() {
     setLoading,
     setErrorMsg
   });
+  useEffect(() => {
+    if (activeTab === 'Run:Think' || activeTab === 'Discussions') {
+      setDiscussionReviewMode(false);
+    } else if (activeTab === 'Run:Decide') {
+      setDiscussionReviewMode(true);
+    }
+  }, [activeTab, setDiscussionReviewMode]);
   const {
     contextPickerTarget,
     contextPickerQuery, setContextPickerQuery,
@@ -192,6 +239,7 @@ export default function App() {
   const {
     contextSets,
     contextSetsLoading,
+    contextSetsMutating,
     saveContextSet,
     deleteContextSet
   } = useContextSets({ projectPath, setErrorMsg });
@@ -242,7 +290,7 @@ export default function App() {
 
   useEffect(() => {
     if (projectPath && isRoomProject) {
-      localStorage.setItem('room:last-tab', activeTab);
+      localStorage.setItem(workspaceTabStorageKey(projectPath), activeTab);
     }
   }, [activeTab, isRoomProject, projectPath]);
 
@@ -445,6 +493,7 @@ export default function App() {
         setContextSelection={setContextSelection}
         contextSets={contextSets}
         contextSetsLoading={contextSetsLoading}
+        contextSetsMutating={contextSetsMutating}
         saveContextSet={saveContextSet}
         deleteContextSet={deleteContextSet}
       />

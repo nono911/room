@@ -430,6 +430,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         activeTaskRunId={activeTaskRunId}
         lastCodingTaskResult={lastCodingTaskResult}
         setActiveTab={setActiveTab}
+        setCodingTaskInput={setCodingTaskInput}
+        applyTaskTypePreset={applyTaskTypePreset}
         setInitialSelectedFile={setInitialSelectedFile}
       />
     );

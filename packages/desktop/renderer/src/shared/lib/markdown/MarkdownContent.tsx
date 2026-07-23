@@ -1,4 +1,5 @@
 import React from 'react';
+import { normalizeSafeMarkdownHref } from './markdownLinks.js';
 
 const decodeHtmlEntities = (value: string) => {
   if (!/[&]/.test(value) || typeof document === 'undefined') return value;
@@ -260,11 +261,16 @@ export const renderInlineMarkdown = (value: string, onScrollToMessage?: (message
       } else if (href.startsWith('file://')) {
         nodes.push(<span key={`inline-file-link-${nodes.length}`} style={{ color: 'hsl(var(--accent-blue))', fontWeight: 650 }}>{label}</span>);
       } else {
-        nodes.push(
-          <a key={`inline-link-${nodes.length}`} href={href} target="_blank" rel="noreferrer">
+        const safeHref = normalizeSafeMarkdownHref(href);
+        nodes.push(safeHref ? (
+          <a key={`inline-link-${nodes.length}`} href={safeHref} target="_blank" rel="noreferrer">
             {label}
           </a>
-        );
+        ) : (
+          <span key={`inline-blocked-link-${nodes.length}`} title="Unsafe link blocked">
+            {label}
+          </span>
+        ));
       }
     } else if (token.startsWith('`')) {
       nodes.push(<code key={`inline-code-${nodes.length}`}>{token.slice(1, -1)}</code>);

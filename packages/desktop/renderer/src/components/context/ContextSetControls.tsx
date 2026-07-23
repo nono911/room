@@ -5,6 +5,7 @@ interface ContextSetControlsProps {
   contextSets: ContextSet[];
   selectedRefs: string[];
   loading: boolean;
+  mutating: boolean;
   onApply: (refs: string[]) => void;
   onSave: (name: string, refs: string[]) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
@@ -14,6 +15,7 @@ export function ContextSetControls({
   contextSets,
   selectedRefs,
   loading,
+  mutating,
   onApply,
   onSave,
   onDelete
@@ -22,7 +24,7 @@ export function ContextSetControls({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!name.trim() || selectedRefs.length === 0) return;
+    if (loading || mutating || !name.trim() || selectedRefs.length === 0) return;
     setSaving(true);
     const saved = await onSave(name, selectedRefs);
     if (saved) setName('');
@@ -51,6 +53,7 @@ export function ContextSetControls({
               className="context-set-delete"
               aria-label={`Delete ${set.name}`}
               onClick={() => void onDelete(set.id)}
+              disabled={loading || mutating || saving}
             >
               ×
             </button>
@@ -67,9 +70,9 @@ export function ContextSetControls({
         <button
           type="button"
           onClick={() => void handleSave()}
-          disabled={saving || !name.trim() || selectedRefs.length === 0}
+          disabled={loading || mutating || saving || !name.trim() || selectedRefs.length === 0}
         >
-          {saving ? 'Saving…' : 'Save'}
+          {saving || mutating ? 'Saving…' : 'Save'}
         </button>
       </div>
     </div>

@@ -142,6 +142,35 @@ export function useAgentManagement({
     }
   };
 
+  const resetAgentForm = () => {
+    setNewAgentName('');
+
+    const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
+    setNewAgentProvider(defaults.provider);
+    setNewAgentPreset(defaults.cliPreset || 'none');
+    setNewAgentModel(defaults.modelName || '');
+    setNewAgentModelCustom(false);
+    setNewAgentCommand('');
+
+    setNewAgentRole('Assistant');
+    setNewAgentPrompt('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
+
+    setNewAgentSkills([]);
+    setNewAgentStdinFormat('text');
+    setNewAgentPermissionMode('safe');
+    setCustomSkillName('');
+    setCustomSkillDesc('');
+    setEditingSkillFile('');
+    setEditingSkillContent('');
+    setEditingSkillSource('skills');
+    setSkillPreview(null);
+    setEditingAgent(null);
+  };
+
+  useEffect(() => {
+    resetAgentForm();
+  }, [projectPath]);
+
   useEffect(() => {
     if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
       const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
@@ -183,7 +212,13 @@ export function useAgentManagement({
 
     const matchedAgent = findAgentForEditorRoute(activeTab, projectData?.agents || []);
 
+    if (!projectData) {
+      return;
+    }
+
     if (!matchedAgent || matchedAgent.isVirtual) {
+      resetAgentForm();
+      setActiveTab('AI Members');
       return;
     }
 
@@ -221,31 +256,6 @@ export function useAgentManagement({
     }
 
     return savedSkillFiles;
-  };
-
-  const resetAgentForm = () => {
-    setNewAgentName('');
-
-    const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
-    setNewAgentProvider(defaults.provider);
-    setNewAgentPreset(defaults.cliPreset || 'none');
-    setNewAgentModel(defaults.modelName || '');
-    setNewAgentModelCustom(false);
-    setNewAgentCommand('');
-    
-    setNewAgentRole('Assistant');
-    setNewAgentPrompt('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
-    
-    setNewAgentSkills([]);
-    setNewAgentStdinFormat('text');
-    setNewAgentPermissionMode('safe');
-    setCustomSkillName('');
-    setCustomSkillDesc('');
-    setEditingSkillFile('');
-    setEditingSkillContent('');
-    setEditingSkillSource('skills');
-    setSkillPreview(null);
-    setEditingAgent(null);
   };
 
   const startEditAgent = (agent: any) => {
