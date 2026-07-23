@@ -9,8 +9,16 @@ const mockElectronAPI = {
   getProjectData: vi.fn().mockResolvedValue({ success: true, data: {} }),
   readRoomFile: vi.fn().mockResolvedValue({ success: true, content: '' }),
   listWorkspaceFiles: vi.fn().mockResolvedValue({ success: true, files: [] }),
+  browseWorkspaceFiles: vi.fn().mockResolvedValue({ success: true, files: [], truncated: false }),
   searchContextItems: vi.fn().mockResolvedValue({ success: true, items: [] }),
-  readWorkspaceFile: vi.fn().mockResolvedValue({ success: true, content: '' }),
+  readWorkspaceFile: vi.fn().mockResolvedValue({
+    success: true,
+    content: '',
+    preview: { kind: 'text', content: '', mimeType: 'text/plain' }
+  }),
+  revealWorkspaceFile: vi.fn().mockResolvedValue({ success: true }),
+  loadContextSets: vi.fn().mockResolvedValue({ success: true, contextSets: [] }),
+  saveContextSets: vi.fn().mockResolvedValue({ success: true }),
   runScan: vi.fn().mockResolvedValue({ success: true }),
   runDiscussion: vi.fn().mockResolvedValue({ success: true }),
   runTask: vi.fn().mockResolvedValue({ success: true }),

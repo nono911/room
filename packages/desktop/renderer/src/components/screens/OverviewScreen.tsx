@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ProjectData } from '../../types/domain.js';
+import { renderMarkdownContent } from '../../shared/lib/markdown/MarkdownContent.js';
 
 interface OverviewScreenProps {
   projectData: ProjectData | null;
@@ -12,7 +13,7 @@ export const OverviewScreen: React.FC<OverviewScreenProps> = ({ projectData }) =
         Active workspace overview located in ROOM Home.
       </div>
       <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-        {projectData?.projectMd || '# No project details loaded.'}
+        {renderMarkdownContent(projectData?.projectMd || '# No project details loaded.', false, 'message-markdown')}
       </div>
     </div>
   );

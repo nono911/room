@@ -93,16 +93,16 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
 
   // 3. Smoke Test: Navigate through all screens/tabs to ensure they don't crash
   
-  // Overview
-  fireEvent.click(screen.getByText('Overview'));
+  // Home
+  fireEvent.click(screen.getByText('Home'));
   await waitFor(() => {
-    expect(screen.getByText(/Active workspace overview located in/i)).toBeDefined();
+    expect(screen.getByText(/What should this workspace move forward/i)).toBeDefined();
   });
 
   // Files
   fireEvent.click(screen.getByText('Files'));
   await waitFor(() => {
-    expect(screen.getByPlaceholderText(/Search workspace files and folders/i)).toBeDefined();
+    expect(screen.getByPlaceholderText(/Search the full source/i)).toBeDefined();
   });
 
   // AI Members
@@ -111,28 +111,28 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
     expect(screen.getByText(/Recommended Teams/i)).toBeDefined();
   });
 
-  // Discussions
-  fireEvent.click(screen.getByText('Discussions'));
+  // New Think run
+  fireEvent.click(screen.getByText('New Run'));
   await waitFor(() => {
     expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });
 
-  // Task Run
-  fireEvent.click(screen.getByText('Task Run'));
+  // Execute run
+  fireEvent.click(screen.getByRole('button', { name: 'Execute' }));
   await waitFor(() => {
     expect(screen.getByText(/Work Request/i)).toBeDefined();
   });
 
-  // Documents
-  fireEvent.click(screen.getByText('Documents'));
+  // Artifacts
+  fireEvent.click(screen.getByText('Artifacts'));
   await waitFor(() => {
-    expect(screen.getByText(/Documents from/i)).toBeDefined();
+    expect(screen.getByText(/traceable outputs/i)).toBeDefined();
   });
 
-  // Tasks (Task Archive)
-  fireEvent.click(screen.getByText('Task Archive'));
+  // Activity
+  fireEvent.click(screen.getByText('Activity'));
   await waitFor(() => {
-    expect(screen.getByText(/Task notes and task run transcripts/i)).toBeDefined();
+    expect(screen.getByText(/Run outcomes/i)).toBeDefined();
   });
 
   // Context
@@ -141,14 +141,14 @@ test('renders welcome screen initially, then opens workspace, navigates all tabs
     expect(screen.getByText(/Workspace context and structure stored under/i)).toBeDefined();
   });
 
-  // MCP Servers
-  fireEvent.click(screen.getByText('MCP Servers'));
+  // MCP & Tools
+  fireEvent.click(screen.getByText('MCP & Tools'));
   await waitFor(() => {
     expect(screen.getByText(/No servers configured/i)).toBeDefined();
   });
 
-  // Settings
-  fireEvent.click(screen.getByText('Settings'));
+  // Providers
+  fireEvent.click(screen.getByText('Providers'));
   await waitFor(() => {
     expect(screen.getByText(/Keys are stored locally on this machine/i)).toBeDefined();
   });
@@ -242,8 +242,9 @@ test('handles streaming events correctly during runTask', async () => {
   // Skip Onboarding
   fireEvent.click(screen.getByText('Skip'));
 
-  // Go to Task Run tab
-  fireEvent.click(screen.getByText('Task Run'));
+  // Go to Execute run
+  fireEvent.click(screen.getByText('New Run'));
+  fireEvent.click(screen.getByRole('button', { name: 'Execute' }));
   await waitFor(() => {
     expect(screen.getByText(/Work Request/i)).toBeDefined();
   });
@@ -458,8 +459,8 @@ test('handles streaming events correctly during runDiscussion', async () => {
   // Skip Onboarding
   fireEvent.click(screen.getByText('Skip'));
 
-  // Go to Discussions tab
-  fireEvent.click(screen.getAllByText('Discussions').find(el => el.classList.contains('sidebar-nav-label')) as HTMLElement);
+  // Go to Think run
+  fireEvent.click(screen.getByText('New Run'));
   await waitFor(() => {
     expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });
@@ -656,8 +657,8 @@ test('discussion path ignores task-* streaming events', async () => {
   // Skip Onboarding
   fireEvent.click(screen.getByText('Skip'));
 
-  // Go to Discussions tab
-  fireEvent.click(screen.getAllByText('Discussions').find(el => el.classList.contains('sidebar-nav-label')) as HTMLElement);
+  // Go to Think run
+  fireEvent.click(screen.getByText('New Run'));
   await waitFor(() => {
     expect(screen.getByPlaceholderText(/Ask selected agents to discuss an idea/i)).toBeDefined();
   });

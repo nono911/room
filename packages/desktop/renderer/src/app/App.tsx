@@ -7,6 +7,7 @@ import { useTaskRun } from '../features/task-run/useTaskRun.js';
 import { useDiscussion } from '../features/discussions/useDiscussion.js';
 import { useAgentManagement, resolveAgentDefaultSelection } from '../features/ai-members/useAgentManagement.js';
 import { useContextPicker } from '../shared/hooks/useContextPicker.js';
+import { useContextSets } from '../shared/hooks/useContextSets.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
 import { useProjectSettings } from '../features/providers/useProjectSettings.js';
@@ -20,6 +21,7 @@ import { WorkspaceRoutes } from './components/WorkspaceRoutes.js';
 
 // Layout and Onboarding components
 import { Sidebar } from '../shared/components/Sidebar.js';
+import { CommandPalette } from '../shared/components/CommandPalette.js';
 import { ErrorBanner } from '../shared/components/ErrorBanner.js';
 import { SetupChecklist } from '../components/onboarding/SetupChecklist.js';
 import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
@@ -31,7 +33,7 @@ import { createDiscussionSelectionId } from '../features/discussions/lib/discuss
 export default function App() {
   const { providers, getModelOptions, detectedClis } = useProviders();
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('Discussions');
+  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem('room:last-tab') || 'Home');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const {
@@ -188,6 +190,12 @@ export default function App() {
     setErrorMsg
   });
   const {
+    contextSets,
+    contextSetsLoading,
+    saveContextSet,
+    deleteContextSet
+  } = useContextSets({ projectPath, setErrorMsg });
+  const {
     showOnboardingTour, setShowOnboardingTour,
     onboardingStep, setOnboardingStep,
     dismissedOnboarding,
@@ -232,6 +240,12 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [scanStartedAt, projectConfig.mainAgent]);
 
+  useEffect(() => {
+    if (projectPath && isRoomProject) {
+      localStorage.setItem('room:last-tab', activeTab);
+    }
+  }, [activeTab, isRoomProject, projectPath]);
+
   function clearWorkspaceDerivedState() {
     setProjectData(null);
     setCodingTaskMessages([]);
@@ -248,7 +262,7 @@ export default function App() {
     setHasCompletedScan(false);
     setScanStatus('');
     setScanStartedAt(null);
-    setActiveTab('Discussions');
+    setActiveTab('Home');
   }
 
   const {
@@ -429,7 +443,12 @@ export default function App() {
         getContextLabel={getContextLabel}
         estimateContextTokens={estimateContextTokens}
         setContextSelection={setContextSelection}
+        contextSets={contextSets}
+        contextSetsLoading={contextSetsLoading}
+        saveContextSet={saveContextSet}
+        deleteContextSet={deleteContextSet}
       />
+      <CommandPalette enabled={!!projectPath && isRoomProject} setActiveTab={setActiveTab} />
 
       {projectPath === null || !isRoomProject ? (
         <>

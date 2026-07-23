@@ -135,6 +135,35 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('delivers only each task agent selected skills', async () => {
+    const dir = await createWorkspaceWithAgents([
+      { ...localCliAgent('Doer', 'Doer'), skills: ['doer-guidance.md'] },
+      { ...localCliAgent('Reviewer', 'Reviewer'), skills: ['review-guidance.md'] }
+    ]);
+    await fs.mkdir(path.join(dir, '.room', 'skills'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.room', 'skills', 'doer-guidance.md'), '# Doer\nApply doer-only guidance.');
+    await fs.writeFile(path.join(dir, '.room', 'skills', 'review-guidance.md'), '# Review\nApply reviewer-only guidance.');
+    const execute = vi.spyOn(LocalCliProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Completed work.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
+
+    const engine = new DiscussionEngine(dir);
+    await engine.runCodingTask(
+      'task-selected-skills',
+      'Selected skill task',
+      'Complete this task.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general' }
+    );
+
+    expect(execute.mock.calls[0][1]).toContain('Apply doer-only guidance.');
+    expect(execute.mock.calls[0][1]).not.toContain('Apply reviewer-only guidance.');
+    expect(execute.mock.calls[1][1]).toContain('Apply reviewer-only guidance.');
+    expect(execute.mock.calls[1][1]).not.toContain('Apply doer-only guidance.');
+  });
+
   it('does not approve when a reviewer skips before any explicit approval', async () => {
     const dir = await createWorkspaceWithAgents([
       localCliAgent('Doer', 'Doer'),

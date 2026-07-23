@@ -701,7 +701,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
             disabled={loading}
             onClick={() => {
               loadRoomFilePreview('tasks', lastCodingTaskResult.markdownFilename);
-              setActiveTab('Tasks');
+              setActiveTab('Artifacts');
             }}
             style={{ height: '36px', justifyContent: 'center' }}
           >
@@ -714,7 +714,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
               disabled={loading}
               onClick={() => {
                 loadRoomFilePreview('documents', lastCodingTaskResult.artifactFilename);
-                setActiveTab('Documents');
+                setActiveTab('Artifacts');
               }}
               style={{ height: '36px', justifyContent: 'center' }}
             >

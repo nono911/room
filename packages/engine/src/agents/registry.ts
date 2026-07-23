@@ -4,6 +4,7 @@ import { normalizeLocalCliModelName } from './localCliPolicy.js';
 import { PERSONA_TEMPLATES, DEFAULT_MEMBER_NAMES } from './personaTemplates.js';
 import { normalizeProviderId, isValidProviderId } from '../providers/registry.js';
 import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
+import { normalizeMachineSkillReference } from '../skills/machineCatalog.js';
 
 export interface AgentConfig {
   id?: string;
@@ -34,9 +35,12 @@ function isAllowed<T extends string>(value: string, allowed: readonly T[]): valu
   return (allowed as readonly string[]).includes(value);
 }
 
-function sanitizeSkillFileName(skill: unknown): string | null {
+function sanitizeSkillReference(skill: unknown): string | null {
   if (typeof skill !== 'string') return null;
   const trimmed = skill.trim();
+  if (trimmed.startsWith('machine://')) {
+    return normalizeMachineSkillReference(trimmed);
+  }
   if (!trimmed || /[\\/]/.test(trimmed)) return null;
   const safeName = path.basename(trimmed);
   if (!safeName || safeName === '.' || safeName === '..') return null;
@@ -144,7 +148,7 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
 
   const skills = Array.isArray(rawAgent.skills)
     ? rawAgent.skills
-        .map(sanitizeSkillFileName)
+        .map(sanitizeSkillReference)
         .filter((skill): skill is string => typeof skill === 'string')
     : [];
 

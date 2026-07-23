@@ -41,6 +41,37 @@ describe('validateAgentConfig provider handling', () => {
   });
 });
 
+describe('member skill references', () => {
+  const skillAgent = { ...base, provider: 'gemini' };
+
+  it('keeps workspace filenames and valid machine skill references', () => {
+    const result = validateAgentConfig({
+      ...skillAgent,
+      skills: ['api-design.md', 'machine://agents/research%2Farxiv']
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.agent.skills).toEqual([
+        'api-design.md',
+        'machine://agents/research%2Farxiv'
+      ]);
+    }
+  });
+
+  it('drops unsafe or malformed skill references', () => {
+    const result = validateAgentConfig({
+      ...skillAgent,
+      skills: ['../escape.md', 'machine://codex/..%2Fescape', 'notes.txt']
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.agent.skills).toEqual([]);
+    }
+  });
+});
+
 describe('member id handling', () => {
   const base = {
     name: 'UX Researcher',

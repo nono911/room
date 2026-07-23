@@ -57,14 +57,14 @@ export function useSetupGuidance({
     {
       title: 'Context Picker keeps large repos manageable',
       body: 'Use Add Context in Discussions or Task Run to attach the docs, tasks, and files that should become the evidence trail for the run.',
-      action: 'Open Discussions',
-      run: () => setActiveTab('Discussions')
+      action: 'Start Think Run',
+      run: () => setActiveTab('Run:Think')
     },
     {
       title: 'Runs leave a traceable trail',
       body: 'Give one agent the work, choose reviewers, and let ROOM keep the message references, created tasks, ADRs, and artifacts connected.',
-      action: 'Open Task Run',
-      run: () => setActiveTab('Task Run')
+      action: 'Start Execute Run',
+      run: () => setActiveTab('Run:Execute')
     }
   ];
 
@@ -82,13 +82,14 @@ export function useSetupGuidance({
     },
     {
       label: 'Create AI member',
-      done: (projectData?.agents || []).length > 0,
+      done: (projectData?.agents || []).some(agent => !agent.isVirtual),
       action: 'Open',
       run: () => setActiveTab('AI Members')
     },
     {
       label: 'Add or edit skills',
-      done: (projectData?.skills || []).length > 0,
+      done: (projectData?.skills || []).length > 0 ||
+        (projectData?.agents || []).some(agent => Array.isArray(agent.skills) && agent.skills.length > 0),
       action: 'Edit',
       run: () => {
         resetAgentForm();
@@ -99,13 +100,13 @@ export function useSetupGuidance({
       label: 'Attach useful context',
       done: selectedDiscussionContextRefs.length > 2 || selectedCodingTaskContextRefs.length > 2,
       action: 'Pick',
-      run: () => openContextPicker(activeTab === 'Task Run' ? 'task' : 'discussion')
+      run: () => openContextPicker(activeTab === 'Task Run' || activeTab === 'Run:Execute' || activeTab === 'Run:Review' ? 'task' : 'discussion')
     },
     {
       label: 'Create a traceable run',
       done: discussionMessages.length > 0 || codingTaskMessages.length > 0 || (projectData?.discussions || []).length > 0 || (projectData?.tasks || []).length > 0,
       action: 'Start',
-      run: () => setActiveTab('Discussions')
+      run: () => setActiveTab('Run:Think')
     }
   ];
 

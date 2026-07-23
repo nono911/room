@@ -9,7 +9,10 @@ import { useProviders } from '../../providers/context/ProvidersContext.js';
 import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
 import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
 import { buildTeamRosters } from '../../ai-members/lib/teamRoster.js';
-import { createDiscussionSelectionId } from '../lib/discussionSelection.js';
+import {
+  createDiscussionSelectionId,
+  type DiscussionParticipantKey
+} from '../lib/discussionSelection.js';
 import { DiscussionParticipantSelector } from './DiscussionParticipantSelector.js';
 
 interface DiscussionsScreenProps {
@@ -34,7 +37,7 @@ interface DiscussionsScreenProps {
   toggleContextSelection: (target: 'task' | 'discussion', ref: string) => void;
   getContextLabel: (ref: string) => string;
   selectedDiscussionAgents: string[];
-  selectedDiscussionParticipantKeys: string[];
+  selectedDiscussionParticipantKeys: DiscussionParticipantKey[];
   selectedDiscussionMemberIds: string[];
   setSelectedDiscussionMemberIds: React.Dispatch<React.SetStateAction<string[]>>;
   appendSelectedDiscussionMemberIds: (memberIds: string[]) => void;
@@ -240,7 +243,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
 
   const openDocumentFromBubble = async (filename: string) => {
     await loadRoomFilePreview('documents', filename);
-    setActiveTab('Documents');
+    setActiveTab('Artifacts');
   };
 
   const formatMetric = (value: unknown) => typeof value === 'number' ? value.toLocaleString() : '0';

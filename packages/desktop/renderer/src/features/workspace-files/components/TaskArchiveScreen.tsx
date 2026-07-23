@@ -277,7 +277,7 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                   const detailsText = card.details ? `\n\nDetails:\n${card.details}` : '';
                   setSelectedTaskCardId(card.id);
                   setCodingTaskInput(`${card.title}${detailsText}`);
-                  setActiveTab('Task Run');
+                  setActiveTab('Run:Execute');
                 }
               }}
               style={{ fontSize: '0.8rem', padding: '6px 12px' }}
@@ -355,7 +355,7 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                       : '';
 
                     setCodingTaskInput(`Please revise and continue the work from ${taskIdStr}.\n\n${feedbackHeader}New instructions/feedback:\n\n`);
-                    setActiveTab('Task Run');
+                    setActiveTab('Run:Execute');
                   }}
                   style={{ fontSize: '0.75rem', padding: '4px 10px', height: 'auto', display: 'inline-flex', alignItems: 'center' }}
                 >

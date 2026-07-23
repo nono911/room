@@ -101,6 +101,7 @@ test('workspace init preset keeps intended discussion members after reload reset
   if (skipButton) {
     fireEvent.click(skipButton);
   }
+  fireEvent.click(screen.getByText('New Run'));
 
   await waitFor(() => {
     const selectedTexts = getSelectedParticipantTexts();

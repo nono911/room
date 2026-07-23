@@ -1,5 +1,6 @@
 import React from 'react';
-import type { ContextPickerItem } from '../../types/domain.js';
+import type { ContextPickerItem, ContextSet } from '../../types/domain.js';
+import { ContextSetControls } from './ContextSetControls.js';
 
 interface ContextPickerPanelProps {
   contextPickerTarget: 'discussion' | 'task' | null;
@@ -15,6 +16,10 @@ interface ContextPickerPanelProps {
   getContextLabel: (ref: string) => string;
   estimateContextTokens: (target: 'discussion' | 'task') => number;
   setContextSelection: (target: 'discussion' | 'task', selection: string[]) => void;
+  contextSets: ContextSet[];
+  contextSetsLoading: boolean;
+  saveContextSet: (name: string, refs: string[]) => Promise<boolean>;
+  deleteContextSet: (id: string) => Promise<boolean>;
 }
 
 export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
@@ -30,7 +35,11 @@ export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
   toggleContextSelection,
   getContextLabel,
   estimateContextTokens,
-  setContextSelection
+  setContextSelection,
+  contextSets,
+  contextSetsLoading,
+  saveContextSet,
+  deleteContextSet
 }) => {
   if (!contextPickerTarget) return null;
   const tabs: Array<'Suggested' | 'Tasks' | 'Docs' | 'Files'> = ['Suggested', 'Tasks', 'Docs', 'Files'];
@@ -176,6 +185,14 @@ export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
               {selectedRefs.length} items · ~{estimateContextTokens(contextPickerTarget).toLocaleString()} tokens
             </div>
           </div>
+          <ContextSetControls
+            contextSets={contextSets}
+            selectedRefs={selectedRefs}
+            loading={contextSetsLoading}
+            onApply={(refs) => setContextSelection(contextPickerTarget, refs)}
+            onSave={saveContextSet}
+            onDelete={deleteContextSet}
+          />
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {selectedRefs.length === 0 ? (
               <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.82rem', lineHeight: 1.45 }}>Selected items will appear here before they are attached.</div>

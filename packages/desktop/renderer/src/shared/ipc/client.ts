@@ -24,8 +24,14 @@ export const api = {
   readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) =>
     window.electronAPI.readRoomFile(dirPath, section, filename),
   listWorkspaceFiles: (dirPath: string) => window.electronAPI.listWorkspaceFiles(dirPath),
+  browseWorkspaceFiles: (dirPath: string, directory = '', query = '') =>
+    window.electronAPI.browseWorkspaceFiles(dirPath, directory, query),
   searchContextItems: (dirPath: string, query?: string) => window.electronAPI.searchContextItems(dirPath, query),
   readWorkspaceFile: (dirPath: string, filePath: string) => window.electronAPI.readWorkspaceFile(dirPath, filePath),
+  revealWorkspaceFile: (dirPath: string, filePath: string) => window.electronAPI.revealWorkspaceFile(dirPath, filePath),
+  loadContextSets: (dirPath: string) => window.electronAPI.loadContextSets(dirPath),
+  saveContextSets: (dirPath: string, contextSets: import('../../types/domain.js').ContextSet[]) =>
+    window.electronAPI.saveContextSets(dirPath, contextSets),
   runScan: (dirPath: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) =>
     window.electronAPI.runScan(dirPath, mainAgent, modelName, allowDangerousCli),
   runDiscussion: (

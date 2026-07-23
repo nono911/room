@@ -22,11 +22,13 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
   const [selectedReviewSection, setSelectedReviewSection] = useState<'documents' | 'reviews' | 'discussions' | null>(null);
   const [selectedReviewContent, setSelectedReviewContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [activeSection, setActiveSection] = useState<'documents' | 'reviews' | 'discussions'>('documents');
 
   useEffect(() => {
     setSelectedReviewFile(null);
     setSelectedReviewSection(null);
     setSelectedReviewContent('');
+    setActiveSection('documents');
   }, [projectPath]);
 
   const loadReviewContent = async (section: 'documents' | 'reviews' | 'discussions', file: string) => {
@@ -52,6 +54,7 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
   useEffect(() => {
     if (initialSelectedFile) {
       if (initialSelectedFile.section === 'documents' || initialSelectedFile.section === 'reviews' || initialSelectedFile.section === 'discussions') {
+        setActiveSection(initialSelectedFile.section);
         loadReviewContent(initialSelectedFile.section, initialSelectedFile.file);
       }
       setInitialSelectedFile(null);
@@ -61,21 +64,39 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
   const documentFiles = projectData?.documents || [];
   const reviewFiles = projectData?.reviews || [];
   const discussionFiles = (projectData?.discussions || []).filter(file => file.toLowerCase().endsWith('.md'));
-  const items = documentFiles.length > 0
-    ? documentFiles.map(file => ({ section: 'documents' as const, file }))
-    : reviewFiles.length > 0
-    ? reviewFiles.map(file => ({ section: 'reviews' as const, file }))
-    : discussionFiles.map(file => ({ section: 'discussions' as const, file }));
+  const filesBySection = {
+    documents: documentFiles,
+    reviews: reviewFiles,
+    discussions: discussionFiles
+  };
+  const items = filesBySection[activeSection].map(file => ({ section: activeSection, file }));
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', minHeight: '520px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Documents from this ROOM Home workspace. If empty, discussion transcripts are shown, including stable message IDs and references.
+          Durable documents, reviews, and discussion transcripts from this ROOM Home workspace.
+        </div>
+        <div className="document-section-tabs">
+          {(['documents', 'reviews', 'discussions'] as const).map(section => (
+            <button
+              type="button"
+              key={section}
+              className={activeSection === section ? 'active' : ''}
+              onClick={() => {
+                setActiveSection(section);
+                setSelectedReviewFile(null);
+                setSelectedReviewContent('');
+              }}
+            >
+              <span>{section}</span>
+              <small>{filesBySection[section].length}</small>
+            </button>
+          ))}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {items.length === 0 ? (
-            <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No review or discussion logs found.</div>
+            <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No {activeSection} found yet.</div>
           ) : (
             items.map(({ section, file }) => {
               const selected = selectedReviewFile === file && selectedReviewSection === section;
@@ -108,7 +129,7 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
         </div>
       </div>
       <div className="markdown-preview" style={{ maxHeight: 'none', height: '520px', fontSize: '0.9rem' }}>
-        {renderMarkdownContent(selectedReviewContent || (items.length > 0 ? '# Select a review or discussion log to preview.' : '# No review logs found.'), false, 'message-markdown')}
+        {renderMarkdownContent(selectedReviewContent || (items.length > 0 ? `# Select ${activeSection.slice(0, -1)} to preview.` : `# No ${activeSection} found.`), false, 'message-markdown')}
       </div>
     </div>
   );

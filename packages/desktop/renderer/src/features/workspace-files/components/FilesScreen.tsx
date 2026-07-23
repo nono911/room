@@ -1,172 +1,193 @@
-import React, { useState, useEffect } from 'react';
-import type { WorkspaceFileEntry } from '../../../types/domain.js';
+import { useEffect, useState } from 'react';
+import type { ProjectData, WorkspaceFileEntry, WorkspaceFilePreview } from '../../../types/domain.js';
 import { api } from '../../../shared/ipc/client.js';
+import { FilePreviewPane } from './FilePreviewPane.js';
+import {
+  RoomArtifactList,
+  type RoomArtifactSection,
+  type RoomArtifactSelection
+} from './RoomArtifactList.js';
+import { WorkspaceFileTree } from './WorkspaceFileTree.js';
 
 interface FilesScreenProps {
   projectPath: string | null;
+  projectData: ProjectData | null;
+  initialSelectedFile: RoomArtifactSelection | null;
+  setInitialSelectedFile: (value: RoomArtifactSelection | null) => void;
   setErrorMsg: (value: string | null) => void;
+  onAddContext: (ref: string) => void;
+  initialTab?: 'source' | 'room';
+  roomSection?: RoomArtifactSection;
 }
 
-const formatFileSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-export const FilesScreen: React.FC<FilesScreenProps> = ({
-  projectPath,
-  setErrorMsg
-}) => {
-  const [workspaceFileSearch, setWorkspaceFileSearch] = useState<string>('');
-  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
-  const [workspaceFilesTruncated, setWorkspaceFilesTruncated] = useState<boolean>(false);
-  const [selectedWorkspaceFile, setSelectedWorkspaceFile] = useState<string | null>(null);
-  const [selectedWorkspaceFileContent, setSelectedWorkspaceFileContent] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-
-  const loadWorkspaceFiles = async (pathStr: string) => {
-    try {
-      const fileRes = await api.listWorkspaceFiles(pathStr);
-      if (fileRes.success) {
-        setWorkspaceFiles(fileRes.files || []);
-        setWorkspaceFilesTruncated(!!fileRes.truncated);
-      } else {
-        setWorkspaceFiles([]);
-        setWorkspaceFilesTruncated(false);
-        setErrorMsg(fileRes.error || 'Failed to load workspace files.');
-      }
-    } catch (err) {
-      console.error('Error loading workspace files:', err);
-    }
+function roomPreview(content: string, file: string): WorkspaceFilePreview {
+  return {
+    kind: 'text',
+    content,
+    mimeType: file.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain',
+    language: file.toLowerCase().endsWith('.md') ? 'markdown' : undefined
   };
+}
+
+export function FilesScreen({
+  projectPath,
+  projectData,
+  initialSelectedFile,
+  setInitialSelectedFile,
+  setErrorMsg,
+  onAddContext,
+  initialTab = 'source',
+  roomSection
+}: FilesScreenProps) {
+  const [tab, setTab] = useState<'source' | 'room'>(initialTab);
+  const [selectedSource, setSelectedSource] = useState<WorkspaceFileEntry | null>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<RoomArtifactSelection | null>(null);
+  const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
-    if (projectPath) {
-      loadWorkspaceFiles(projectPath);
-    } else {
-      setWorkspaceFiles([]);
-      setWorkspaceFilesTruncated(false);
-    }
-    setSelectedWorkspaceFile(null);
-    setSelectedWorkspaceFileContent('');
-  }, [projectPath]);
+    setSelectedSource(null);
+    setSelectedArtifact(null);
+    setPreview(null);
+    setTab(initialTab);
+  }, [projectPath, initialTab]);
 
-  const loadWorkspaceFilePreview = async (filePath: string) => {
-    if (!projectPath || !filePath) return;
+  const openSourceFile = async (file: WorkspaceFileEntry) => {
+    if (!projectPath) return;
     setLoading(true);
+    setSelectedSource(file);
+    setSelectedArtifact(null);
     setErrorMsg(null);
     try {
-      const res = await api.readWorkspaceFile(projectPath, filePath);
-      setSelectedWorkspaceFile(filePath);
-      if (res.success) {
-        setSelectedWorkspaceFileContent(res.content || '');
-      } else {
-        setSelectedWorkspaceFileContent(`Failed to load file preview:\n${res.error || 'Unknown error'}`);
+      const result = await api.readWorkspaceFile(projectPath, file.path);
+      if (!result.success || !result.preview) {
+        setPreview(null);
+        setErrorMsg(result.error || `Failed to preview ${file.path}.`);
+        return;
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || `Failed to load ${filePath}.`);
+      setPreview(result.preview);
+      localStorage.setItem(`room:last-file:${projectPath}`, file.path);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : `Failed to preview ${file.path}.`);
     } finally {
       setLoading(false);
     }
   };
 
-  const query = workspaceFileSearch.trim().toLowerCase();
-  const visibleFiles = query
-    ? workspaceFiles.filter(file => file.path.toLowerCase().includes(query))
-    : workspaceFiles;
-  const visibleFolderCount = visibleFiles.filter(file => file.kind === 'directory').length;
-  const visibleFileCount = visibleFiles.length - visibleFolderCount;
+  useEffect(() => {
+    if (!projectPath || initialTab !== 'source') return;
+    const lastPath = localStorage.getItem(`room:last-file:${projectPath}`);
+    if (!lastPath) return;
+    void openSourceFile({
+      path: lastPath,
+      name: lastPath.split('/').pop() || lastPath,
+      size: 0,
+      modifiedAt: '',
+      kind: 'file',
+      extension: lastPath.split('.').pop()?.toLowerCase()
+    });
+  }, [projectPath]);
+
+  useEffect(() => {
+    setRefreshToken(value => value + 1);
+  }, [projectData?.taskRuns?.length, projectData?.discussions.length]);
+
+  const openArtifact = async (selection: RoomArtifactSelection) => {
+    if (!projectPath) return;
+    setLoading(true);
+    setSelectedArtifact(selection);
+    setSelectedSource(null);
+    setErrorMsg(null);
+    try {
+      const result = await api.readRoomFile(projectPath, selection.section, selection.file);
+      if (!result.success) {
+        setPreview(null);
+        setErrorMsg(result.error || `Failed to preview ${selection.file}.`);
+        return;
+      }
+      setPreview(roomPreview(result.content || '', selection.file));
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : `Failed to preview ${selection.file}.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!initialSelectedFile) return;
+    setTab('room');
+    void openArtifact(initialSelectedFile);
+    setInitialSelectedFile(null);
+  }, [initialSelectedFile]);
+
+  const selectedTitle = selectedSource?.name || selectedArtifact?.file || null;
+  const selectedPath = selectedSource?.path || (
+    selectedArtifact ? `ROOM Home / ${selectedArtifact.section} / ${selectedArtifact.file}` : undefined
+  );
+
+  const copyPath = async () => {
+    if (!selectedPath) return;
+    await navigator.clipboard.writeText(selectedPath);
+  };
+
+  const revealSource = async () => {
+    if (!projectPath || !selectedSource) return;
+    const result = await api.revealWorkspaceFile(projectPath, selectedSource.path);
+    if (!result.success) setErrorMsg(result.error || 'Failed to reveal the selected file.');
+  };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px', minHeight: '560px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <input
-            type="search"
-            value={workspaceFileSearch}
-            onChange={(e) => setWorkspaceFileSearch(e.target.value)}
-            disabled={loading}
-            placeholder="Search workspace files and folders..."
-            style={{
-              backgroundColor: 'hsl(var(--bg-input))',
-              border: '1px solid hsl(var(--border-dim))',
-              borderRadius: '8px',
-              padding: '10px 12px',
-              color: 'white',
-              fontFamily: 'inherit',
-              outline: 'none'
-            }}
-          />
-          <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.78rem' }}>
-            {visibleFolderCount} folders, {visibleFileCount} files{workspaceFilesTruncated ? ' shown. Large workspaces are limited to the first 500 items.' : ''}
-          </div>
+    <div className="unified-files-screen">
+      <header className="workspace-page-header compact">
+        <div>
+          <span className="workspace-page-eyebrow">Knowledge</span>
+          <h1>Files & artifacts</h1>
+          <p>{roomSection
+            ? `Browse ${roomSection} through the same durable viewer used across ROOM.`
+            : 'Browse the attached source and every durable output ROOM has created.'}</p>
         </div>
-
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
-          maxHeight: '520px',
-          overflowY: 'auto',
-          paddingRight: '4px'
-        }}>
-          {visibleFiles.length === 0 ? (
-            <div style={{ padding: '20px', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>No workspace files or folders found.</div>
-          ) : (
-            visibleFiles.map((file) => {
-              const selected = selectedWorkspaceFile === file.path;
-              const isDirectory = file.kind === 'directory';
-              return (
-                <button
-                  key={file.path}
-                  type="button"
-                  onClick={() => loadWorkspaceFilePreview(file.path)}
-                  disabled={loading}
-                  style={{
-                    background: selected ? 'hsl(var(--accent-purple) / 0.14)' : 'hsl(var(--bg-card))',
-                    border: selected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    color: 'inherit',
-                    textAlign: 'left',
-                    font: 'inherit',
-                    minWidth: 0
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                    <span style={{ color: isDirectory ? 'hsl(var(--accent-blue))' : 'hsl(var(--text-muted))', fontSize: '0.78rem', fontWeight: 750 }}>
-                      {isDirectory ? '[dir]' : '[file]'}
-                    </span>
-                    <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.path}
-                    </span>
-                  </div>
-                  <div style={{ color: 'hsl(var(--text-muted))', fontSize: '0.72rem', marginTop: '4px' }}>
-                    {isDirectory ? 'Folder' : formatFileSize(file.size)}
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
+        <button type="button" className="btn-secondary" onClick={() => setRefreshToken(value => value + 1)}>
+          Refresh source
+        </button>
+      </header>
+      <div className="file-source-tabs" role="tablist" aria-label="File source">
+        <button type="button" className={tab === 'source' ? 'active' : ''} onClick={() => setTab('source')}>
+          Attached source
+        </button>
+        <button type="button" className={tab === 'room' ? 'active' : ''} onClick={() => setTab('room')}>
+          ROOM artifacts
+        </button>
       </div>
-
-      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.85rem', minHeight: '20px', wordBreak: 'break-all' }}>
-          {selectedWorkspaceFile || 'Select a file or folder to preview.'}
-        </div>
-        <pre className="markdown-preview" style={{
-          maxHeight: 'none',
-          height: '520px',
-          fontSize: '0.86rem',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          margin: 0
-        }}>
-          {selectedWorkspaceFileContent || '# Select a workspace file or folder to preview.'}
-        </pre>
+      <div className="unified-file-layout">
+        {projectPath && tab === 'source' ? (
+          <WorkspaceFileTree
+            projectPath={projectPath}
+            selectedPath={selectedSource?.path || null}
+            refreshToken={refreshToken}
+            onSelect={(file) => void openSourceFile(file)}
+            onError={setErrorMsg}
+          />
+        ) : (
+          <RoomArtifactList
+            projectData={projectData}
+            selected={selectedArtifact}
+            onSelect={(selection) => void openArtifact(selection)}
+            onlySection={roomSection}
+          />
+        )}
+        <FilePreviewPane
+          title={selectedTitle}
+          subtitle={selectedPath}
+          preview={preview}
+          loading={loading}
+          canReveal={!!selectedSource}
+          canAddContext={!!selectedSource}
+          onCopyPath={selectedPath ? () => void copyPath() : undefined}
+          onReveal={() => void revealSource()}
+          onAddContext={selectedSource ? () => onAddContext(`file:${selectedSource.path}`) : undefined}
+        />
       </div>
     </div>
   );
-};
+}

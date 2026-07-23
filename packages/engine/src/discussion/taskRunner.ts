@@ -27,6 +27,7 @@ import {
 import {
   compileContextWithOptionalSummary,
   readFirstExistingFile,
+  buildSkillsContext,
   isReviewerAgent,
   buildReviewProtocol
 } from './contextBuilder.js';
@@ -264,11 +265,13 @@ Instructions:
 ${doerWorkInstructions}
 - Use the same natural language as the user's task unless the user explicitly asks otherwise.`;
 
+    const developerSkillsContext = await buildSkillsContext(workspace, developer.skills || []);
     const developerSystemPrompt = composeAgentSystemPrompt(
       developer.systemPrompt,
       developer.provider === 'Local CLI',
       'You are in a ROOM task execution loop. Your responsibility is to produce the requested deliverable, then address reviewer feedback until it is approved.',
-      REFERENCE_TRACING_PROTOCOL
+      REFERENCE_TRACING_PROTOCOL,
+      developerSkillsContext
     );
 
     const developerStep = await executeAgentStep(
@@ -366,12 +369,14 @@ Instructions:
 ${reviewerRules}
 - Use the same natural language as the user's task unless the user explicitly asks otherwise.`;
 
+      const reviewerSkillsContext = await buildSkillsContext(workspace, reviewer.skills || []);
       const reviewerSystemPrompt = composeAgentSystemPrompt(
         reviewer.systemPrompt,
         reviewer.provider === 'Local CLI',
         'You review deliverables in the ROOM workspace task loop. You must provide clear, actionable findings and explicitly set the APPROVAL_STATUS at the end of your reply.',
         REFERENCE_TRACING_PROTOCOL,
-        buildReviewProtocol(reviewer)
+        buildReviewProtocol(reviewer),
+        reviewerSkillsContext
       );
 
       const reviewerStep = await executeAgentStep(

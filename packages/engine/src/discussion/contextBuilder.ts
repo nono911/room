@@ -25,6 +25,11 @@ import {
 import { trimTextToTokenBudget } from './tokenBudget.js';
 import { parseSkillFrontmatter } from '../skills/parser.js';
 import {
+  isMachineSkillReference,
+  readMachineSkill,
+  type MachineSkillCatalogOptions
+} from '../skills/machineCatalog.js';
+import {
   composeAgentSystemPrompt,
   ensureStableMessageIds,
   stripExternalFileLinks,
@@ -211,17 +216,25 @@ export async function loadWorkspaceMemoryContext(
 export async function buildSkillsContext(
   workspace: WorkspaceInput,
   skillFiles: string[],
-  maxTokensPerSkill = 1500
+  maxTokensPerSkill = 1500,
+  machineCatalogOptions?: MachineSkillCatalogOptions
 ): Promise<string> {
   const sections: string[] = [];
   for (const skillFile of skillFiles) {
     try {
-      const resolvedSkillPath = await resolveSkillPath(workspace, skillFile);
-      const skillContent = await fs.readFile(resolvedSkillPath, 'utf-8');
+      const machineSkill = isMachineSkillReference(skillFile)
+        ? await readMachineSkill(skillFile, machineCatalogOptions)
+        : null;
+      const skillContent = machineSkill
+        ? machineSkill.content
+        : await fs.readFile(await resolveSkillPath(workspace, skillFile), 'utf-8');
       const parsed = parseSkillFrontmatter(skillContent);
       const fitted = trimTextToTokenBudget(parsed.content.trim(), maxTokensPerSkill);
       const body = `${fitted.text}${fitted.truncated ? '\n\n[Skill content trimmed to fit the prompt budget.]' : ''}`;
-      sections.push(`[Skill: ${skillFile}]\n${body}`);
+      const label = machineSkill
+        ? `${machineSkill.skill.name} · ${machineSkill.skill.sourceLabel}`
+        : skillFile;
+      sections.push(`[Skill: ${label}]\n${body}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`Error loading skill ${skillFile}:`, message);
@@ -325,6 +338,9 @@ export async function autoMatchSkills(
 
 export async function resolveSkillPath(workspace: WorkspaceInput, skillFile: string): Promise<string> {
   const trimmedSkillFile = (skillFile || '').trim();
+  if (isMachineSkillReference(trimmedSkillFile)) {
+    return (await readMachineSkill(trimmedSkillFile)).filePath;
+  }
   if (/[\\/]/.test(trimmedSkillFile)) {
     throw new Error(`Unsafe skill filename: ${skillFile}`);
   }

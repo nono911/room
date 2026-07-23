@@ -1,8 +1,9 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
   createRoomWorkspace,
+  discoverMachineSkills,
   findRoomWorkspaceBySource,
   initializeRoomData,
   listRoomWorkspaces,
@@ -17,7 +18,7 @@ import {
   touchRoomWorkspace
 } from '@room/engine';
 import {
-  ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT, WORKSPACE_FILE_READ_LIMIT_BYTES,
+  ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT,
   resolveProjectPath, bindCurrentProjectRoot, bindCurrentWorkspace, requireBoundProjectRoot,
   requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, safeReadDir, readFirstExistingFile,
@@ -26,7 +27,8 @@ import {
 import { readProjectConfigFromDisk } from './config-store.js';
 import { applyApiKeysToEnvironment, readProvidersFromDisk } from './provider-store.js';
 import { searchContextItems } from './workspace-context.js';
-import { listWorkspaceFiles } from './workspace-files.js';
+import { browseWorkspaceFiles, listWorkspaceFiles } from './workspace-files.js';
+import { readWorkspaceFilePreview } from './workspace-preview.js';
 import { loadTeamsWithDiagnostics } from './team-store.js';
 
 function sanitizeWorkspaceFolderName(input: string): string {
@@ -263,6 +265,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         .filter(file => file.toLowerCase().endsWith('.md'));
       const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
       const skills = await readMergedDirs([skillsDir, rolesDir]);
+      const machineSkills = await discoverMachineSkills({ forceRefresh: true });
       const agents = await loadAgents(workspace);
       const teamLoadResult = await loadTeamsWithDiagnostics(projectRoot);
       const providers = await readProvidersFromDisk();
@@ -347,6 +350,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         documents,
         discussions,
         skills,
+        machineSkills,
         agents: updatedAgents,
         teams: teamLoadResult.teams,
         unassignedMemberIds
@@ -366,6 +370,23 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     }
   });
 
+  ipcMain.handle('browse-workspace-files', async (
+    event,
+    { dirPath, directory, query }: { dirPath: string; directory?: string; query?: string }
+  ) => {
+    try {
+      const projectRoot = requireBoundProjectRoot(dirPath);
+      const safeDirectory = typeof directory === 'string' && directory.trim()
+        ? sanitizeWorkspaceRelativePath(directory)
+        : '';
+      const safeQuery = typeof query === 'string' ? query.slice(0, 160) : '';
+      const result = await browseWorkspaceFiles(projectRoot, safeDirectory, safeQuery);
+      return { success: true, ...result };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('search-context-items', async (event, { dirPath, query }: { dirPath: string; query?: string }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
@@ -379,36 +400,23 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
   ipcMain.handle('read-workspace-file', async (event, { dirPath, filePath }: { dirPath: string; filePath: string }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const safeFilePath = typeof filePath === 'string' && filePath.trim()
-        ? sanitizeWorkspaceRelativePath(filePath)
-        : '';
-      const resolvedPath = safeFilePath ? resolveWithinProject(projectRoot, safeFilePath) : projectRoot;
+      return await readWorkspaceFilePreview(projectRoot, filePath);
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('reveal-workspace-file', async (event, { dirPath, filePath }: { dirPath: string; filePath: string }) => {
+    try {
+      const projectRoot = requireBoundProjectRoot(dirPath);
+      const safeFilePath = sanitizeWorkspaceRelativePath(filePath);
+      const resolvedPath = resolveWithinProject(projectRoot, safeFilePath);
       const stat = await fs.stat(resolvedPath);
-      if (!stat.isFile()) {
-        if (stat.isDirectory()) {
-          const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
-          const preview = entries
-            .filter(entry => !entry.name.startsWith('.'))
-            .slice(0, 200)
-            .map(entry => `${entry.isDirectory() ? '[dir]' : '[file]'} ${entry.name}`)
-            .join('\n');
-          return {
-            success: true,
-            content: `# ${safeFilePath || path.basename(projectRoot)}\n\n${preview || 'Directory is empty.'}`
-          };
-        }
-        return { success: false, error: 'Selected item is not a file.' };
+      if (!stat.isFile() && !stat.isDirectory()) {
+        return { success: false, error: 'Selected workspace item does not exist.' };
       }
-      if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) {
-        return { success: false, error: 'File is too large to preview.' };
-      }
-
-      const buffer = await fs.readFile(resolvedPath);
-      if (buffer.includes(0)) {
-        return { success: false, error: 'Binary files cannot be previewed.' };
-      }
-
-      return { success: true, content: buffer.toString('utf-8') };
+      shell.showItemInFolder(resolvedPath);
+      return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

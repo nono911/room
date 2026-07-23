@@ -37,6 +37,7 @@ export function useWorkspaceData({
         documents: data.documents || [],
         discussions: data.discussions,
         skills: data.skills,
+        machineSkills: data.machineSkills || [],
         agents: data.agents || [],
         teams: data.teams || [],
         unassignedMemberIds: data.unassignedMemberIds || []

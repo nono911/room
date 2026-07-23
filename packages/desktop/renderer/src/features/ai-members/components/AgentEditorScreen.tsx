@@ -1,7 +1,8 @@
 import React from 'react';
 import type { ProjectData, SkillPreviewResult, TemplateSkill } from '../../../types/domain.js';
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
-
+import { AgentEditorHeader, AgentTemplatePicker, type AgentTemplateOption } from './AgentEditorTop.js';
+import { AgentSkillsPanel } from './AgentSkillsPanel.js';
 interface AgentEditorScreenProps {
   activeTab: string;
   projectData: ProjectData | null;
@@ -17,7 +18,7 @@ interface AgentEditorScreenProps {
   handleSaveAgent: (e: React.FormEvent) => void;
   errorMsg: string | null;
   setErrorMsg: (value: string | null) => void;
-  agentPersonaTemplates: any[];
+  agentPersonaTemplates: AgentTemplateOption[];
   setNewAgentRole: (value: string) => void;
   setNewAgentPrompt: (value: string) => void;
   ensureTemplateSkills: (skills: readonly TemplateSkill[]) => Promise<string[]>;
@@ -57,13 +58,6 @@ interface AgentEditorScreenProps {
   newAgentPrompt: string;
   loading: boolean;
 }
-
-const formatFileSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
 export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   activeTab,
   projectData,
@@ -121,46 +115,22 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
 }) => {
   const { providers, detectedClis, getModelOptions } = useProviders();
   const isNew = activeTab === 'Agent:New';
-  const availableSkills = projectData?.skills || [];
   const modelOptions = getModelOptions(newAgentProvider, newAgentPreset);
   const isCustomModel = newAgentModel && !modelOptions.some(opt => opt.value === newAgentModel);
   const isLocalCliAgent = newAgentProvider === 'Local CLI';
   const shouldShowModel = isLocalCliAgent || modelOptions.length > 0 || newAgentProvider !== 'Local CLI';
-
   return (
     <div className="focus-editor-container">
-      <div className="focus-editor-header">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span 
-              onClick={() => { resetAgentForm(); setActiveTab('AI Members'); }} 
-              style={{ color: 'hsl(var(--accent-purple))', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to AI Members
-            </span>
-          </div>
-          <h2 className="focus-editor-title">
-            {isNew ? 'Register New AI Agent' : `Edit Agent: ${editingAgent?.name || newAgentName}`}
-          </h2>
-        </div>
-        {!isNew && (
-          <button 
-            type="button" 
-            className="btn-secondary" 
-            onClick={() => handleDeleteAgent(editingAgent?.name || newAgentName)}
-            disabled={loading}
-            style={{ borderColor: '#ef4444', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px', height: '36px', padding: '0 16px' }}
-          >
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Delete Agent
-          </button>
-        )}
-      </div>
+      <AgentEditorHeader
+        isNew={isNew}
+        agentName={editingAgent?.name || newAgentName}
+        onBack={() => {
+          resetAgentForm();
+          setActiveTab('AI Members');
+        }}
+        onDelete={() => handleDeleteAgent(editingAgent?.name || newAgentName)}
+        loading={loading}
+      />
 
       <form onSubmit={handleSaveAgent} className="focus-editor-card">
         {errorMsg && (
@@ -170,54 +140,19 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
         )}
 
         {isNew && (
-          <div style={{
-            background: 'hsl(var(--bg-input))',
-            border: '1px dashed hsl(var(--border-dim))',
-            borderRadius: '8px',
-            padding: '16px 20px',
-            marginBottom: '24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              ⚡ Quick Load Template
-            </span>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              {agentPersonaTemplates.map(tmpl => (
-                <button
-                  key={tmpl.name}
-                  type="button"
-                  className="btn-secondary"
-                  style={{ fontSize: '0.8rem', padding: '6px 14px', height: 'auto', borderRadius: '6px' }}
-                  onClick={async () => {
-                    setNewAgentName(tmpl.name);
-                    setNewAgentRole(tmpl.role);
-                    setNewAgentPrompt(tmpl.prompt);
-                    setErrorMsg(null);
-
-                    try {
-                      const skillFiles = await ensureTemplateSkills(tmpl.skills);
-                      setNewAgentSkills(skillFiles);
-                      if (projectPath) {
-                        await loadProjectData(projectPath);
-                      }
-                    } catch (err: any) {
-                      setErrorMsg(err.message || 'Failed to create template skills.');
-                    }
-                  }}
-                >
-                  {tmpl.name}
-                </button>
-              ))}
-            </div>
-            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
-              Clicking a template fills role, persona, and recommended skills. Choose the provider and model separately.
-            </span>
-          </div>
+          <AgentTemplatePicker
+            templates={agentPersonaTemplates}
+            setName={setNewAgentName}
+            setRole={setNewAgentRole}
+            setPrompt={setNewAgentPrompt}
+            ensureSkills={ensureTemplateSkills}
+            setSkills={setNewAgentSkills}
+            setError={setErrorMsg}
+            projectPath={projectPath}
+            loadProjectData={loadProjectData}
+          />
         )}
 
-        {/* 2-Column Section */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', alignItems: 'start' }}>
           {/* Left Column: Config */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -498,232 +433,29 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
             )}
           </div>
 
-          {/* Right Column: Skills */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Assign Skills</label>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={loading || newAgentSkills.length === 0}
-                onClick={handlePreviewAgentSkills}
-                style={{ fontSize: '0.72rem', padding: '6px 10px', height: 'auto' }}
-              >
-                Check Skills
-              </button>
-            </div>
-            {availableSkills.length === 0 ? (
-              <span style={{ fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>No skills found. Create a custom skill below or save an agent without skills.</span>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
-                {availableSkills.map((skill) => {
-                  const isSelected = newAgentSkills.includes(skill);
-                  return (
-                    <div
-                      key={skill}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(0, 1fr) auto',
-                        gap: '8px',
-                        alignItems: 'center',
-                        background: editingSkillFile === skill ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-input))',
-                        border: editingSkillFile === skill ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
-                        borderRadius: '8px',
-                        padding: '8px 10px'
-                      }}
-                    >
-                      <label
-                        className={`skill-checkbox-chip ${isSelected ? 'selected' : ''}`}
-                        style={{ minWidth: 0, width: '100%', justifyContent: 'flex-start' }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {
-                            setSkillPreview(null);
-                            setNewAgentSkills(prev =>
-                              prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
-                            );
-                          }}
-                        />
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {isSelected ? '✓ ' : '+ '}
-                          {skill.replace('.md', '').replace(/-/g, ' ')}
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        disabled={loading}
-                        onClick={() => loadRoomFilePreview('skills', skill)}
-                        style={{ fontSize: '0.72rem', padding: '5px 9px', height: 'auto' }}
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {skillPreview && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                background: skillPreview.readableCount === skillPreview.totalCount ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                border: skillPreview.readableCount === skillPreview.totalCount ? '1px solid rgba(16, 185, 129, 0.28)' : '1px solid rgba(239, 68, 68, 0.28)',
-                borderRadius: '8px',
-                padding: '10px 12px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'hsl(var(--text-secondary))' }}>
-                    {skillPreview.readableCount}/{skillPreview.totalCount} skills readable
-                  </span>
-                  <span style={{ fontSize: '0.7rem', color: skillPreview.readableCount === skillPreview.totalCount ? '#10b981' : '#ef4444', fontWeight: 700 }}>
-                    {skillPreview.readableCount === skillPreview.totalCount ? 'READY' : 'CHECK NEEDED'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', lineHeight: 1.45 }}>
-                  {skillPreview.delivery}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {skillPreview.items.map(item => (
-                    <div
-                      key={item.filename}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '18px minmax(0, 1fr)',
-                        gap: '8px',
-                        alignItems: 'start',
-                        fontSize: '0.72rem',
-                        color: item.readable ? 'hsl(var(--text-secondary))' : '#ef4444'
-                      }}
-                    >
-                      <span>{item.readable ? '✓' : '!'}</span>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.filename}{item.source ? ` · ROOM Home/${item.source}` : ''}
-                        </span>
-                        <span style={{ display: 'block', color: 'hsl(var(--text-muted))', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.readable ? `${item.heading || 'No heading'} · ${formatFileSize(item.bytes || 0)}` : item.error}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {editingSkillFile && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                background: 'hsl(var(--bg-input))',
-                border: '1px solid hsl(var(--border-dim))',
-                borderRadius: '8px',
-                padding: '12px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
-                      Edit Skill
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {editingSkillFile}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={loading}
-                    onClick={() => {
-                      setEditingSkillFile('');
-                      setEditingSkillContent('');
-                      setEditingSkillSource('skills');
-                    }}
-                    style={{ fontSize: '0.72rem', padding: '5px 9px', height: 'auto' }}
-                  >
-                    Close
-                  </button>
-                </div>
-                <textarea
-                  value={editingSkillContent}
-                  onChange={(e) => setEditingSkillContent(e.target.value)}
-                  rows={10}
-                  disabled={loading}
-                  style={{
-                    width: '100%',
-                    resize: 'vertical',
-                    minHeight: '180px',
-                    backgroundColor: 'hsl(var(--bg-card))',
-                    border: '1px solid hsl(var(--border-dim))',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: 'white',
-                    fontFamily: 'monospace',
-                    fontSize: '0.78rem',
-                    lineHeight: 1.5,
-                    outline: 'none'
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
-                    {editingSkillSource === 'roles'
-                      ? 'Loaded from an imported legacy roles folder. Saving moves this skill into the workspace skills store.'
-                      : 'Saved edits are written to the ROOM Home workspace and can be assigned immediately.'}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={loading}
-                    onClick={handleSaveEditingSkill}
-                    style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
-                  >
-                    Save Skill
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Custom Skill Creator */}
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              gap: '8px', 
-              marginTop: '12px', 
-              paddingTop: '12px', 
-              borderTop: '1px dashed hsl(var(--border-dim))' 
-            }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>Create Custom Skill</span>
-              <input 
-                type="text"
-                placeholder="Role or Skill Name (e.g. Story Continuity)"
-                value={customSkillName}
-                onChange={(e) => setCustomSkillName(e.target.value)}
-                className="custom-skill-input"
-                style={{ width: '100%' }}
-              />
-              <textarea 
-                rows={3}
-                placeholder="Skill Description / Instructions (e.g. Keep dialogue natural, check continuity, or verify assumptions...)"
-                value={customSkillDesc}
-                onChange={(e) => setCustomSkillDesc(e.target.value)}
-                className="custom-skill-input"
-                style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: '0.8rem' }}
-              />
-              <button 
-                type="button" 
-                className="btn-secondary" 
-                disabled={loading}
-                style={{ fontSize: '0.8rem', padding: '8px 12px', alignSelf: 'flex-end' }}
-                onClick={handleAddCustomSkill}
-              >
-                + Save Skill
-              </button>
-            </div>
-          </div>
+          <AgentSkillsPanel
+            workspaceSkills={projectData?.skills || []}
+            machineSkills={projectData?.machineSkills || []}
+            selectedSkills={newAgentSkills}
+            setSelectedSkills={setNewAgentSkills}
+            setSkillPreview={setSkillPreview}
+            skillPreview={skillPreview}
+            handlePreviewAgentSkills={handlePreviewAgentSkills}
+            editingSkillFile={editingSkillFile}
+            setEditingSkillFile={setEditingSkillFile}
+            loadRoomFilePreview={loadRoomFilePreview}
+            editingSkillContent={editingSkillContent}
+            setEditingSkillContent={setEditingSkillContent}
+            editingSkillSource={editingSkillSource}
+            setEditingSkillSource={setEditingSkillSource}
+            handleSaveEditingSkill={handleSaveEditingSkill}
+            customSkillName={customSkillName}
+            setCustomSkillName={setCustomSkillName}
+            customSkillDesc={customSkillDesc}
+            setCustomSkillDesc={setCustomSkillDesc}
+            handleAddCustomSkill={handleAddCustomSkill}
+            loading={loading}
+          />
         </div>
 
         {/* Bottom Row: System Prompt */}

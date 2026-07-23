@@ -15,6 +15,16 @@ export interface RoomWorkspaceSummary {
   importedLegacy: boolean;
 }
 
+export interface MachineSkillSummary {
+  reference: string;
+  name: string;
+  description?: string;
+  source: 'codex' | 'agents' | 'plugin';
+  sourceLabel: string;
+  relativePath: string;
+  modifiedAt: string;
+}
+
 export interface ProjectData {
   projectMd: string;
   archMd: string;
@@ -27,6 +37,7 @@ export interface ProjectData {
   documents: string[];
   discussions: string[];
   skills: string[];
+  machineSkills?: MachineSkillSummary[];
   agents: any[];
   teams?: MemberTeam[];
   unassignedMemberIds?: string[];
@@ -45,7 +56,41 @@ export interface WorkspaceFileEntry {
   name: string;
   size: number;
   modifiedAt: string;
-  kind?: 'file' | 'directory';
+  kind: 'file' | 'directory';
+  extension?: string;
+  childCount?: number;
+}
+
+export type WorkspaceFilePreview =
+  | {
+      kind: 'text';
+      content: string;
+      mimeType: string;
+      language?: string;
+    }
+  | {
+      kind: 'image';
+      dataUrl: string;
+      mimeType: string;
+    }
+  | {
+      kind: 'pdf';
+      dataUrl: string;
+      mimeType: string;
+    }
+  | {
+      kind: 'binary';
+      mimeType: string;
+      size: number;
+      message: string;
+    };
+
+export interface ContextSet {
+  id: string;
+  name: string;
+  refs: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ContextPickerItem {
@@ -64,8 +109,10 @@ export interface SkillPreviewResult {
   totalCount: number;
   items: {
     filename: string;
+    reference?: string;
     readable: boolean;
-    source?: 'skills' | 'roles';
+    source?: 'skills' | 'roles' | 'machine';
+    sourceLabel?: string;
     bytes?: number;
     heading?: string;
     error?: string;

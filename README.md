@@ -76,6 +76,7 @@ ROOM does not rely on one giant chat forever. It separates persistent memory fro
 - Raw logs are saved in the workspace's `discussions/` and `tasks/` directories under ROOM Home.
 - Workspace context is kept in the workspace's `context/` directory and refreshed by the repository scanner.
 - AI members have provider settings, model choices, persona prompts, and optional skills.
+- Agent Editor can discover installed skills from Codex, Agents, and Codex plugins. Installed skills remain off by default and are attached to each AI member only when explicitly toggled.
 - Each agent turn receives a compiled context window instead of blindly replaying every prior message.
 - Older omitted messages can be summarized into a sidecar cache and reused in later turns when a non-local summarizer is available.
 
@@ -334,6 +335,12 @@ In Discussions, the `Read-only tools` toggle gives safe-mode Local CLI members a
 Kiro runs through Agent Client Protocol (ACP). ROOM discovers models during the ACP handshake, rejects permission prompts in safe mode, and passes `--trust-all-tools` only after dangerous permissions are explicitly enabled.
 
 For Local CLI AI members, `Model Name` can be left on `Default CLI Model`. ROOM will then omit the model override and let the selected CLI use its own configured default. Choose a listed model or `Custom Model...` only when you want ROOM to pass an explicit model name.
+
+## Skills Installed on This Mac
+
+Agent Editor lists workspace skills separately from skills installed under `~/.codex/skills`, `~/.agents/skills`, and the local Codex plugin cache. Machine skills are read-only in ROOM and are never enabled automatically. Toggle the skills required by an individual AI member; ROOM stores stable references and loads only those selected `SKILL.md` files when that member runs.
+
+ROOM validates machine skill paths, ignores symlinked catalog entries, and limits skill file size. Selecting an instruction skill does not automatically execute scripts or grant tool permissions. Local CLI and tool-enabled agents still follow their configured permission mode.
 
 ## Security Notes
 

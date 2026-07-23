@@ -250,7 +250,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       if (res.filename) {
         setInitialSelectedFile({ section: 'documents', file: res.filename });
       }
-      setActiveTab('Documents');
+      setActiveTab('Artifacts');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to summarize chat.');
     } finally {

@@ -284,4 +284,33 @@ describe('buildSkillsContext', () => {
     expect(context).toContain('[Skill content trimmed to fit the prompt budget.]');
     expect(context.length).toBeLessThan(5000);
   });
+
+  it('injects only explicitly selected machine skills', async () => {
+    const machineRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'room-selected-machine-skill-'));
+    const selectedDir = path.join(machineRoot, 'selected');
+    const unselectedDir = path.join(machineRoot, 'unselected');
+    await fs.mkdir(selectedDir, { recursive: true });
+    await fs.mkdir(unselectedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(selectedDir, 'SKILL.md'),
+      '---\nname: selected\ndescription: Selected skill\n---\nApply the selected instructions.'
+    );
+    await fs.writeFile(path.join(unselectedDir, 'SKILL.md'), '# Unselected\nNever inject this.');
+
+    const context = await buildSkillsContext(
+      tmpDir,
+      ['machine://codex/selected'],
+      1500,
+      {
+        codexSkillsRoot: machineRoot,
+        agentsSkillsRoot: null,
+        pluginCacheRoot: null
+      }
+    );
+
+    expect(context).toContain('[Skill: selected · Codex]');
+    expect(context).toContain('Apply the selected instructions.');
+    expect(context).not.toContain('Never inject this.');
+    await fs.rm(machineRoot, { recursive: true, force: true });
+  });
 });

@@ -1,14 +1,16 @@
 import { OverviewScreen } from '../../components/screens/OverviewScreen.js';
+import { HomeScreen } from '../../components/screens/HomeScreen.js';
+import { ActivityScreen } from '../../components/screens/ActivityScreen.js';
+import { SkillsCatalogScreen } from '../../components/screens/SkillsCatalogScreen.js';
 import { FilesScreen } from '../../features/workspace-files/components/FilesScreen.js';
 import { AIMembersScreen } from '../../features/ai-members/components/AIMembersScreen.js';
 import { AgentEditorScreen } from '../../features/ai-members/components/AgentEditorScreen.js';
 import { TeamDetailScreen } from '../../features/ai-members/components/TeamDetailScreen.js';
 import { DiscussionsScreen } from '../../features/discussions/components/DiscussionsScreen.js';
 import { TaskRunScreen } from '../../features/task-run/components/TaskRunScreen.js';
-import { DocumentsScreen } from '../../features/workspace-files/components/DocumentsScreen.js';
+import { RunComposerFrame, type RunMode } from '../../features/task-run/components/RunComposerFrame.js';
 import { TaskArchiveScreen } from '../../features/workspace-files/components/TaskArchiveScreen.js';
 import { ContextScreen } from '../../features/workspace-files/components/ContextScreen.js';
-import { DecisionsScreen } from '../../features/workspace-files/components/DecisionsScreen.js';
 import { McpServersScreen } from '../../features/mcp/components/McpServersScreen.js';
 import { SettingsScreen } from '../../features/providers/components/SettingsScreen.js';
 import {
@@ -19,6 +21,7 @@ import {
 import type React from 'react';
 import { api } from '../../shared/ipc/client.js';
 import { buildTeamRosters } from '../../features/ai-members/lib/teamRoster.js';
+import type { DiscussionParticipantKey } from '../../features/discussions/lib/discussionSelection.js';
 
 interface WorkspaceRoutesProps {
   activeTab: string;
@@ -95,7 +98,7 @@ interface WorkspaceRoutesProps {
   highlightedDiscussionMessage: any;
   selectedDiscussionContextRefs: string[];
   selectedDiscussionAgents: string[];
-  selectedDiscussionParticipantKeys: string[];
+  selectedDiscussionParticipantKeys: DiscussionParticipantKey[];
   selectedDiscussionMemberIds: string[];
   setSelectedDiscussionMemberIds: (value: string[] | ((prev: string[]) => string[])) => void;
   appendSelectedDiscussionMemberIds: (memberIds: string[]) => void;
@@ -353,9 +356,100 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setContentLineHeight
   } = props;
 
-  if (activeTab === 'Discussions') {
+  const changeRunMode = (mode: RunMode) => {
+    if (mode === 'Think' || mode === 'Decide') {
+      setDiscussionReviewMode(mode === 'Decide');
+    }
+    setActiveTab(`Run:${mode}`);
+  };
+  const discussionPreflight = [
+    {
+      label: 'Participants',
+      value: `${selectedDiscussionParticipantKeys.length || selectedDiscussionAgents.length} selected`,
+      ready: selectedDiscussionParticipantKeys.length > 0 || selectedDiscussionAgents.length > 0
+    },
+    {
+      label: 'Context',
+      value: `${selectedDiscussionContextRefs.length} attached`,
+      ready: selectedDiscussionContextRefs.length > 0
+    },
+    {
+      label: 'Rounds',
+      value: `${discussionMaxRounds} maximum`,
+      ready: discussionMaxRounds > 0
+    },
+    {
+      label: 'Tools',
+      value: discussionAllowReadOnlyTools ? 'Read-only enabled' : 'Agent only',
+      ready: true
+    }
+  ];
+  const taskDeveloper = (projectData?.agents || []).find((agent: any) => agent.name === codingTaskDeveloperName);
+  const taskHasWriteAccess = taskDeveloper?.provider !== 'Local CLI' ||
+    (taskDeveloper?.permissionMode === 'dangerous' && !!projectConfig?.allowDangerousCli);
+  const taskPreflight = [
+    {
+      label: 'Owner',
+      value: codingTaskDeveloperName || 'Not selected',
+      ready: !!codingTaskDeveloperName
+    },
+    {
+      label: 'Reviewers',
+      value: `${codingTaskReviewerNames.length} selected`,
+      ready: codingTaskReviewerNames.length > 0
+    },
+    {
+      label: 'Context',
+      value: `${selectedCodingTaskContextRefs.length} attached`,
+      ready: selectedCodingTaskContextRefs.length > 0
+    },
+    {
+      label: 'Permissions',
+      value: taskHasWriteAccess ? 'Ready' : 'Write access needed',
+      ready: taskHasWriteAccess
+    }
+  ];
+
+  if (activeTab === 'Home') {
     return (
-      <DiscussionsScreen
+      <HomeScreen
+        projectPath={projectPath}
+        projectData={projectData}
+        activeDiscussionRunId={activeDiscussionRunId}
+        activeTaskRunId={activeTaskRunId}
+        setActiveTab={setActiveTab}
+      />
+    );
+  }
+
+  if (activeTab === 'Activity') {
+    return (
+      <ActivityScreen
+        projectData={projectData}
+        activeDiscussionRunId={activeDiscussionRunId}
+        activeTaskRunId={activeTaskRunId}
+        lastCodingTaskResult={lastCodingTaskResult}
+        setActiveTab={setActiveTab}
+        setInitialSelectedFile={setInitialSelectedFile}
+      />
+    );
+  }
+
+  if (activeTab === 'Skills') {
+    return (
+      <SkillsCatalogScreen
+        projectData={projectData}
+        setActiveTab={setActiveTab}
+        resetAgentForm={resetAgentForm}
+      />
+    );
+  }
+
+  if (activeTab === 'Discussions' || activeTab === 'Run:Think' || activeTab === 'Run:Decide') {
+    const mode: RunMode = activeTab === 'Run:Decide' ? 'Decide' : 'Think';
+    return (
+      <RunComposerFrame mode={mode} preflight={discussionPreflight} onModeChange={changeRunMode}>
+        <DiscussionsScreen
         projectPath={projectPath}
         loadProjectData={loadProjectData}
         ensureTemplateSkills={ensureTemplateSkills}
@@ -422,13 +516,16 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         continueActiveDiscussionFromPivot={continueActiveDiscussionFromPivot}
         showInspector={showInspector}
         setShowInspector={setShowInspector}
-      />
+        />
+      </RunComposerFrame>
     );
   }
 
-  if (activeTab === 'Task Run') {
+  if (activeTab === 'Task Run' || activeTab === 'Run:Execute' || activeTab === 'Run:Review') {
+    const mode: RunMode = activeTab === 'Run:Review' ? 'Review' : 'Execute';
     return (
-      <TaskRunScreen
+      <RunComposerFrame mode={mode} preflight={taskPreflight} onModeChange={changeRunMode}>
+        <TaskRunScreen
         projectPath={projectPath}
         loadProjectData={loadProjectData}
         ensureTemplateSkills={ensureTemplateSkills}
@@ -478,7 +575,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setTaskRunView={setTaskRunView}
         selectedTaskCardId={selectedTaskCardId}
         setSelectedTaskCardId={setSelectedTaskCardId}
-      />
+        />
+      </RunComposerFrame>
     );
   }
 
@@ -609,18 +707,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     );
   }
 
-  if (activeTab === 'Decisions') {
-    return (
-      <DecisionsScreen
-        projectPath={projectPath}
-        projectData={projectData}
-        initialSelectedFile={initialSelectedFile}
-        setInitialSelectedFile={setInitialSelectedFile}
-        setErrorMsg={setErrorMsg}
-      />
-    );
-  }
-
   if (activeTab === 'Tasks') {
     return (
       <TaskArchiveScreen
@@ -639,23 +725,37 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     );
   }
 
-  if (activeTab === 'Documents' || activeTab === 'Reviews') {
+  if (
+    activeTab === 'Files' ||
+    activeTab === 'Artifacts' ||
+    activeTab === 'Decisions' ||
+    activeTab === 'Documents' ||
+    activeTab === 'Reviews'
+  ) {
+    const roomSection = activeTab === 'Decisions'
+      ? 'decisions' as const
+      : activeTab === 'Documents'
+        ? 'documents' as const
+        : activeTab === 'Reviews'
+          ? 'reviews' as const
+          : undefined;
     return (
-      <DocumentsScreen
+      <FilesScreen
         projectPath={projectPath}
         projectData={projectData}
         initialSelectedFile={initialSelectedFile}
         setInitialSelectedFile={setInitialSelectedFile}
         setErrorMsg={setErrorMsg}
-      />
-    );
-  }
-
-  if (activeTab === 'Files') {
-    return (
-      <FilesScreen
-        projectPath={projectPath}
-        setErrorMsg={setErrorMsg}
+        onAddContext={(ref) => {
+          if (!selectedDiscussionContextRefs.includes(ref)) {
+            toggleContextSelection('discussion', ref);
+          }
+          if (!selectedCodingTaskContextRefs.includes(ref)) {
+            toggleContextSelection('task', ref);
+          }
+        }}
+        initialTab={activeTab === 'Files' ? 'source' : 'room'}
+        roomSection={roomSection}
       />
     );
   }

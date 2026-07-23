@@ -7,6 +7,33 @@ import {
   sanitizeFileName, isAllowed, isPlainObject
 } from './shared.js';
 import { readProjectConfigFromDisk, validateProjectConfig } from './config-store.js';
+import type { ContextSet } from '../../shared/types/domain.js';
+
+function validateContextSets(value: unknown): ContextSet[] {
+  if (!Array.isArray(value) || value.length > 50) {
+    throw new Error('Invalid context sets.');
+  }
+  return value.map((item) => {
+    if (!isPlainObject(item)) throw new Error('Invalid context set.');
+    const { id, name, refs, createdAt, updatedAt } = item;
+    if (
+      typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(id) ||
+      typeof name !== 'string' || !name.trim() || name.length > 80 ||
+      !Array.isArray(refs) || refs.length > 200 ||
+      !refs.every(ref => typeof ref === 'string' && ref.length > 0 && ref.length <= 500) ||
+      typeof createdAt !== 'string' || typeof updatedAt !== 'string'
+    ) {
+      throw new Error('Invalid context set.');
+    }
+    return {
+      id,
+      name: name.trim(),
+      refs: Array.from(new Set(refs)),
+      createdAt,
+      updatedAt
+    };
+  });
+}
 
 async function removeSupersededDiscussionSummaries(documentsDir: string, keepFilename: string): Promise<void> {
   const match = keepFilename.match(/-discussion-\d+-summary\.md$/);
@@ -25,6 +52,44 @@ async function removeSupersededDiscussionSummaries(documentsDir: string, keepFil
 }
 
 export function registerFilesIpc(): void {
+  ipcMain.handle('load-context-sets', async (event, { dirPath }: { dirPath: string }) => {
+    try {
+      const projectRoot = requireBoundProjectRoot(dirPath);
+      const filePath = resolveWithinRoomData(projectRoot, 'context', 'sets.json');
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        return { success: true, contextSets: validateContextSets(JSON.parse(content)) };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return { success: true, contextSets: [] };
+        }
+        throw error;
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('save-context-sets', async (
+    event,
+    { dirPath, contextSets }: { dirPath: string; contextSets: unknown }
+  ) => {
+    try {
+      const projectRoot = requireBoundProjectRoot(dirPath);
+      const validated = validateContextSets(contextSets);
+      const contextDir = resolveWithinRoomData(projectRoot, 'context');
+      await fs.mkdir(contextDir, { recursive: true });
+      await fs.writeFile(
+        resolveWithinProject(contextDir, 'sets.json'),
+        JSON.stringify(validated, null, 2),
+        'utf-8'
+      );
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('read-room-file', async (event, { dirPath, section, filename }: { dirPath: string; section: string; filename: string }) => {
     try {
       if (!isAllowed(section, ALLOWED_ROOM_FILE_SECTIONS)) {

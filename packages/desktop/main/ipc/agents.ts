@@ -1,6 +1,13 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
-import { detectLocalAgents, validateAgentConfig as validateEngineAgentConfig, assertLocalCliExecutionAllowed, type AgentConfig } from '@room/engine';
+import {
+  assertLocalCliExecutionAllowed,
+  detectLocalAgents,
+  isMachineSkillReference,
+  readMachineSkill,
+  validateAgentConfig as validateEngineAgentConfig,
+  type AgentConfig
+} from '@room/engine';
 import {
   requireBoundProjectRoot, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeAgentFileName, readTextFileWithLimit,
@@ -12,14 +19,39 @@ import { createStableId, removeMemberFromTeams } from './team-store.js';
 
 interface SkillPreviewItem {
   filename: string;
+  reference?: string;
   readable: boolean;
-  source?: 'skills' | 'roles';
+  source?: 'skills' | 'roles' | 'machine';
+  sourceLabel?: string;
   bytes?: number;
   heading?: string;
   error?: string;
 }
 
 async function readSkillPreview(projectRoot: string, filename: string): Promise<SkillPreviewItem> {
+  if (isMachineSkillReference(filename)) {
+    try {
+      const { skill, content } = await readMachineSkill(filename);
+      return {
+        filename: skill.name,
+        reference: skill.reference,
+        readable: true,
+        source: 'machine',
+        sourceLabel: skill.sourceLabel,
+        bytes: Buffer.byteLength(content, 'utf-8'),
+        heading: extractMarkdownHeading(content)
+      };
+    } catch (error: unknown) {
+      return {
+        filename,
+        reference: filename,
+        readable: false,
+        source: 'machine',
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
   const safeFilename = sanitizeFileName(filename);
   if (!safeFilename.toLowerCase().endsWith('.md')) {
     return { filename: safeFilename, readable: false, error: 'Skill filename must end with .md.' };
@@ -123,7 +155,7 @@ async function cleanupLegacyMemberFiles(
 }
 
 export function registerAgentsIpc(): void {
-  ipcMain.handle('save-agent', async (event, { dirPath, agent }: { dirPath: string; agent: unknown }) => {
+  ipcMain.handle('save-agent', async (_event, { dirPath, agent }: { dirPath: string; agent: unknown }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const agentsDir = resolveWithinRoomData(projectRoot, 'members');
@@ -162,7 +194,7 @@ export function registerAgentsIpc(): void {
   });
 
   ipcMain.handle('delete-agent', async (
-    event,
+    _event,
     { dirPath, agentName, memberId }: { dirPath: string; agentName?: string; memberId?: string }
   ) => {
     try {
@@ -204,7 +236,7 @@ export function registerAgentsIpc(): void {
     }
   });
 
-  ipcMain.handle('preview-agent-skills', async (event, { dirPath, agent }: { dirPath: string; agent: any }) => {
+  ipcMain.handle('preview-agent-skills', async (_event, { dirPath, agent }: { dirPath: string; agent: any }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const skills: string[] = Array.isArray(agent?.skills)

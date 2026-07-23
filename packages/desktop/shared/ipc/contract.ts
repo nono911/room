@@ -7,7 +7,10 @@ import type {
   TaskBoardCard,
   DiscussionIpcEvent,
   MemberTeam,
-  RoomWorkspaceSummary
+  RoomWorkspaceSummary,
+  MachineSkillSummary,
+  WorkspaceFilePreview,
+  ContextSet
 } from '../types/domain.js';
 
 export interface ElectronAPI {
@@ -29,6 +32,7 @@ export interface ElectronAPI {
     documents?: string[];
     discussions: string[];
     skills: string[];
+    machineSkills?: MachineSkillSummary[];
     agents: any[];
     teams?: MemberTeam[];
     unassignedMemberIds?: string[];
@@ -36,8 +40,12 @@ export interface ElectronAPI {
   }>;
   readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) => Promise<{ success: boolean; content?: string; sourceSection?: string; error?: string }>;
   listWorkspaceFiles: (dirPath: string) => Promise<{ success: boolean; files?: WorkspaceFileEntry[]; truncated?: boolean; error?: string }>;
+  browseWorkspaceFiles: (dirPath: string, directory?: string, query?: string) => Promise<{ success: boolean; files?: WorkspaceFileEntry[]; truncated?: boolean; error?: string }>;
   searchContextItems: (dirPath: string, query?: string) => Promise<{ success: boolean; items?: ContextPickerItem[]; error?: string }>;
-  readWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>;
+  readWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; content?: string; preview?: WorkspaceFilePreview; error?: string }>;
+  revealWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; error?: string }>;
+  loadContextSets: (dirPath: string) => Promise<{ success: boolean; contextSets?: ContextSet[]; error?: string }>;
+  saveContextSets: (dirPath: string, contextSets: ContextSet[]) => Promise<{ success: boolean; error?: string }>;
   runScan: (dirPath: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) => Promise<{ success: boolean; message?: string; error?: string }>;
   runDiscussion: (
     dirPath: string,
