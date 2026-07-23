@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import type { WorkspaceLocation } from '@room/engine';
 
 export const ROOM_DIR = '.room';
-export const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy'] as const;
+export const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'kiro'] as const;
 export const SUPPORTED_LOCAL_CLI_PRESETS_SET = new Set<string>(SUPPORTED_LOCAL_CLI_PRESETS);
 export const ALLOWED_ROOM_FILE_SECTIONS = ['documents', 'tasks', 'discussions', 'decisions', 'reviews', 'skills'] as const;
 export const WORKSPACE_FILE_LIMIT = 500;

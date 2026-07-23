@@ -14,14 +14,14 @@ export interface AgentConfig {
   systemPrompt: string;
   skills?: string[];
   command?: string;
-  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
+  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   stdinFormat?: 'text' | 'json';
   permissionMode?: 'safe' | 'dangerous';
   strategy?: string;
   isVirtual?: boolean;
 }
 
-const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'none'] as const;
+const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'kiro', 'none'] as const;
 const ALLOWED_PERMISSION_MODES = ['safe', 'dangerous'] as const;
 const ALLOWED_STDIN_FORMATS = ['text', 'json'] as const;
 const MEMBER_ID_PATTERN = /^mem_[a-z0-9][a-z0-9_-]{2,80}$/;

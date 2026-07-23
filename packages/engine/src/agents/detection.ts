@@ -21,7 +21,8 @@ const AGENT_DEFS = [
   { id: 'codex', name: 'Codex CLI', bin: 'codex', versionArgs: ['--version'] },
   { id: 'copilot', name: 'GitHub Copilot CLI', bin: 'copilot', versionArgs: ['--version'] },
   { id: 'codewhale', name: 'CodeWhale', bin: 'codewhale', versionArgs: ['--version'] },
-  { id: 'agy', name: 'Antigravity CLI', bin: 'agy', versionArgs: ['--version'] }
+  { id: 'agy', name: 'Antigravity CLI', bin: 'agy', versionArgs: ['--version'] },
+  { id: 'kiro', name: 'Kiro CLI', bin: 'kiro-cli', versionArgs: ['--version'] }
 ];
 
 export function wellKnownUserToolchainBins(): string[] {

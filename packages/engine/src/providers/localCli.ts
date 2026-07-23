@@ -8,13 +8,14 @@ import { applyReadOnlyToolArgs, resolveToolAccess } from './toolAccess.js';
 import { resolveOnPath, resolvePathDirs } from '../agents/detection.js';
 import { normalizeLocalCliModelName } from '../agents/localCliPolicy.js';
 import { parseShellArgs } from '../shellArgs.js';
+import { runAcpCli } from './acpClient.js';
 
 type LocalCliPermissionMode = 'safe' | 'dangerous';
 const DEFAULT_LOCAL_CLI_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface LocalCliConfig extends ProviderConfig {
   command?: string;
-  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
+  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   stdinFormat?: 'text' | 'json';
   permissionMode?: LocalCliPermissionMode;
   cwd?: string;
@@ -27,7 +28,7 @@ export class LocalCliProvider implements Provider {
 
   name = 'Local CLI';
   private command: string;
-  private cliPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
+  private cliPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   private stdinFormat: 'text' | 'json';
   private cwd: string;
   private roomRoot: string;
@@ -95,6 +96,25 @@ export class LocalCliProvider implements Provider {
         ...process.env,
         PATH: resolvePathDirs().join(path.delimiter)
       };
+
+      if (this.cliPreset === 'kiro') {
+        const composedPrompt = [
+          systemInstruction ? `# Instructions\n${systemInstruction}\n\n---\n` : '',
+          `# Request\n${prompt}`
+        ].join('').trim();
+        const kiroBin = resolveOnPath('kiro-cli') || 'kiro-cli';
+        runAcpCli({
+          bin: kiroBin,
+          cwd: this.cwd,
+          env,
+          prompt: composedPrompt,
+          model: this.modelName,
+          permissionMode: this.permissionMode,
+          timeoutMs: options?.timeoutMs ?? this.timeoutMs,
+          executeOptions: options
+        }).then(resolve, reject);
+        return;
+      }
 
       let wroteMcp = false;
       let publishedTargetMcp = false;

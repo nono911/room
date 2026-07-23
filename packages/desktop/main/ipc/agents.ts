@@ -49,6 +49,9 @@ function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat
   if (cliPreset === 'codewhale' || cliPreset === 'agy') {
     return 'Sent inside the composed prompt argument under # Instructions and Active Skills.';
   }
+  if (cliPreset === 'kiro') {
+    return 'Sent as an ACP session prompt with instructions before the request.';
+  }
   if (cliPreset && cliPreset !== 'none') {
     return 'Sent to the local CLI through stdin with instructions before the request.';
   }
@@ -234,13 +237,27 @@ export function registerAgentsIpc(): void {
     try {
       const { applyApiKeysToEnvironment: applyKeys } = await import('./provider-store.js');
       await applyKeys();
-      const { resolveOnPath, getFallbackModels, isOpenAiModelAllowed, AGY_FALLBACK_MODELS } = await import('@room/engine');
+      const {
+        resolveOnPath,
+        getFallbackModels,
+        isOpenAiModelAllowed,
+        AGY_FALLBACK_MODELS,
+        detectAcpModels
+      } = await import('@room/engine');
       const { promisify } = await import('util');
       const { execFile } = await import('child_process');
       const execFileP = promisify(execFile);
 
-      const presetClis = ['codewhale', 'agy', 'gemini', 'claude', 'codex', 'copilot'];
-      const bin = presetClis.includes(cliId) ? cliId : null;
+      const presetBins: Record<string, string> = {
+        codewhale: 'codewhale',
+        agy: 'agy',
+        gemini: 'gemini',
+        claude: 'claude',
+        codex: 'codex',
+        copilot: 'copilot',
+        kiro: 'kiro-cli'
+      };
+      const bin = presetBins[cliId] || null;
       if (!bin) {
         return { success: true, models: [] };
       }
@@ -251,7 +268,15 @@ export function registerAgentsIpc(): void {
 
       let models: { value: string; label: string }[] = [];
 
-      if (cliId === 'gemini') {
+      if (cliId === 'kiro') {
+        try {
+          models = await detectAcpModels({
+            bin: resolvedPath,
+            cwd: process.cwd(),
+            env: process.env
+          });
+        } catch {}
+      } else if (cliId === 'gemini') {
         const geminiKey = process.env.GEMINI_API_KEY || '';
         if (geminiKey) {
           try {

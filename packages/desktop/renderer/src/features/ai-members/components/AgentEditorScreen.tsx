@@ -6,7 +6,7 @@ interface AgentEditorScreenProps {
   activeTab: string;
   projectData: ProjectData | null;
   newAgentProvider: string;
-  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
+  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   newAgentModel: string;
   newAgentName: string;
   setNewAgentName: (value: string) => void;
@@ -27,7 +27,7 @@ interface AgentEditorScreenProps {
   newAgentRole: string;
   handleRoleChange: (value: string) => void;
   setNewAgentProvider: (value: string) => void;
-  setNewAgentPreset: (value: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none') => void;
+  setNewAgentPreset: (value: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none') => void;
   setNewAgentPermissionMode: (value: 'safe' | 'dangerous') => void;
   setNewAgentModelCustom: (value: boolean) => void;
   setNewAgentModel: (value: string) => void;
@@ -468,6 +468,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                       {newAgentPreset === 'copilot' && "Safe mode by default; auto-approve tooling requires dangerous mode."}
                       {newAgentPreset === 'codewhale' && "Safe mode by default; auto-exec and prompt mode disabled until dangerous mode."}
                       {newAgentPreset === 'agy' && "Safe mode by default; skip-permissions behavior disabled until dangerous mode."}
+                      {newAgentPreset === 'kiro' && "ACP mode by default; tool permission requests are rejected unless dangerous mode is explicitly enabled."}
                     </div>
                     <label style={{
                       display: 'flex',

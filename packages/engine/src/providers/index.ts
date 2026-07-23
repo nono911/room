@@ -11,6 +11,7 @@ export * from './codex.js';
 export * from './openaiCompatible.js';
 export * from './registry.js';
 export * from './localCli.js';
+export * from './acpClient.js';
 
 export function detectProviders(): Provider[] {
   const providers: Provider[] = [];

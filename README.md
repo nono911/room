@@ -324,11 +324,14 @@ ROOM supports local AI CLI workflows. For a Local CLI AI member, choose one of t
 - `copilot`
 - `codewhale`
 - `agy`
+- `kiro` (uses the installed `kiro-cli` ACP transport)
 - `none` for custom command mode
 
 Local CLI AI members run in safe mode by default. Dangerous mode is gated by workspace settings and should only be enabled for trusted workspaces and trusted prompts because it can grant broader filesystem, tool, or network access depending on the CLI preset.
 
 In Discussions, the `Read-only tools` toggle gives safe-mode Local CLI members a narrow inspection path for that run. Claude receives only built-in read/web tools (`Read`, `Grep`, `Glob`, `LS`, `WebSearch`, `WebFetch`), Codex uses a read-only sandbox, and custom commands or dangerous-mode agents keep their existing behavior. MCP servers are not automatically added to the read-only allowlist because ROOM cannot prove arbitrary MCP tools are state-free.
+
+Kiro runs through Agent Client Protocol (ACP). ROOM discovers models during the ACP handshake, rejects permission prompts in safe mode, and passes `--trust-all-tools` only after dangerous permissions are explicitly enabled.
 
 For Local CLI AI members, `Model Name` can be left on `Default CLI Model`. ROOM will then omit the model override and let the selected CLI use its own configured default. Choose a listed model or `Custom Model...` only when you want ROOM to pass an explicit model name.
 

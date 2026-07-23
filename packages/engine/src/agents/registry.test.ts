@@ -27,6 +27,12 @@ describe('validateAgentConfig provider handling', () => {
     if (result.success) expect(result.agent.provider).toBe('Local CLI');
   });
 
+  it('accepts Kiro as a Local CLI preset', () => {
+    const result = validateAgentConfig({ ...base, provider: 'Local CLI', cliPreset: 'kiro' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.agent.cliPreset).toBe('kiro');
+  });
+
   it('rejects invalid provider strings', () => {
     for (const bad of ['', 'My Proxy', '-bad', 'UPPER']) {
       const result = validateAgentConfig({ ...base, provider: bad });

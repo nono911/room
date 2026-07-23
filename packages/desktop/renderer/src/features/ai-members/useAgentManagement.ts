@@ -21,7 +21,7 @@ interface UseAgentManagementOptions {
 
 export interface AgentDefaultSelection {
   provider: string;
-  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy';
+  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro';
   modelName?: string;
 }
 
@@ -106,7 +106,7 @@ export function useAgentManagement({
   const [newAgentCommand, setNewAgentCommand] = useState<string>('');
   const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
-  const [newAgentPreset, setNewAgentPreset] = useState<'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none'>('none');
+  const [newAgentPreset, setNewAgentPreset] = useState<'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none'>('none');
   const [newAgentStdinFormat, setNewAgentStdinFormat] = useState<'text' | 'json'>('text');
   const [newAgentPermissionMode, setNewAgentPermissionMode] = useState<LocalCliPermissionMode>('safe');
   const [editingAgent, setEditingAgent] = useState<any | null>(null);

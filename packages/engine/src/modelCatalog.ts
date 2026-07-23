@@ -9,7 +9,8 @@ export type CliPresetId =
   | 'codex'
   | 'copilot'
   | 'codewhale'
-  | 'agy';
+  | 'agy'
+  | 'kiro';
 
 export const AGY_FALLBACK_MODELS: ModelOption[] = [
   { value: 'default', label: 'Default (CLI config)' },
@@ -62,7 +63,10 @@ export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
     { value: 'deepseek-coder', label: 'DeepSeek Coder' },
     { value: 'deepseek-chat', label: 'DeepSeek Chat' }
   ],
-  agy: AGY_FALLBACK_MODELS
+  agy: AGY_FALLBACK_MODELS,
+  kiro: [
+    { value: 'default', label: 'Default (CLI config)' }
+  ]
 };
 
 export type CloudProvider = 'Gemini' | 'Claude' | 'Codex';

@@ -8,7 +8,7 @@ export interface AgentEditorSeed {
   newAgentModel: string;
   newAgentPrompt: string;
   newAgentSkills: string[];
-  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
+  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   newAgentCommand: string;
   newAgentStdinFormat: 'text' | 'json';
   newAgentPermissionMode: 'safe' | 'dangerous';
