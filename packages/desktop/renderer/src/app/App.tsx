@@ -37,6 +37,7 @@ export default function App() {
   const {
     projectPath,
     isRoomProject,
+    hasLegacyRoom,
     newWorkspaceName,
     setNewWorkspaceName,
     recentProjects,
@@ -446,12 +447,14 @@ export default function App() {
             <div className="modal-backdrop">
               <div className="modal-content" style={{ maxWidth: '860px', width: '90%', animation: 'modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)' }}>
                 <div className="modal-header">
-                  <h3 className="modal-title">Initialize ROOM Workspace</h3>
+                  <h3 className="modal-title">{hasLegacyRoom ? 'Import Existing ROOM Workspace' : 'Initialize ROOM Workspace'}</h3>
                 </div>
                 <div className="modal-body" style={{ gap: '16px' }}>
                   {/* Detailed UX Explanation */}
                   <div style={{ fontSize: '0.82rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.5, textAlign: 'center', marginBottom: '4px', width: '100%' }}>
-                    เลือกรูปแบบทีม AI ด้านล่างเพื่อเริ่มเปิดใช้งานโฟลเดอร์นี้เป็นห้องทำงานของ ROOM
+                    {hasLegacyRoom
+                      ? 'ROOM จะคัดลอกข้อมูล .room เดิมไปยัง ROOM Home โดยไม่ลบหรือแก้ไขต้นฉบับ'
+                      : 'ROOM จะสร้าง workspace ใน ~/.room และเชื่อมโฟลเดอร์นี้เป็น source'}
                     <br />
                     <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>💡 วางเมาส์ชี้ที่ปุ่มเพื่อดูรายละเอียดบทบาทหน้าที่ของ AI แต่ละตำแหน่ง</span>
                   </div>
@@ -515,7 +518,7 @@ export default function App() {
                               queueDiscussionAgentSelectionByNames(nextSelected);
                             }
                           } else {
-                            setErrorMsg(res.error || 'Failed to initialize .room.');
+                            setErrorMsg(res.error || 'Failed to create ROOM Home workspace.');
                           }
                         } catch (err: any) {
                           setErrorMsg(err.message || 'Error occurred during workspace initialization.');
@@ -636,7 +639,7 @@ export default function App() {
                     Cancel
                   </button>
                   <button className="btn-primary" onClick={handleInitProject} disabled={loading} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                    {loading ? 'Initializing...' : 'Initialize Empty Workspace'}
+                    {loading ? 'Preparing...' : (hasLegacyRoom ? 'Import into ROOM Home' : 'Create in ROOM Home')}
                   </button>
                 </div>
               </div>

@@ -17,6 +17,7 @@ type TemporaryAgentPayload = {
 export const api = {
   selectProjectDir: () => window.electronAPI.selectProjectDir(),
   openProjectDir: (dirPath: string) => window.electronAPI.openProjectDir(dirPath),
+  listRoomWorkspaces: () => window.electronAPI.listRoomWorkspaces(),
   createWorkspace: (workspaceName: string) => window.electronAPI.createWorkspace(workspaceName),
   roomInit: (dirPath: string) => window.electronAPI.roomInit(dirPath),
   getProjectData: (dirPath: string) => window.electronAPI.getProjectData(dirPath),

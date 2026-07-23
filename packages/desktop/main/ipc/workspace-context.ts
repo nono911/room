@@ -11,6 +11,8 @@ import {
   formatBytes,
   resolveProjectPath,
   resolveWithinProject,
+  resolveRoomDataRoot,
+  resolveWithinRoomData,
   type ContextSearchResult
 } from './shared.js';
 
@@ -126,31 +128,34 @@ async function readContextSearchPreview(filePath: string, size: number): Promise
 
 export async function searchContextItems(projectRoot: string, query = ''): Promise<ContextSearchResult[]> {
   const root = resolveProjectPath(projectRoot);
+  const roomRoot = resolveRoomDataRoot(projectRoot);
   const normalizedQuery = query.trim().toLowerCase();
   const results: Array<ContextSearchResult & { score: number }> = [
     {
       ref: 'workspace:overview',
       label: 'Workspace Overview',
       type: 'workspace' as const,
-      detail: '.room/context/overview.md',
+      detail: 'ROOM Home · context/overview.md',
       score: normalizedQuery ? ('workspace overview'.includes(normalizedQuery) ? 500 : -1) : 500
     },
     {
       ref: 'workspace:structure',
       label: 'Workspace Structure',
       type: 'workspace' as const,
-      detail: '.room/context/structure.md',
+      detail: 'ROOM Home · context/structure.md',
       score: normalizedQuery ? ('workspace structure architecture'.includes(normalizedQuery) ? 490 : -1) : 490
     }
   ].filter(result => result.score >= 0);
   let scanned = 0;
 
-  async function addFileResult(fullPath: string, scoreOverride?: number) {
+  async function addFileResult(fullPath: string, scoreOverride?: number, roomManaged = false) {
     const stat = await fs.stat(fullPath).catch(() => null);
     if (!stat || !stat.isFile()) return;
     if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) return;
 
-    const relPath = path.relative(root, fullPath).split(path.sep).join('/');
+    const relPath = roomManaged
+      ? `${ROOM_DIR}/${path.relative(roomRoot, fullPath).split(path.sep).join('/')}`
+      : path.relative(root, fullPath).split(path.sep).join('/');
     const normalized = relPath.toLowerCase();
     if (!isSearchableRoomContextFile(relPath)) return;
 
@@ -182,7 +187,7 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
       const base = path.basename(relPath);
       if (base.startsWith('task-') && base.endsWith('-artifact.md')) {
         const jsonFile = base.replace(/-artifact\.md$/i, '.json');
-        const jsonPath = path.join(root, ROOM_DIR, 'tasks', jsonFile);
+        const jsonPath = resolveWithinRoomData(projectRoot, 'tasks', jsonFile);
         try {
           const jsonContent = await fs.readFile(jsonPath, 'utf-8');
           const meta = JSON.parse(jsonContent);
@@ -213,11 +218,15 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
     if (!normalizedQuery.includes('/')) return;
     const relQuery = query.trim().replace(/\\/g, '/').replace(/^\/+/, '');
     if (!relQuery || relQuery.split('/').some(part => !part || part === '.' || part === '..')) return;
-    const candidatePath = resolveWithinProject(root, relQuery);
+    const roomManaged = relQuery === ROOM_DIR || relQuery.startsWith(`${ROOM_DIR}/`);
+    const roomRelativePath = roomManaged ? relQuery.slice(ROOM_DIR.length).replace(/^\/+/, '') : '';
+    const candidatePath = roomManaged
+      ? resolveWithinRoomData(projectRoot, roomRelativePath)
+      : resolveWithinProject(root, relQuery);
     const stat = await fs.stat(candidatePath).catch(() => null);
     if (!stat) return;
     if (stat.isFile()) {
-      await addFileResult(candidatePath, 900);
+      await addFileResult(candidatePath, 900, roomManaged);
       return;
     }
     if (!stat.isDirectory()) return;
@@ -232,14 +241,17 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
       });
       for (const entry of entries) {
         if (added >= CONTEXT_SEARCH_RESULT_LIMIT) return;
-        if (entry.name.startsWith('.') && entry.name !== ROOM_DIR) continue;
+        if (entry.name.startsWith('.')) continue;
         if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
-        const fullPath = resolveWithinProject(root, path.relative(root, path.join(dirPath, entry.name)));
+        const nextPath = path.join(dirPath, entry.name);
+        const fullPath = roomManaged
+          ? resolveWithinRoomData(projectRoot, path.relative(roomRoot, nextPath))
+          : resolveWithinProject(root, path.relative(root, nextPath));
         if (entry.isDirectory()) {
           await walkDirect(fullPath);
         } else if (entry.isFile()) {
           added += 1;
-          await addFileResult(fullPath, 850 - added);
+          await addFileResult(fullPath, 850 - added, roomManaged);
         }
       }
     }
@@ -256,7 +268,7 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
 
     for (const entry of entries) {
       if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
-      if (entry.name.startsWith('.') && entry.name !== ROOM_DIR) continue;
+      if (entry.name.startsWith('.')) continue;
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
 
       const fullPath = resolveWithinProject(root, path.relative(root, path.join(currentDir, entry.name)));
@@ -271,8 +283,31 @@ export async function searchContextItems(projectRoot: string, query = ''): Promi
     }
   }
 
+  async function walkRoom(currentDir: string) {
+    if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
+    const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      if (scanned >= CONTEXT_SEARCH_SCAN_LIMIT) return;
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walkRoom(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      scanned += 1;
+      await addFileResult(fullPath, undefined, true);
+    }
+  }
+
   await addDirectPathMatches();
   await walk(root);
+  await walkRoom(roomRoot);
   const byRef = new Map<string, ContextSearchResult & { score: number }>();
   for (const result of results) {
     const existing = byRef.get(result.ref);

@@ -33,6 +33,11 @@ import {
 import type { MessageReference } from './references.js';
 import { parseCodingApproval, extractTaskReviewSummary } from './approvalDetector.js';
 import { updateTaskCardStatus } from './taskBoard.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
 
 export interface CodingTaskEvent {
   type: string;
@@ -62,7 +67,7 @@ export interface CodingTaskRunOptions {
 }
 
 export async function runCodingTaskLoop(
-  dirPath: string,
+  workspace: WorkspaceInput,
   taskId: string,
   title: string,
   task: string,
@@ -82,7 +87,8 @@ export async function runCodingTaskLoop(
     throw new Error('Invalid task id.');
   }
 
-  const agents = [...(options.temporaryAgents || []), ...await loadAgents(dirPath)];
+  const { sourceRoot } = resolveWorkspaceLocation(workspace);
+  const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
   const developer = agents.find(agent => agent.name.toLowerCase() === developerName.toLowerCase())
     || agents.find(agent => isDeveloperAgent(agent));
   if (!developer) {
@@ -103,8 +109,8 @@ export async function runCodingTaskLoop(
   const taskType = (options.taskType || 'general').trim().toLowerCase();
   await assertCodingTaskWriteAllowed(developer, taskType);
 
-  const tasksDir = path.join(dirPath, '.room', 'tasks');
-  const documentsDir = path.join(dirPath, '.room', 'documents');
+  const tasksDir = resolveRoomPath(workspace, 'tasks');
+  const documentsDir = resolveRoomPath(workspace, 'documents');
   await fs.mkdir(tasksDir, { recursive: true });
   await fs.mkdir(documentsDir, { recursive: true });
   const jsonFilename = `${taskId}.json`;
@@ -126,13 +132,13 @@ export async function runCodingTaskLoop(
     : REVIEWER_RULES_GENERAL;
 
   let projectContext = await readFirstExistingFile([
-    path.join(dirPath, '.room', 'context', 'overview.md'),
-    path.join(dirPath, '.room', 'workspace.md'),
-    path.join(dirPath, '.room', 'project.md')
+    resolveRoomPath(workspace, 'context', 'overview.md'),
+    resolveRoomPath(workspace, 'workspace.md'),
+    resolveRoomPath(workspace, 'project.md')
   ]);
   const structure = await readFirstExistingFile([
-    path.join(dirPath, '.room', 'context', 'structure.md'),
-    path.join(dirPath, '.room', 'architecture', 'current.md')
+    resolveRoomPath(workspace, 'context', 'structure.md'),
+    resolveRoomPath(workspace, 'architecture', 'current.md')
   ]);
   if (structure) {
     projectContext += `\n\nWorkspace Structure:\n${structure}`;
@@ -165,7 +171,7 @@ export async function runCodingTaskLoop(
   };
 
   if (options.associatedCardId) {
-    await updateTaskCardStatus(dirPath, options.associatedCardId, 'in_progress');
+    await updateTaskCardStatus(workspace, options.associatedCardId, 'in_progress');
   }
 
   const saveResult = async () => {
@@ -226,7 +232,7 @@ export async function runCodingTaskLoop(
     });
 
     const developerContext = await compileContextWithOptionalSummary(
-      dirPath,
+      workspace,
       'coding-task',
       taskId,
       result.messages,
@@ -244,7 +250,7 @@ Task:
 ${task}
 
 Workspace root:
-${dirPath}
+${sourceRoot}
 
 ${developerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
 
@@ -270,7 +276,7 @@ ${doerWorkInstructions}
       developer,
       developerPrompt,
       developerSystemPrompt,
-      dirPath,
+      sourceRoot,
       taskId,
       cycle,
       developerContext.includedMessages,
@@ -334,7 +340,7 @@ ${doerWorkInstructions}
       });
 
       const reviewerContext = await compileContextWithOptionalSummary(
-        dirPath,
+        workspace,
         'coding-task',
         taskId,
         result.messages,
@@ -349,7 +355,7 @@ Task:
 ${task}
 
 Workspace root:
-${dirPath}
+${sourceRoot}
 
 ${reviewerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
 
@@ -373,7 +379,7 @@ ${reviewerRules}
         reviewer,
         reviewerPrompt,
         reviewerSystemPrompt,
-        dirPath,
+        sourceRoot,
         taskId,
         cycle,
         reviewerContext.includedMessages,
@@ -432,7 +438,7 @@ ${reviewerRules}
       result.statusSummary = `Approved after ${cycle} cycle(s).\n${extractTaskReviewSummary(reviewerOutputs)}`;
       await saveResult();
       if (result.continuedFromTaskId) {
-        await cleanUpParentTaskFiles(dirPath, result.continuedFromTaskId);
+        await cleanUpParentTaskFiles(workspace, result.continuedFromTaskId);
       }
       break;
     }
@@ -459,13 +465,13 @@ ${reviewerRules}
     source: { type: 'coding-task', id: taskId },
     target: { type: 'artifact', id: artifactFilename },
     data: {
-      path: path.join('.room', 'documents', artifactFilename),
+      path: path.join('documents', artifactFilename),
       sourceMessageId: finalDoerMessage?.id
     }
   });
 
   if (result.associatedCardId && result.status === 'approved') {
-    await updateTaskCardStatus(dirPath, result.associatedCardId, 'done');
+    await updateTaskCardStatus(workspace, result.associatedCardId, 'done');
   }
 
   await saveResult();
@@ -483,4 +489,3 @@ ${reviewerRules}
   });
   return result;
 }
-

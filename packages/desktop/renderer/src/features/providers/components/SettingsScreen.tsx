@@ -78,7 +78,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </button>
         </div>
         <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5 }}>
-          Keys are stored locally on this machine, outside <code>.room/</code>. Any OpenAI-compatible endpoint can be added. Leave a key field blank to keep the existing key.
+          Keys are stored locally on this machine in the app's private data, outside ROOM workspace files. Any OpenAI-compatible endpoint can be added. Leave a key field blank to keep the existing key.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {providers.map(provider => (

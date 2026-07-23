@@ -2,8 +2,8 @@ import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
-  ROOM_DIR, ALLOWED_ROOM_FILE_SECTIONS,
-  requireBoundProjectRoot, resolveWithinProject,
+  ALLOWED_ROOM_FILE_SECTIONS,
+  requireBoundProjectRoot, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, isAllowed, isPlainObject
 } from './shared.js';
 import { readProjectConfigFromDisk, validateProjectConfig } from './config-store.js';
@@ -42,7 +42,7 @@ export function registerFilesIpc(): void {
       let filePath = '';
       let sourceSection = '';
       for (const sectionToTry of sectionsToTry) {
-        const candidate = resolveWithinProject(projectRoot, ROOM_DIR, sectionToTry, safeFilename);
+        const candidate = resolveWithinRoomData(projectRoot, sectionToTry, safeFilename);
         try {
           const stat = await fs.stat(candidate);
           if (stat.isFile()) {
@@ -76,7 +76,7 @@ export function registerFilesIpc(): void {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const safeFilename = sanitizeFileName(filename || 'untitled', 'untitled');
       const fileNameWithExt = safeFilename.endsWith('.md') ? safeFilename : `${safeFilename}.md`;
-      const sectionDir = resolveWithinProject(projectRoot, ROOM_DIR, section);
+      const sectionDir = resolveWithinRoomData(projectRoot, section);
       await fs.mkdir(sectionDir, { recursive: true });
       if (section === 'documents') {
         await removeSupersededDiscussionSummaries(sectionDir, fileNameWithExt);
@@ -99,7 +99,7 @@ export function registerFilesIpc(): void {
       }
 
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const contextDir = resolveWithinProject(projectRoot, ROOM_DIR, 'context');
+      const contextDir = resolveWithinRoomData(projectRoot, 'context');
       await fs.mkdir(contextDir, { recursive: true });
       const filePath = resolveWithinProject(contextDir, filename);
       await fs.writeFile(filePath, content, 'utf-8');
@@ -113,7 +113,7 @@ export function registerFilesIpc(): void {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const subfolder = source === 'roles' ? 'roles' : 'skills';
-      const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, subfolder);
+      const skillsDir = resolveWithinRoomData(projectRoot, subfolder);
       await fs.mkdir(skillsDir, { recursive: true });
       const filename = sanitizeFileName(name || 'untitled', 'untitled');
       const fileNameWithExt = filename.endsWith('.md') ? filename : `${filename}.md`;
@@ -141,7 +141,7 @@ export function registerFilesIpc(): void {
   ipcMain.handle('save-project-config', async (event, { dirPath, config }: { dirPath: string; config: any }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const configPath = resolveWithinProject(projectRoot, ROOM_DIR, 'config.json');
+      const configPath = resolveWithinRoomData(projectRoot, 'config.json');
       const validated = validateProjectConfig(config);
       if (!validated.success) {
         return { success: false, error: validated.error };

@@ -7,9 +7,9 @@ import {
 } from '@room/engine';
 import type { MemberTeam } from '../../shared/types/domain.js';
 import {
-  ROOM_DIR,
   requireBoundProjectRoot,
   resolveWithinProject,
+  resolveWithinRoomData,
   sanitizeFileName
 } from './shared.js';
 import { isDangerousAgentAllowed } from './config-store.js';
@@ -249,7 +249,7 @@ export function validatePersistedTeamConfig(
 }
 
 export async function loadTeamsWithDiagnostics(projectRoot: string): Promise<LoadTeamsResult> {
-  const teamsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'teams');
+  const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
   let entries: string[] = [];
 
   try {
@@ -298,7 +298,7 @@ export async function saveTeam(projectRoot: string, rawTeam: unknown): Promise<M
     throw new Error(validated.error);
   }
 
-  const teamsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'teams');
+  const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
   await fs.mkdir(teamsDir, { recursive: true });
 
   const now = new Date().toISOString();
@@ -322,7 +322,7 @@ export async function deleteTeam(projectRoot: string, teamId: string): Promise<v
   }
 
   const safeId = sanitizeFileName(teamId, 'team');
-  await fs.unlink(resolveWithinProject(projectRoot, ROOM_DIR, 'teams', `${safeId}.json`));
+  await fs.unlink(resolveWithinRoomData(projectRoot, 'teams', `${safeId}.json`));
 }
 
 export async function updateTeamMembers(
@@ -384,9 +384,9 @@ export async function createTeamWithMembers(
     updatedAt: new Date().toISOString()
   };
 
-  const membersDir = resolveWithinProject(projectRoot, ROOM_DIR, 'members');
-  const teamsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'teams');
-  const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'skills');
+  const membersDir = resolveWithinRoomData(projectRoot, 'members');
+  const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
+  const skillsDir = resolveWithinRoomData(projectRoot, 'skills');
 
   await fs.mkdir(membersDir, { recursive: true });
   await fs.mkdir(teamsDir, { recursive: true });
@@ -437,9 +437,9 @@ export async function addMembersToTeam(
     updatedAt: new Date().toISOString()
   };
 
-  const membersDir = resolveWithinProject(projectRoot, ROOM_DIR, 'members');
-  const teamsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'teams');
-  const skillsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'skills');
+  const membersDir = resolveWithinRoomData(projectRoot, 'members');
+  const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
+  const skillsDir = resolveWithinRoomData(projectRoot, 'skills');
 
   await fs.mkdir(membersDir, { recursive: true });
   await fs.mkdir(teamsDir, { recursive: true });

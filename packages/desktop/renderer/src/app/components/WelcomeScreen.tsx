@@ -33,7 +33,7 @@ export function WelcomeScreen({
         <img className="welcome-app-icon" src="./room-icon.png" alt="ROOM" />
         <h1 className="welcome-logo">ROOM</h1>
         <p className="welcome-desc">
-          Build a shared room for context, tasks, documents, roles, AI members, and discussion logs across any kind of project.
+          ROOM keeps collaboration memory in ~/.room and connects it to source folders without adding ROOM data to your projects.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -43,7 +43,7 @@ export function WelcomeScreen({
               onChange={(e) => setNewWorkspaceName(e.target.value)}
               onKeyDown={handleWorkspaceNameKeyDown}
               disabled={loading}
-              placeholder="New workspace name"
+              placeholder="Workspace name"
               style={{
                 flex: 1,
                 minWidth: 0,

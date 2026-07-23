@@ -5,6 +5,7 @@ import { Provider } from '../providers/provider.js';
 import type { DiscussionMessage, CodingTaskResult, DiscussionLog } from './types.js';
 import { parseMessageReferences, type MessageReference } from './references.js';
 import type { PromptContextMessage } from './contextCompiler.js';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export const LANGUAGE_POLICY = `=== Language Policy ===
 Respond in the same natural language the user uses in the current discussion topic.
@@ -19,11 +20,11 @@ When you need to mention source code or files, summarize the relevant behavior a
 Ignore generated directories and artifacts such as dist, dist-packaged, build, coverage, .next, node_modules, minified assets, and source maps unless the user explicitly asks to inspect them.`;
 
 export const WORKSPACE_BOUNDARY_POLICY = `=== Workspace Boundary Policy ===
-The active workspace root is the only durable project workspace.
-Do not create, save, update, or link files in provider-specific memory folders, CLI brain folders, home-directory agent stores, or temporary scratch workspaces.
-If you create or mention durable files, they must be inside the active workspace root, preferably under .room/ for ROOM artifacts.
-Do not return file:// links outside the active workspace.
-For summaries and discussion replies, return Markdown content only; ROOM will save artifacts into the workspace when appropriate.`;
+The active source root is the only directory you may inspect or modify directly.
+Do not create, save, update, or link files in provider-specific memory folders, CLI brain folders, temporary scratch workspaces, or ROOM's private data store.
+ROOM manages durable collaboration memory separately from the source root.
+Do not return file:// links outside the active source root.
+For summaries and discussion replies, return Markdown content only; ROOM will save artifacts into its workspace data store when appropriate.`;
 
 export const LOCAL_CLI_OUTPUT_POLICY = `=== Local CLI Agent Policy ===
 Use only the prompt, discussion history, selected context, active skills, and project context provided here.
@@ -71,13 +72,13 @@ export function isDeveloperAgent(agent: AgentConfig): boolean {
   return text.includes('developer') || text.includes('implement') || text.includes('engineer') || text.includes('coder');
 }
 
-export async function cleanUpParentTaskFiles(dirPath: string, parentId: string): Promise<void> {
+export async function cleanUpParentTaskFiles(workspace: WorkspaceInput, parentId: string): Promise<void> {
   if (!parentId) return;
   try {
-    const tasksDir = path.join(dirPath, '.room', 'tasks');
+    const tasksDir = resolveRoomPath(workspace, 'tasks');
     const parentJsonPath = path.join(tasksDir, `${parentId}.json`);
     const parentMarkdownPath = path.join(tasksDir, `${parentId}.md`);
-    const parentArtifactPath = path.join(dirPath, '.room', 'documents', `${parentId}-artifact.md`);
+    const parentArtifactPath = resolveRoomPath(workspace, 'documents', `${parentId}-artifact.md`);
     
     let ancestorId = '';
     try {
@@ -93,7 +94,7 @@ export async function cleanUpParentTaskFiles(dirPath: string, parentId: string):
     await fs.unlink(parentArtifactPath).catch(() => {});
     
     if (ancestorId) {
-      await cleanUpParentTaskFiles(dirPath, ancestorId);
+      await cleanUpParentTaskFiles(workspace, ancestorId);
     }
   } catch {
     // Ignore

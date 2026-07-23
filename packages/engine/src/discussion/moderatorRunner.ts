@@ -17,6 +17,11 @@ import { executeModeratorActions, type ActionExecutionResult } from './actionExe
 import { parseQualityGateResult, type QualityGateResult } from './approvalDetector.js';
 import { type TaskCard } from './taskBoard.js';
 import { buildBudgetedTranscriptWithCache } from './contextBuilder.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
 
 export function pickModerator(agents: AgentConfig[], moderatorName?: string): AgentConfig | undefined {
   if (moderatorName) {
@@ -31,7 +36,7 @@ export function pickModerator(agents: AgentConfig[], moderatorName?: string): Ag
 }
 
 export async function evaluateDiscussionLoop(
-  dirPath: string,
+  workspace: WorkspaceInput,
   discussionId: string,
   moderatorName: string | undefined,
   getProvider: (agent: AgentConfig) => Provider,
@@ -43,12 +48,12 @@ export async function evaluateDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const discussionsDir = path.join(dirPath, '.room', 'discussions');
+  const discussionsDir = resolveRoomPath(workspace, 'discussions');
   const logPath = path.join(discussionsDir, `${discussionId}.json`);
   const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
   const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
-  const agents = await loadAgents(dirPath);
+  const agents = await loadAgents(workspace);
   const moderator = pickModerator(agents, moderatorName);
 
   if (!moderator) {
@@ -57,7 +62,7 @@ export async function evaluateDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(workspace, 'discussion', discussionId, discussionLog);
   const prompt = `Evaluate whether this ROOM chat has answered the user's goal well enough to stop.
 
 Do not add new creative or implementation work unless it is needed to explain a gap.
@@ -94,9 +99,10 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.`;
 
-  const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), dirPath);
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const { actions, errors: actionErrors } = parseModeratorActions(content);
-  const executed = await executeModeratorActions(dirPath, actions, discussionId);
+  const executed = await executeModeratorActions(workspace, actions, discussionId);
   await appendActionEvents(discussionId, executed);
   executed.errors.push(...actionErrors);
 
@@ -146,7 +152,7 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
 }
 
 export async function generateTasksFromDiscussionLoop(
-  dirPath: string,
+  workspace: WorkspaceInput,
   discussionId: string,
   moderatorName: string | undefined,
   getProvider: (agent: AgentConfig) => Provider,
@@ -157,10 +163,10 @@ export async function generateTasksFromDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const logPath = path.join(dirPath, '.room', 'discussions', `${discussionId}.json`);
+  const logPath = resolveRoomPath(workspace, 'discussions', `${discussionId}.json`);
   const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
-  const agents = await loadAgents(dirPath);
+  const agents = await loadAgents(workspace);
   const moderator = pickModerator(agents, moderatorName);
   if (!moderator) {
     throw new Error('No AI member is available to generate tasks.');
@@ -168,7 +174,7 @@ export async function generateTasksFromDiscussionLoop(
 
   await assertAgentExecutionAllowed(moderator);
   const provider = getProvider(moderator);
-  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(workspace, 'discussion', discussionId, discussionLog);
   const prompt = `Convert the outcome of this ROOM chat into a structured task board plan.
 
 Output requirements:
@@ -190,14 +196,15 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You convert finished ROOM chats into actionable task plans for the project task board.`;
 
-  const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), dirPath);
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const { actions, errors } = parseModeratorActions(content);
   const taskActions = actions.filter(action => action.action === 'create_task');
   if (taskActions.length === 0) {
     throw new Error('The moderator did not produce any create_task actions. Try again or pick another moderator.');
   }
 
-  const executed = await executeModeratorActions(dirPath, taskActions, discussionId);
+  const executed = await executeModeratorActions(workspace, taskActions, discussionId);
   await appendActionEvents(discussionId, executed);
   return { createdTaskCards: executed.createdTaskCards, errors: [...errors, ...executed.errors] };
 }

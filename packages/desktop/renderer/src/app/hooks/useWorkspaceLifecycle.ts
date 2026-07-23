@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../shared/ipc/client.js';
 
 interface UseWorkspaceLifecycleOptions {
@@ -28,8 +28,27 @@ export function useWorkspaceLifecycle({
 }: UseWorkspaceLifecycleOptions) {
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [isRoomProject, setIsRoomProject] = useState<boolean>(false);
+  const [hasLegacyRoom, setHasLegacyRoom] = useState<boolean>(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState<string>('');
   const [recentProjects, setRecentProjects] = useState<string[]>(loadRecentProjects);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const result = await api.listRoomWorkspaces();
+        if (!active || !result.success || !result.workspaces) return;
+        const sourcePaths = result.workspaces.map(workspace => workspace.sourcePath);
+        setRecentProjects(sourcePaths);
+        localStorage.setItem('recentProjects', JSON.stringify(sourcePaths));
+      } catch {
+        // The local cache remains a compatibility fallback for older preload builds.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const addRecentProject = (pathStr: string) => {
     setRecentProjects(prev => {
@@ -49,6 +68,7 @@ export function useWorkspaceLifecycle({
       clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
+      setHasLegacyRoom(!!result.hasLegacyRoom);
 
       addRecentProject(result.path);
 
@@ -80,6 +100,7 @@ export function useWorkspaceLifecycle({
       clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(true);
+      setHasLegacyRoom(false);
       setNewWorkspaceName('');
       addRecentProject(result.path);
       await loadProjectData(result.path);
@@ -102,6 +123,7 @@ export function useWorkspaceLifecycle({
       clearWorkspaceDerivedState();
       setProjectPath(result.path);
       setIsRoomProject(result.isRoomProject);
+      setHasLegacyRoom(!!result.hasLegacyRoom);
 
       addRecentProject(result.path);
 
@@ -132,11 +154,12 @@ export function useWorkspaceLifecycle({
       if (res.success) {
         clearWorkspaceDerivedState();
         setIsRoomProject(true);
+        setHasLegacyRoom(false);
         addRecentProject(projectPath);
         setProjectPath(projectPath);
         await loadProjectData(projectPath);
       } else {
-        setErrorMsg(res.error || 'Failed to initialize .room.');
+        setErrorMsg(res.error || 'Failed to create ROOM Home workspace.');
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to initialize project.');
@@ -148,12 +171,14 @@ export function useWorkspaceLifecycle({
   const handleCloseProjectWorkspace = () => {
     setProjectPath(null);
     setIsRoomProject(false);
+    setHasLegacyRoom(false);
     clearWorkspaceDerivedState();
   };
 
   return {
     projectPath,
     isRoomProject,
+    hasLegacyRoom,
     newWorkspaceName,
     setNewWorkspaceName,
     recentProjects,

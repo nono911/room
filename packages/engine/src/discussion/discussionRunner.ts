@@ -29,6 +29,11 @@ import {
 } from './contextBuilder.js';
 import { parseMessageReferences, type MessageReference } from './references.js';
 import { isExplicitlyApproved } from './approvalDetector.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
 
 const DISCUSSION_PROTOCOL = `=== Discussion Protocol ===
 Speak in the first person as your assigned AI member role.
@@ -69,7 +74,7 @@ export interface DiscussionRunOptions {
 }
 
 export async function runDiscussionLoop(
-  dirPath: string,
+  workspace: WorkspaceInput,
   discussionId: string,
   title: string,
   topic: string,
@@ -86,7 +91,8 @@ export async function runDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const agents = [...(options.temporaryAgents || []), ...await loadAgents(dirPath)];
+  const { sourceRoot } = resolveWorkspaceLocation(workspace);
+  const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
   const workflowAgents = agentNames
     .map(name => agents.find(a => a.name.toLowerCase() === name.toLowerCase()))
     .filter((a): a is AgentConfig => !!a);
@@ -95,7 +101,7 @@ export async function runDiscussionLoop(
     throw new Error(`None of the requested AI members (${agentNames.join(', ') || 'none'}) were found in the workspace.`);
   }
 
-  const discussionsDir = path.join(dirPath, '.room', 'discussions');
+  const discussionsDir = resolveRoomPath(workspace, 'discussions');
   await fs.mkdir(discussionsDir, { recursive: true });
   const logPath = path.join(discussionsDir, `${discussionId}.json`);
   const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
@@ -126,15 +132,15 @@ export async function runDiscussionLoop(
   });
 
   const overview = await readFirstExistingFile([
-    path.join(dirPath, '.room', 'context', 'overview.md'),
-    path.join(dirPath, '.room', 'workspace.md'),
-    path.join(dirPath, '.room', 'project.md')
+    resolveRoomPath(workspace, 'context', 'overview.md'),
+    resolveRoomPath(workspace, 'workspace.md'),
+    resolveRoomPath(workspace, 'project.md')
   ]);
   const structure = await readFirstExistingFile([
-    path.join(dirPath, '.room', 'context', 'structure.md'),
-    path.join(dirPath, '.room', 'architecture', 'current.md')
+    resolveRoomPath(workspace, 'context', 'structure.md'),
+    resolveRoomPath(workspace, 'architecture', 'current.md')
   ]);
-  const workspaceMemory = await loadWorkspaceMemoryContext(dirPath, 2500, discussionId);
+  const workspaceMemory = await loadWorkspaceMemoryContext(workspace, 2500, discussionId);
   const projectContext = composeProjectContext({
     overview,
     structure,
@@ -222,16 +228,16 @@ export async function runDiscussionLoop(
         }
       }
 
-      const autoMatchedSkills = await autoMatchSkills(dirPath, mentionedPaths, discussionText);
+      const autoMatchedSkills = await autoMatchSkills(workspace, mentionedPaths, discussionText);
       const allSkillFiles = Array.from(new Set([
         ...(agent.skills || []),
         ...autoMatchedSkills
       ]));
 
-      const skillsContext = await buildSkillsContext(dirPath, allSkillFiles);
+      const skillsContext = await buildSkillsContext(workspace, allSkillFiles);
 
       const compiledContext = await compileContextWithOptionalSummary(
-        dirPath,
+        workspace,
         'discussion',
         discussionId,
         discussionLog.messages,
@@ -259,7 +265,7 @@ export async function runDiscussionLoop(
           console.warn(`[Discussion Engine] Ignoring invalid strategy name: ${agent.strategy}`);
         } else {
           try {
-            const strategyPath = path.resolve(dirPath, '.room', 'strategies', `${sanitizedStrategy}.json`);
+            const strategyPath = resolveRoomPath(workspace, 'strategies', `${sanitizedStrategy}.json`);
             const rawStrat = await fs.readFile(strategyPath, 'utf-8');
             const stratObj = JSON.parse(rawStrat);
             if (stratObj && typeof stratObj.prompt === 'string') {
@@ -306,7 +312,7 @@ export async function runDiscussionLoop(
             });
           }
         });
-        response = cleanAgentUserContent(response, dirPath);
+        response = cleanAgentUserContent(response, sourceRoot);
         const skipReason = parseSkipTurn(response);
         if (skipReason) {
           agentSkipped = true;
@@ -348,7 +354,7 @@ export async function runDiscussionLoop(
           round,
           error: err.message
         });
-        response = cleanAgentUserContent(`[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${err.message}`, dirPath);
+        response = cleanAgentUserContent(`[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${err.message}`, sourceRoot);
       }
 
       const msg: DiscussionMessage = {

@@ -35,7 +35,7 @@ export async function listWorkspaceFiles(projectRoot: string): Promise<Workspace
 
     for (const entry of entries) {
       if (files.length >= WORKSPACE_FILE_LIMIT) return;
-      if (entry.name.startsWith('.') && entry.name !== ROOM_DIR) continue;
+      if (entry.name.startsWith('.')) continue;
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRS.has(entry.name)) continue;
 
       const fullPath = resolveWithinProject(root, path.relative(root, path.join(currentDir, entry.name)));

@@ -2,8 +2,7 @@ import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
 import { detectLocalAgents, validateAgentConfig as validateEngineAgentConfig, assertLocalCliExecutionAllowed, type AgentConfig } from '@room/engine';
 import {
-  ROOM_DIR,
-  requireBoundProjectRoot, resolveWithinProject,
+  requireBoundProjectRoot, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeAgentFileName, readTextFileWithLimit,
   extractMarkdownHeading,
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -27,7 +26,7 @@ async function readSkillPreview(projectRoot: string, filename: string): Promise<
   }
 
   for (const source of ['skills', 'roles'] as const) {
-    const candidate = resolveWithinProject(projectRoot, ROOM_DIR, source, safeFilename);
+    const candidate = resolveWithinRoomData(projectRoot, source, safeFilename);
     try {
       const content = await readTextFileWithLimit(candidate, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES);
       return {
@@ -40,7 +39,7 @@ async function readSkillPreview(projectRoot: string, filename: string): Promise<
     } catch {}
   }
 
-  return { filename: safeFilename, readable: false, error: 'Skill file was not found in .room/skills or legacy .room/roles.' };
+  return { filename: safeFilename, readable: false, error: 'Skill file was not found in this ROOM Home workspace.' };
 }
 
 function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat?: string): string {
@@ -74,12 +73,12 @@ function getLegacyMemberFileCandidates(projectRoot: string, name: string): strin
 
   const lowerName = normalizedName.toLowerCase();
   const candidates = new Set<string>([
-    resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${sanitizeAgentFileName(normalizedName) || 'agent'}.json`),
-    resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${encodeURIComponent(lowerName)}.json`)
+    resolveWithinRoomData(projectRoot, 'members', `${sanitizeAgentFileName(normalizedName) || 'agent'}.json`),
+    resolveWithinRoomData(projectRoot, 'members', `${encodeURIComponent(lowerName)}.json`)
   ]);
 
   if (!/[\\/]/.test(normalizedName)) {
-    candidates.add(resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${lowerName}.json`));
+    candidates.add(resolveWithinRoomData(projectRoot, 'members', `${lowerName}.json`));
   }
 
   return [...candidates];
@@ -95,7 +94,7 @@ async function cleanupLegacyMemberFiles(
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .map((value) => value.trim().toLowerCase())
   );
-  const idFilePath = resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${persistedAgent.id}.json`);
+  const idFilePath = resolveWithinRoomData(projectRoot, 'members', `${persistedAgent.id}.json`);
   const candidatePaths = [
     ...getLegacyMemberFileCandidates(projectRoot, persistedAgent.name),
     ...(previousName ? getLegacyMemberFileCandidates(projectRoot, previousName) : [])
@@ -124,7 +123,7 @@ export function registerAgentsIpc(): void {
   ipcMain.handle('save-agent', async (event, { dirPath, agent }: { dirPath: string; agent: unknown }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const agentsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'members');
+      const agentsDir = resolveWithinRoomData(projectRoot, 'members');
       const previousName = typeof (agent as { previousName?: unknown })?.previousName === 'string'
         ? (agent as { previousName?: string }).previousName?.trim() || undefined
         : undefined;
@@ -167,14 +166,14 @@ export function registerAgentsIpc(): void {
       const projectRoot = requireBoundProjectRoot(dirPath);
       const filePaths: string[] = [];
       if (typeof memberId === 'string' && /^mem_[a-z0-9][a-z0-9_-]{2,80}$/.test(memberId)) {
-        filePaths.push(resolveWithinProject(projectRoot, ROOM_DIR, 'members', `${memberId}.json`));
+        filePaths.push(resolveWithinRoomData(projectRoot, 'members', `${memberId}.json`));
       }
       if (agentName) {
         const safeAgentName = sanitizeFileName(agentName.toLowerCase(), 'agent');
         const filename = `${safeAgentName.replace(/[^a-z0-9_-]/g, '-')}.json`;
         filePaths.push(
-          resolveWithinProject(projectRoot, ROOM_DIR, 'members', filename),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'agents', filename)
+          resolveWithinRoomData(projectRoot, 'members', filename),
+          resolveWithinRoomData(projectRoot, 'agents', filename)
         );
       }
 

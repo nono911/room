@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PromptHistoryMessage } from './contextCompiler.js';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export type ContextSummarySource = 'discussion' | 'coding-task';
 
@@ -17,7 +18,8 @@ export interface ContextSummaryCache {
 }
 
 export interface ContextSummaryCacheInput {
-  dirPath: string;
+  workspace?: WorkspaceInput;
+  dirPath?: string;
   source: ContextSummarySource;
   contextId: string;
 }
@@ -32,7 +34,11 @@ export function validateContextSummaryId(source: ContextSummarySource, contextId
 export function contextSummaryCachePath(input: ContextSummaryCacheInput): string {
   validateContextSummaryId(input.source, input.contextId);
   const dirname = input.source === 'discussion' ? 'discussions' : 'tasks';
-  return path.join(input.dirPath, '.room', dirname, `${input.contextId}.context-summary.json`);
+  const workspace = input.workspace ?? input.dirPath;
+  if (!workspace) {
+    throw new Error('Workspace location is required for context summary cache.');
+  }
+  return resolveRoomPath(workspace, dirname, `${input.contextId}.context-summary.json`);
 }
 
 export async function readContextSummaryCache(input: ContextSummaryCacheInput): Promise<ContextSummaryCache | null> {

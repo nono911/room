@@ -6,14 +6,16 @@ import type {
   MaskedProvider,
   TaskBoardCard,
   DiscussionIpcEvent,
-  MemberTeam
+  MemberTeam,
+  RoomWorkspaceSummary
 } from '../types/domain.js';
 
 export interface ElectronAPI {
-  selectProjectDir: () => Promise<{ path: string; isRoomProject: boolean } | null>;
-  openProjectDir: (dirPath: string) => Promise<{ path: string; isRoomProject: boolean } | null>;
-  createWorkspace: (workspaceName: string) => Promise<{ success: boolean; path?: string; isRoomProject?: boolean; error?: string } | null>;
-  roomInit: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
+  selectProjectDir: () => Promise<{ path: string; isRoomProject: boolean; hasLegacyRoom?: boolean; workspaceId?: string; workspaceName?: string } | null>;
+  openProjectDir: (dirPath: string) => Promise<{ path: string; isRoomProject: boolean; hasLegacyRoom?: boolean; workspaceId?: string; workspaceName?: string } | null>;
+  listRoomWorkspaces: () => Promise<{ success: boolean; workspaces?: RoomWorkspaceSummary[]; error?: string }>;
+  createWorkspace: (workspaceName: string) => Promise<{ success: boolean; path?: string; isRoomProject?: boolean; workspaceId?: string; workspaceName?: string; importedLegacy?: boolean; error?: string } | null>;
+  roomInit: (dirPath: string) => Promise<{ success: boolean; workspaceId?: string; workspaceName?: string; importedLegacy?: boolean; error?: string }>;
   getProjectData: (dirPath: string) => Promise<{
     success: boolean;
     projectMd: string;

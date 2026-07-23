@@ -2,8 +2,8 @@ import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
 import { DiscussionEngine, loadAgents, loadTaskBoard, validateAgentConfig, type AgentConfig } from '@room/engine';
 import {
-  ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
-  requireBoundProjectRoot, resolveWithinProject,
+  DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
+  requireBoundProjectRoot, requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile
 } from './shared.js';
 import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
@@ -52,23 +52,26 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
       } else if (ref.startsWith('file:')) {
         const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
         label = `Workspace File: ${relPath}`;
+        const selectedPath = relPath.startsWith('.room/')
+          ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
+          : resolveWithinProject(projectRoot, relPath);
         content = await readTextFileWithLimitLocal(
-          resolveWithinProject(projectRoot, relPath),
+          selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
         );
       } else if (ref.startsWith('document:')) {
         const filename = sanitizeFileName(ref.slice('document:'.length));
         label = `Document: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'documents', filename),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'reviews', filename),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'decisions', filename)
+          resolveWithinRoomData(projectRoot, 'documents', filename),
+          resolveWithinRoomData(projectRoot, 'reviews', filename),
+          resolveWithinRoomData(projectRoot, 'decisions', filename)
         ]);
       } else if (ref.startsWith('task:')) {
         const filename = sanitizeFileName(ref.slice('task:'.length));
         label = `Task: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'tasks', filename)
+          resolveWithinRoomData(projectRoot, 'tasks', filename)
         ]);
       } else if (ref.startsWith('discussion:')) {
         const filename = sanitizeFileName(ref.slice('discussion:'.length));
@@ -77,7 +80,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         }
         label = `Previous Discussion: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'discussions', filename)
+          resolveWithinRoomData(projectRoot, 'discussions', filename)
         ]);
       }
     } catch (error: any) {
@@ -118,10 +121,11 @@ export function registerTasksIpc(): void {
 
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
+      const workspace = requireBoundWorkspace(dirPath);
+      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
       const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
-      const agents = [...safeTemporaryAgents, ...await loadAgents(projectRoot)];
+      const agents = [...safeTemporaryAgents, ...await loadAgents(workspace)];
       const doer = doerName
         ? agents.find(agent => agent.name.toLowerCase() === doerName.toLowerCase())
         : agents.find(agent => {
@@ -168,7 +172,8 @@ export function registerTasksIpc(): void {
   ipcMain.handle('load-task-board', async (event, { dirPath }: { dirPath: string }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const board = await loadTaskBoard(projectRoot);
+      const workspace = requireBoundWorkspace(dirPath);
+      const board = await loadTaskBoard(workspace);
       return { success: true, cards: board.cards };
     } catch (error: any) {
       return { success: false, error: error.message };

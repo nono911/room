@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export interface RoomEventEndpoint {
   type: string;
@@ -45,16 +46,16 @@ async function ensureEventsDir(eventsPath: string): Promise<void> {
   ensuredDirs.add(dir);
 }
 
-export async function appendRoomEvents(dirPath: string, inputs: NewRoomEvent[]): Promise<RoomEvent[]> {
+export async function appendRoomEvents(workspace: WorkspaceInput, inputs: NewRoomEvent[]): Promise<RoomEvent[]> {
   if (inputs.length === 0) return [];
   const events = inputs.map(createRoomEvent);
-  const eventsPath = path.join(dirPath, '.room', 'events.jsonl');
+  const eventsPath = resolveRoomPath(workspace, 'events.jsonl');
   await ensureEventsDir(eventsPath);
   await fs.appendFile(eventsPath, `${events.map(event => JSON.stringify(event)).join('\n')}\n`, 'utf-8');
   return events;
 }
 
-export async function appendRoomEvent(dirPath: string, input: NewRoomEvent): Promise<RoomEvent> {
-  const [event] = await appendRoomEvents(dirPath, [input]);
+export async function appendRoomEvent(workspace: WorkspaceInput, input: NewRoomEvent): Promise<RoomEvent> {
+  const [event] = await appendRoomEvents(workspace, [input]);
   return event;
 }

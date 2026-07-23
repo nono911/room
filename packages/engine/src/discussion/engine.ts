@@ -4,7 +4,6 @@ import { LocalCliProvider } from '../providers/localCli.js';
 import { Provider } from '../providers/provider.js';
 import { resolveApiProvider, type ProviderEntry } from '../providers/index.js';
 import { appendRoomEvents, type NewRoomEvent } from '../events/eventLog.js';
-import * as path from 'path';
 import * as fs from 'fs/promises';
 import { runDiscussionLoop, type DiscussionRunOptions } from './discussionRunner.js';
 import { summarizeDiscussionLoop } from './contextBuilder.js';
@@ -15,6 +14,12 @@ import { type QualityGateResult } from './approvalDetector.js';
 import type { MessageReference } from './references.js';
 import { type TaskCard } from './taskBoard.js';
 import { type ActionExecutionResult } from './actionExecutor.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput,
+  type WorkspaceLocation
+} from '../workspace.js';
 
 export interface DiscussionEngineOptions {
   providerRegistry?: ProviderEntry[];
@@ -22,10 +27,14 @@ export interface DiscussionEngineOptions {
 
 export class DiscussionEngine {
   readonly dirPath: string;
+  readonly roomRoot: string;
+  readonly workspace: WorkspaceLocation;
   private readonly providerRegistry?: ProviderEntry[];
 
-  constructor(dirPath: string, options: DiscussionEngineOptions = {}) {
-    this.dirPath = dirPath;
+  constructor(workspace: WorkspaceInput, options: DiscussionEngineOptions = {}) {
+    this.workspace = resolveWorkspaceLocation(workspace);
+    this.dirPath = this.workspace.sourceRoot;
+    this.roomRoot = this.workspace.roomRoot;
     this.providerRegistry = options.providerRegistry;
   }
 
@@ -36,6 +45,7 @@ export class DiscussionEngine {
         cliPreset: agent.cliPreset,
         stdinFormat: agent.stdinFormat,
         cwd: this.dirPath,
+        roomRoot: this.roomRoot,
         modelName: agent.modelName,
         permissionMode: agent.permissionMode || 'safe'
       });
@@ -63,7 +73,7 @@ export class DiscussionEngine {
 
   async isDangerousLocalCliAllowed(): Promise<boolean> {
     try {
-      const configPath = path.join(this.dirPath, '.room', 'config.json');
+      const configPath = resolveRoomPath(this.workspace, 'config.json');
       const parsed = JSON.parse(await fs.readFile(configPath, 'utf-8')) as { allowDangerousCli?: unknown };
       return parsed.allowDangerousCli === true;
     } catch {
@@ -78,7 +88,7 @@ export class DiscussionEngine {
   async appendEvents(inputs: NewRoomEvent[]): Promise<void> {
     if (inputs.length === 0) return;
     try {
-      await appendRoomEvents(this.dirPath, inputs);
+      await appendRoomEvents(this.workspace, inputs);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[Discussion Engine] Failed to append event(s) ${inputs.map(input => input.type).join(', ')}: ${message}`);
@@ -140,7 +150,7 @@ export class DiscussionEngine {
     options: DiscussionRunOptions = {}
   ): Promise<DiscussionLog> {
     return runDiscussionLoop(
-      this.dirPath,
+      this.workspace,
       discussionId,
       title,
       topic,
@@ -165,7 +175,7 @@ export class DiscussionEngine {
     options: CodingTaskRunOptions = {}
   ): Promise<CodingTaskResult> {
     return runCodingTaskLoop(
-      this.dirPath,
+      this.workspace,
       taskId,
       title,
       task,
@@ -211,7 +221,7 @@ export class DiscussionEngine {
     moderatorName?: string
   ): Promise<QualityGateResult> {
     return evaluateDiscussionLoop(
-      this.dirPath,
+      this.workspace,
       discussionId,
       moderatorName,
       this.getProvider.bind(this),
@@ -227,7 +237,7 @@ export class DiscussionEngine {
     summaryAgentOverride?: AgentConfig
   ): Promise<{ filename: string; content: string }> {
     return summarizeDiscussionLoop(
-      this.dirPath,
+      this.workspace,
       discussionId,
       agentNames,
       summaryAgentOverride,
@@ -242,7 +252,7 @@ export class DiscussionEngine {
     moderatorName?: string
   ): Promise<{ createdTaskCards: TaskCard[]; errors: string[] }> {
     return generateTasksFromDiscussionLoop(
-      this.dirPath,
+      this.workspace,
       discussionId,
       moderatorName,
       this.getProvider.bind(this),

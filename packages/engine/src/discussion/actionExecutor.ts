@@ -1,6 +1,7 @@
 import { ModeratorAction, CreateTaskAction } from './actions.js';
 import { addTaskCards, TaskCard } from './taskBoard.js';
 import { createNewADR } from '../decisions/adr.js';
+import type { WorkspaceInput } from '../workspace.js';
 
 export interface ActionExecutionResult {
   control: 'continue' | 'stop' | null;
@@ -11,7 +12,7 @@ export interface ActionExecutionResult {
 }
 
 export async function executeModeratorActions(
-  dirPath: string,
+  workspace: WorkspaceInput,
   actions: ModeratorAction[],
   sourceDiscussionId?: string
 ): Promise<ActionExecutionResult> {
@@ -36,7 +37,7 @@ export async function executeModeratorActions(
   if (taskActions.length > 0) {
     try {
       result.createdTaskCards = await addTaskCards(
-        dirPath,
+        workspace,
         taskActions.map(action => ({
           title: action.title,
           kind: action.kind,
@@ -54,7 +55,7 @@ export async function executeModeratorActions(
   for (const action of actions) {
     if (action.action !== 'create_adr') continue;
     try {
-      const { id, filename, created } = await createNewADR(dirPath, action.title, { context: action.context, decision: action.decision });
+      const { id, filename, created } = await createNewADR(workspace, action.title, { context: action.context, decision: action.decision });
       if (created) {
         result.createdAdrs.push({ id, filename });
       }

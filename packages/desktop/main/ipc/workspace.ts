@@ -1,10 +1,25 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { scanDirectory, writeScanData, loadAgents, LocalCliProvider, normalizeLocalCliModelName, detectLocalAgents, normalizeProviderId } from '@room/engine';
+import {
+  createRoomWorkspace,
+  findRoomWorkspaceBySource,
+  initializeRoomData,
+  listRoomWorkspaces,
+  scanDirectory,
+  writeScanData,
+  loadAgents,
+  LocalCliProvider,
+  normalizeLocalCliModelName,
+  detectLocalAgents,
+  normalizeProviderId,
+  toWorkspaceLocation,
+  touchRoomWorkspace
+} from '@room/engine';
 import {
   ROOM_DIR, SUPPORTED_LOCAL_CLI_PRESETS_SET, WORKSPACE_FILE_LIMIT, WORKSPACE_FILE_READ_LIMIT_BYTES,
-  resolveProjectPath, bindCurrentProjectRoot, requireBoundProjectRoot, resolveWithinProject,
+  resolveProjectPath, bindCurrentProjectRoot, bindCurrentWorkspace, requireBoundProjectRoot,
+  requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, safeReadDir, readFirstExistingFile,
   readMergedDirs
 } from './shared.js';
@@ -26,42 +41,32 @@ function sanitizeWorkspaceFolderName(input: string): string {
   return safeName;
 }
 
-async function initializeRoomWorkspace(projectRoot: string): Promise<void> {
-  const roomDir = resolveWithinProject(projectRoot, ROOM_DIR);
-  await fs.mkdir(roomDir, { recursive: true });
-
-  const subdirs = [
-    'tasks',
-    'discussions',
-    'documents',
-    'skills',
-    'members',
-    'context'
-  ];
-
-  for (const dir of subdirs) {
-    await fs.mkdir(resolveWithinProject(roomDir, dir), { recursive: true });
+async function openWorkspaceSource(sourcePath: string) {
+  const projectRoot = resolveProjectPath(sourcePath);
+  const existing = await findRoomWorkspaceBySource(projectRoot);
+  if (existing) {
+    const record = await touchRoomWorkspace(existing);
+    const workspace = toWorkspaceLocation(record);
+    bindCurrentWorkspace(workspace);
+    return {
+      path: workspace.sourceRoot,
+      isRoomProject: true,
+      hasLegacyRoom: false,
+      workspaceId: record.manifest.id,
+      workspaceName: record.manifest.name
+    };
   }
 
-  const projectMdPath = resolveWithinProject(roomDir, 'context', 'overview.md');
-  const projectMdExists = await fs.stat(projectMdPath).then(() => true).catch(() => false);
-  if (!projectMdExists) {
-    await fs.writeFile(
-      projectMdPath,
-      `# Workspace Name\n\n## Overview\nDescribe what this workspace is for.\n\n## Goals\n- \n\n## Source Material\n- \n\n## Open Questions\n- \n`,
-      'utf-8'
-    );
-  }
-
-  const structureMdPath = resolveWithinProject(roomDir, 'context', 'structure.md');
-  const structureMdExists = await fs.stat(structureMdPath).then(() => true).catch(() => false);
-  if (!structureMdExists) {
-    await fs.writeFile(
-      structureMdPath,
-      `# Workspace Structure\n\n## Overview\nDescribe the important parts of this workspace and how they relate to each other.\n\n## Key Areas\n- \n`,
-      'utf-8'
-    );
-  }
+  bindCurrentProjectRoot(projectRoot);
+  const legacyRoomPath = resolveWithinProject(projectRoot, ROOM_DIR);
+  const hasLegacyRoom = await fs.stat(legacyRoomPath)
+    .then(stat => stat.isDirectory())
+    .catch(() => false);
+  return {
+    path: projectRoot,
+    isRoomProject: false,
+    hasLegacyRoom
+  };
 }
 
 function dedupeDiscussionSummaryFiles(files: string[]): string[] {
@@ -116,40 +121,24 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
       return null;
     }
 
-    const selectedPath = bindCurrentProjectRoot(result.filePaths[0]);
-    const roomPath = resolveWithinProject(selectedPath, ROOM_DIR);
-    let isRoomProject = false;
-
-    try {
-      const stats = await fs.stat(roomPath);
-      isRoomProject = stats.isDirectory();
-    } catch {
-      isRoomProject = false;
-    }
-
-    return {
-      path: selectedPath,
-      isRoomProject,
-    };
+    return openWorkspaceSource(result.filePaths[0]);
   });
 
   ipcMain.handle('open-project-dir', async (event, dirPath: string) => {
-    const projectRoot = resolveProjectPath(dirPath);
+    return openWorkspaceSource(dirPath);
+  });
 
-    bindCurrentProjectRoot(projectRoot);
-    const roomPath = resolveWithinProject(projectRoot, ROOM_DIR);
-    let isRoomProject = false;
-
-    try {
-      const stats = await fs.stat(roomPath);
-      isRoomProject = stats.isDirectory();
-    } catch {
-      isRoomProject = false;
-    }
-
+  ipcMain.handle('list-room-workspaces', async () => {
+    const records = await listRoomWorkspaces();
     return {
-      path: projectRoot,
-      isRoomProject,
+      success: true,
+      workspaces: records.map(record => ({
+        id: record.manifest.id,
+        name: record.manifest.name,
+        sourcePath: record.manifest.sources[0]?.path || '',
+        lastOpenedAt: record.manifest.lastOpenedAt,
+        importedLegacy: !!record.manifest.legacyImport
+      })).filter(workspace => workspace.sourcePath)
     };
   });
 
@@ -158,32 +147,31 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     if (!mainWindow) return null;
     try {
       const safeWorkspaceName = sanitizeWorkspaceFolderName(workspaceName);
-      const { app } = await import('electron');
-      const result = await dialog.showSaveDialog(mainWindow, {
-        title: 'Create ROOM workspace',
-        defaultPath: path.join(app.getPath('documents'), safeWorkspaceName),
-        buttonLabel: 'Create Workspace',
-        properties: ['createDirectory']
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Attach a source folder to this ROOM workspace',
+        buttonLabel: 'Attach Source',
+        properties: ['openDirectory']
       });
 
-      if (result.canceled || !result.filePath) {
+      if (result.canceled || result.filePaths.length === 0) {
         return null;
       }
 
-      const projectRoot = resolveProjectPath(result.filePath);
-      const existing = await fs.stat(projectRoot).then(() => true).catch(() => false);
-      if (existing) {
-        return { success: false, error: 'A folder with this workspace name already exists.' };
-      }
-
-      await fs.mkdir(projectRoot, { recursive: true });
-      await initializeRoomWorkspace(projectRoot);
-      bindCurrentProjectRoot(projectRoot);
+      const projectRoot = resolveProjectPath(result.filePaths[0]);
+      const { record } = await createRoomWorkspace({
+        sourceRoot: projectRoot,
+        name: safeWorkspaceName,
+        importLegacy: true
+      });
+      bindCurrentWorkspace(toWorkspaceLocation(record));
 
       return {
         success: true,
         path: projectRoot,
-        isRoomProject: true
+        isRoomProject: true,
+        workspaceId: record.manifest.id,
+        workspaceName: record.manifest.name,
+        importedLegacy: !!record.manifest.legacyImport
       };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -193,8 +181,18 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
   ipcMain.handle('room-init', async (event, dirPath: string) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      await initializeRoomWorkspace(projectRoot);
-      return { success: true };
+      const { record } = await createRoomWorkspace({
+        sourceRoot: projectRoot,
+        importLegacy: true
+      });
+      await initializeRoomData(record.roomRoot);
+      bindCurrentWorkspace(toWorkspaceLocation(record));
+      return {
+        success: true,
+        workspaceId: record.manifest.id,
+        workspaceName: record.manifest.name,
+        importedLegacy: !!record.manifest.legacyImport
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -203,7 +201,8 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
   ipcMain.handle('get-project-data', async (event, dirPath: string) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const roomDir = resolveWithinProject(projectRoot, ROOM_DIR);
+      const workspace = requireBoundWorkspace(dirPath);
+      const roomDir = workspace.roomRoot;
       const projectMd = await readFirstExistingFile([
         resolveWithinProject(roomDir, 'context', 'overview.md'),
         resolveWithinProject(roomDir, 'workspace.md'),
@@ -264,7 +263,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         .filter(file => file.toLowerCase().endsWith('.md'));
       const documents = dedupeDiscussionSummaryFiles(await readMergedDirs([documentsDir, reviewsDir, decisionsDir]));
       const skills = await readMergedDirs([skillsDir, rolesDir]);
-      const agents = await loadAgents(projectRoot);
+      const agents = await loadAgents(workspace);
       const teamLoadResult = await loadTeamsWithDiagnostics(projectRoot);
       const providers = await readProvidersFromDisk();
       const detectedClis = await detectLocalAgents();
@@ -389,7 +388,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         if (stat.isDirectory()) {
           const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
           const preview = entries
-            .filter(entry => !entry.name.startsWith('.') || entry.name === ROOM_DIR)
+            .filter(entry => !entry.name.startsWith('.'))
             .slice(0, 200)
             .map(entry => `${entry.isDirectory() ? '[dir]' : '[file]'} ${entry.name}`)
             .join('\n');
@@ -419,8 +418,9 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     try {
       await applyApiKeysToEnvironment();
       const projectRoot = requireBoundProjectRoot(dirPath);
+      const workspace = requireBoundWorkspace(dirPath);
       const scanResult = await scanDirectory(projectRoot);
-      await writeScanData(projectRoot, scanResult);
+      await writeScanData(workspace, scanResult);
       const projectConfig = await readProjectConfigFromDisk(projectRoot);
       const dangerModeAllowed = !!allowDangerousCli && projectConfig.allowDangerousCli;
 
@@ -430,6 +430,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         const provider = new LocalCliProvider({
           cliPreset: safeMainAgent as any,
           cwd: projectRoot,
+          roomRoot: workspace.roomRoot,
           modelName: normalizeLocalCliModelName(modelName),
           permissionMode: dangerModeAllowed ? 'dangerous' : 'safe'
         });
@@ -440,7 +441,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         const aiSummary = await provider.execute(prompt, 'You are the principal codebase scanner. Analyze the repository files and write a detailed project overview. Do not force a default language; follow the language used by the workspace content.');
 
         if (aiSummary && aiSummary.trim()) {
-          const projectMdPath = resolveWithinProject(projectRoot, ROOM_DIR, 'context', 'overview.md');
+          const projectMdPath = resolveWithinRoomData(projectRoot, 'context', 'overview.md');
           await fs.mkdir(path.dirname(projectMdPath), { recursive: true });
           await fs.writeFile(projectMdPath, aiSummary, 'utf-8');
           console.log(`[Main Agent Scan] Successfully enriched context/overview.md using AI scan.`);

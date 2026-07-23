@@ -59,7 +59,7 @@ export const DecisionsScreen: React.FC<DecisionsScreenProps> = ({
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', minHeight: '520px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Legacy decision records from <code>.room/decisions/</code>.
+          Decision records stored in this ROOM Home workspace.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {decisions.length === 0 ? (

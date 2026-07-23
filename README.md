@@ -17,7 +17,7 @@ Every project deserves its own room and its own AI team.
 
 ROOM is a collaborative workspace where humans and AI specialists work together around shared context, discussions, tasks, documents, and decisions. It is built as a TypeScript monorepo with an Electron desktop app and a reusable CLI engine.
 
-The main workflow is local-first: open any project workspace, initialize `.room/`, add AI members from reusable roles or custom persona instructions, then let them discuss ideas, plans, scripts, research questions, implementation work, and decisions against the shared workspace context.
+The main workflow is local-first: create a workspace in `~/.room`, attach a source folder, add AI members from reusable roles or custom persona instructions, then let them discuss ideas, plans, scripts, research questions, implementation work, and decisions against shared workspace context.
 
 ## Open Source, Open Design
 
@@ -31,7 +31,7 @@ ROOM should be easy to fork for different domains: software, film, research, edu
 
 ROOM is in early active development. The core desktop workflow works, but APIs, workspace file formats, packaged builds, and role templates may still change as the product matures.
 
-Use it today if you are comfortable with local-first tools and occasional rough edges. Treat `.room/` as workspace data that should be reviewed before committing to another repository.
+Use it today if you are comfortable with local-first tools and occasional rough edges. ROOM data is machine-local under `~/.room`; attached source repositories remain free of ROOM-managed files.
 
 ## What Changed Recently
 
@@ -55,16 +55,16 @@ npm run install:all
 npm run dev:desktop
 ```
 
-Then open a workspace folder in the app, initialize `.room/`, create or choose an AI team, and start a discussion. AI providers (built-in Gemini/Claude/OpenAI plus any OpenAI-compatible endpoint) are configured in `Settings`; Local CLI members such as `claude`, `codex`, or `gemini` work without API keys if the CLI is installed and authenticated on your machine.
+Then create a ROOM workspace, attach a source folder, create or choose an AI team, and start a discussion. Existing `<source>/.room` workspaces can be imported without deleting or modifying the legacy data. AI providers (built-in Gemini/Claude/OpenAI plus any OpenAI-compatible endpoint) are configured in `Settings`; Local CLI members such as `claude`, `codex`, or `gemini` work without API keys if the CLI is installed and authenticated on your machine.
 
 ## How ROOM Works
 
-ROOM treats a project folder as a shared working room. The source files stay where they are, while ROOM keeps collaboration memory in a local `.room/` directory next to the project.
+ROOM owns workspaces and workspaces attach sources. Source files stay where they are, while ROOM keeps collaboration memory under `~/.room/workspaces/<workspace-id>/`.
 
 The basic loop is:
 
 ```text
-Workspace files + .room memory
+Attached source files + ROOM Home memory
   -> selected context
   -> AI members with role instructions
   -> discussion or task workflow
@@ -73,8 +73,8 @@ Workspace files + .room memory
 
 ROOM does not rely on one giant chat forever. It separates persistent memory from prompt context:
 
-- Raw logs are saved on disk under `.room/discussions/` and `.room/tasks/`.
-- Workspace context is kept in `.room/context/` and refreshed by the repository scanner.
+- Raw logs are saved in the workspace's `discussions/` and `tasks/` directories under ROOM Home.
+- Workspace context is kept in the workspace's `context/` directory and refreshed by the repository scanner.
 - AI members have provider settings, model choices, persona prompts, and optional skills.
 - Each agent turn receives a compiled context window instead of blindly replaying every prior message.
 - Older omitted messages can be summarized into a sidecar cache and reused in later turns when a non-local summarizer is available.
@@ -94,7 +94,7 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 ## Features
 
 - Desktop workspace UI built with Electron, React, and Vite.
-- `.room/` workspace memory for context, tasks, discussions, documents, roles, AI members, MCP config, and workspace settings.
+- `~/.room/workspaces/<workspace-id>/` memory for context, tasks, discussions, documents, roles, AI members, MCP config, and workspace settings.
 - Workspace file browser for previewing files inside the selected workspace.
 - Team-first AI member management: recommended team recipes, custom teams, member generation, reorderable team membership, and stable member ids.
 - Multi-agent Discussions with near-realtime sequential streaming.
@@ -106,14 +106,14 @@ ROOM is useful when a project needs shared context and multiple perspectives ove
 - Review loop mode where reviewer-style agents keep findings open until they can approve with `APPROVAL_STATUS: APPROVED`.
 - Quality Gate mode where a moderator-style AI member can decide whether a discussion passes or needs another focused round, and can record agreed outcomes as task cards and ADRs.
 - Stable message IDs and reference tracing: each AI member records which prior messages shaped its answer, resolved against the exact prompt it saw.
-- Append-only event log (`.room/events.jsonl`) recording message, reference, task, ADR, and artifact creation for provenance and future analytics.
+- Append-only workspace event log (`events.jsonl`) recording message, reference, task, ADR, and artifact creation for provenance and future analytics.
 - Task Run workflow for assigning real work to a Doer, sending it through Reviewer/Lead approval, and looping back when changes are required.
 - Task artifacts saved separately from transcripts, so the final deliverable is easy to find without reading the full chat log.
 - AI member templates and team presets for software, film/story, research, writing, business planning, and design work.
 - Provider registry: built-in Gemini / Claude (Anthropic) / OpenAI plus any OpenAI-compatible endpoint (Groq, OpenRouter, Mistral, DeepSeek, xAI, Together, Ollama, LM Studio, or custom base URLs) with per-provider keys, model discovery, and connection tests.
 - Local CLI provider support with safe mode by default and explicit dangerous permission opt-in.
 - Per-discussion `Read-only tools` mode for safe Local CLI members, including prompt-policy switching and CLI-level read-only enforcement for supported presets.
-- Repository scanner that updates `.room/context/overview.md`, `.room/context/structure.md`, and `.room/context/project-map.json`.
+- Repository scanner that updates the workspace's `context/overview.md`, `context/structure.md`, and `context/project-map.json` in ROOM Home.
 - Context, Documents, Tasks, Discussions, Roles, and AI Members screens in the desktop app.
 - Per-workspace MCP server configuration for stdio-based MCP tools.
 
@@ -136,7 +136,7 @@ packages/
     src/impact/            Feature impact analysis
     src/scanner.ts         Repository scanner
     src/cli.ts             CLI entrypoint
-.room/                     ROOM memory for this repository
+~/.room/workspaces/<id>/   ROOM memory outside attached repositories
 ```
 
 ## Architecture
@@ -159,8 +159,8 @@ Current main-process boundaries:
 - `packages/desktop/main/main.ts`: Electron window, app protocol, and IPC registration only.
 - `packages/desktop/main/ipc/*.ts`: feature-oriented IPC modules.
 - `packages/desktop/main/ipc/provider-store.ts`: provider and API key persistence.
-- `packages/desktop/main/ipc/config-store.ts`: `.room/config.json` and `.room/mcp.json` validation/loading.
-- `packages/desktop/main/ipc/team-store.ts` and `teams.ts`: `.room/teams/` persistence, team membership updates, and team-with-members creation.
+- `packages/desktop/main/ipc/config-store.ts`: workspace `config.json` and `mcp.json` validation/loading.
+- `packages/desktop/main/ipc/team-store.ts` and `teams.ts`: workspace team persistence, membership updates, and team-with-members creation.
 - `packages/desktop/main/ipc/workspace-context.ts` and `workspace-files.ts`: context search and workspace file listing helpers.
 
 When adding a desktop feature, prefer this shape:
@@ -227,8 +227,8 @@ npm run build:desktop
 
 ## Desktop Usage
 
-1. Open ROOM and choose a workspace folder.
-2. If the folder has no `.room/`, click `Initialize .room/ directory`.
+1. Open ROOM and create a workspace or choose an attached source folder.
+2. ROOM creates workspace data under `~/.room`; if the source contains legacy `.room/` data, choose `Import into ROOM Home`.
 3. Click `Scan Repository` to update workspace context when the workspace is a codebase.
 4. Go to `AI Members` to start from a recommended team, create a custom team, or manage saved specialists.
 5. Go to `Discussions` when you want AI members to think together, critique ideas, explore options, or make decisions.
@@ -271,9 +271,9 @@ Discussion controls:
 - `Resolve over rounds`: keep cycling through selected AI members for plan/review workflows.
 - `Read-only tools`: let safe-mode Local CLI members inspect workspace files and search the web for this discussion without intentionally granting write access.
 - `Quality Gate`: ask a moderator-style member to decide whether another focused discussion round is needed.
-- `Summarize Chat`: save a durable memory artifact into `.room/documents/`.
+- `Summarize Chat`: save a durable memory artifact into the workspace documents store.
 
-Discussion logs are saved under `.room/discussions/` as both machine-readable JSON and readable Markdown. Every message gets a stable ID (`discussion-12:message-0004`), each AI member records which prior messages it actually used, and message, reference, task, ADR, and artifact creation are appended to `.room/events.jsonl` so outcomes can be traced back to the discussion that produced them.
+Discussion logs are saved under the ROOM Home workspace as both machine-readable JSON and readable Markdown. Every message gets a stable ID (`discussion-12:message-0004`), each AI member records which prior messages it actually used, and message, reference, task, ADR, and artifact creation are appended to the workspace `events.jsonl`.
 
 For long discussions, ROOM compiles a smaller prompt context for each agent turn. It keeps the first user message as an anchor, always keeps the latest user message/current topic, keeps the latest messages in full, and records how many older messages were omitted. When enough omitted context accumulates and a non-local summary-capable member is available, ROOM can save a compact `.context-summary.json` sidecar and reuse it in later prompts.
 
@@ -306,9 +306,9 @@ Task types:
 
 Task Run saves three outputs:
 
-- `.room/tasks/task-xxxx.md`: full transcript and status summary.
-- `.room/tasks/task-xxxx.json`: structured run state.
-- `.room/documents/task-xxxx-artifact.md`: the final work artifact or implementation report.
+- `tasks/task-xxxx.md`: full transcript and status summary in ROOM Home.
+- `tasks/task-xxxx.json`: structured run state.
+- `documents/task-xxxx-artifact.md`: the final work artifact or implementation report.
 
 Like discussions, task runs use compiled context windows. The Doer and Reviewer see the current task, project context, recent task history, and a cached summary of older omitted task messages when available. Current reports and reviewer feedback are not duplicated into the prompt when they already appear in the included task history.
 
@@ -340,8 +340,8 @@ ROOM is local-first, but it can still run powerful tools:
 - `Read-only tools` reduces write risk for supported safe-mode CLI presets, but it can still expose local workspace content to the selected model or web-capable CLI.
 - Custom Local CLI commands are treated as dangerous because they are arbitrary command execution.
 - MCP servers are local processes configured by the workspace and should be reviewed before use.
-- Do not store API keys, credentials, or private machine-specific secrets in committed `.room/` files.
-- Review `.room/config.json`, `.room/mcp.json`, `.room/members/`, and `.room/teams/` before sharing a workspace.
+- Do not store credentials in exported or shared workspace files. Provider keys remain in the app's private machine-local storage.
+- Review workspace `config.json`, `mcp.json`, members, and teams before exporting or sharing a workspace.
 
 ## CLI Usage
 
@@ -350,6 +350,8 @@ Build the engine first:
 ```bash
 npm run build:engine
 ```
+
+ROOM uses `~/.room` by default. Set `ROOM_HOME` when you need an isolated or custom data location, for example `ROOM_HOME=/path/to/room-data`.
 
 Run commands with:
 
@@ -387,11 +389,11 @@ Create an ADR (Architecture Decision Record):
 node packages/engine/dist/bin/room.js adr new "Use Electron for the desktop workspace" --path .
 ```
 
-ADRs are saved under `.room/decisions/` with a stable `id` in their frontmatter. The Quality Gate moderator can also create ADRs and task cards directly from an approved discussion.
+ADRs are saved under the ROOM Home workspace's `decisions/` directory with a stable `id` in their frontmatter. The Quality Gate moderator can also create ADRs and task cards directly from an approved discussion.
 
-## `.room/` Workspace Structure
+## ROOM Home Workspace Structure
 
-ROOM stores workspace-specific context under `.room/`:
+ROOM stores workspace-specific context under `~/.room/workspaces/<workspace-id>/`:
 
 ```text
 Workspace
@@ -407,53 +409,49 @@ Workspace
 On disk this is represented as:
 
 ```text
-.room/
-  context/
-    overview.md
-    structure.md
-    project-map.json
-  tasks/
-    task-xxxx.md
-    task-xxxx.json
-    task-xxxx.context-summary.json
-  discussions/
-    discussion-xxxx.md
-    discussion-xxxx.json
-    discussion-xxxx.context-summary.json
-  documents/
-    task-xxxx-artifact.md
-    discussion-xxxx-summary.md
-  decisions/
-    ADR-001-use-electron.md
-  roles/
-  skills/
-  members/
-  teams/
-  config.json
-  mcp.json
-  events.jsonl
+~/.room/
+  workspaces/
+    ws_<uuid>/
+      workspace.json
+      context/
+        overview.md
+        structure.md
+        project-map.json
+      tasks/
+        task-xxxx.md
+        task-xxxx.json
+        task-xxxx.context-summary.json
+      discussions/
+        discussion-xxxx.md
+        discussion-xxxx.json
+        discussion-xxxx.context-summary.json
+      documents/
+        task-xxxx-artifact.md
+        discussion-xxxx-summary.md
+      decisions/
+        ADR-001-use-electron.md
+      roles/
+      skills/
+      members/
+      teams/
+      config.json
+      mcp.json
+      events.jsonl
 ```
 
 Important files:
 
-- `.room/context/overview.md`: workspace overview shown in `Context`.
-- `.room/context/structure.md`: workspace structure and source-of-truth notes.
-- `.room/tasks/`: task transcripts, structured task state, and follow-up task notes.
-- `.room/discussions/`: discussion logs generated by AI members.
-- `.room/**/*.context-summary.json`: cached summaries of omitted context used to keep long workflows compact.
-- `.room/documents/`: working docs, summaries, and final task artifacts.
-- `.room/decisions/`: Architecture Decision Records with stable frontmatter ids.
-- `.room/events.jsonl`: append-only provenance log of messages, references, tasks, ADRs, and artifacts.
-- `.room/roles/`: reusable role templates and legacy skill files.
-- `.room/skills/`: reusable skill instructions used by AI members.
-- `.room/members/`: saved AI member profiles, prompts, providers, and models.
-- `.room/teams/`: saved team definitions and ordered member ids.
-- `.room/config.json`: scanner agent, model, and permission settings.
-- `.room/mcp.json`: MCP server definitions.
+- `workspace.json`: stable workspace identity, attached source path, timestamps, and legacy import receipt.
+- `context/`: workspace overview, structure, and scanner output.
+- `tasks/` and `discussions/`: structured state, transcripts, and context summary caches.
+- `documents/` and `decisions/`: working artifacts, summaries, and ADRs.
+- `skills/`, `members/`, and `teams/`: workspace-scoped AI configuration.
+- `events.jsonl`: append-only provenance log.
+- `config.json` and `mcp.json`: workspace execution and MCP settings.
 
 ## Configuration Examples
 
-`.room/config.json`:
+Workspace `config.json`:
 
 ```json
 {
@@ -463,7 +461,7 @@ Important files:
 }
 ```
 
-`.room/mcp.json`:
+Workspace `mcp.json`:
 
 ```json
 {
@@ -499,14 +497,14 @@ Before opening a pull request:
    - `npm run build:desktop` for Electron, renderer, or desktop workflow changes.
 3. Add or update tests next to the code you change in `packages/engine/src/` (`*.test.ts`, Vitest).
 4. Include screenshots or recordings for UI changes when possible.
-5. Call out changes that affect `.room/` file formats, the `events.jsonl` schema, Local CLI execution, MCP behavior, or dangerous permissions.
+5. Call out changes that affect ROOM Home workspace formats, legacy `.room/` import compatibility, the `events.jsonl` schema, Local CLI execution, MCP behavior, or dangerous permissions.
 
 Use Conventional Commits (`feat(engine): ...`, `fix(desktop): ...`). See [AGENTS.md](AGENTS.md) for repository conventions, coding style, and structure notes.
 
 ## Roadmap
 
 - Better first-run onboarding and example workspaces.
-- Knowledge graph and trace views derived from the `.room/events.jsonl` provenance log.
+- Knowledge graph and trace views derived from each workspace's `events.jsonl` provenance log.
 - More provider execution tests and smoke coverage for packaged desktop builds.
 - Stronger markdown/document rendering for saved discussions, summaries, and task artifacts.
 - Richer Local CLI model detection, provider-specific execution policies, and future explicit allowlists for safe MCP tools.

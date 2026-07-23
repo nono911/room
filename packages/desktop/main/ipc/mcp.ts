@@ -2,8 +2,7 @@ import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
-  ROOM_DIR,
-  requireBoundProjectRoot, resolveWithinProject
+  requireBoundProjectRoot, resolveWithinRoomData
 } from './shared.js';
 import { readMcpConfigFromDisk, validateMcpConfig } from './config-store.js';
 
@@ -21,7 +20,7 @@ export function registerMcpIpc(): void {
   ipcMain.handle('save-mcp-config', async (event, { dirPath, config }: { dirPath: string; config: any }) => {
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const mcpPath = resolveWithinProject(projectRoot, ROOM_DIR, 'mcp.json');
+      const mcpPath = resolveWithinRoomData(projectRoot, 'mcp.json');
       const validated = validateMcpConfig(config);
       if (!validated.success) {
         return { success: false, error: validated.error };

@@ -4,6 +4,7 @@ import { GeminiProvider } from '../providers/gemini.js';
 import { ClaudeProvider } from '../providers/claude.js';
 import { CodexProvider } from '../providers/codex.js';
 import { Provider } from '../providers/provider.js';
+import { resolveWorkspaceLocation, type WorkspaceInput } from '../workspace.js';
 
 export interface ImpactReport {
   affectedFiles: string[];
@@ -15,10 +16,10 @@ export interface ImpactReport {
 }
 
 export async function analyzeFeatureImpact(
-  dirPath: string,
+  workspace: WorkspaceInput,
   featureDescription: string
 ): Promise<ImpactReport> {
-  const roomDir = path.join(dirPath, '.room');
+  const roomDir = resolveWorkspaceLocation(workspace).roomRoot;
   const readFirstExistingFile = async (paths: string[]) => {
     for (const filePath of paths) {
       try {

@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export interface AdrContentOptions {
   context?: string;
@@ -7,11 +8,11 @@ export interface AdrContentOptions {
 }
 
 export async function createNewADR(
-  dirPath: string,
+  workspace: WorkspaceInput,
   title: string,
   options: AdrContentOptions = {}
 ): Promise<{ id: string; filename: string; created: boolean }> {
-  const decisionsDir = path.join(dirPath, '.room', 'decisions');
+  const decisionsDir = resolveRoomPath(workspace, 'decisions');
   await fs.mkdir(decisionsDir, { recursive: true });
 
   const files = await fs.readdir(decisionsDir);

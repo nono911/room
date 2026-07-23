@@ -5,6 +5,12 @@ import { scanDirectory, writeScanData } from './scanner.js';
 import { analyzeFeatureImpact } from './impact/analyzer.js';
 import { createNewADR } from './decisions/adr.js';
 import { DiscussionEngine } from './discussion/engine.js';
+import {
+  createRoomWorkspace,
+  findRoomWorkspaceBySource,
+  toWorkspaceLocation
+} from './roomHome.js';
+import type { WorkspaceInput } from './workspace.js';
 
 const program = new Command();
 
@@ -13,70 +19,44 @@ program
   .description('ROOM: AI-native Project Workspace Engine')
   .version('1.0.0');
 
+async function resolveCliWorkspace(targetDir: string): Promise<WorkspaceInput> {
+  const central = await findRoomWorkspaceBySource(targetDir);
+  if (central) {
+    return toWorkspaceLocation(central);
+  }
+
+  const legacyRoomRoot = path.join(targetDir, '.room');
+  const hasLegacyWorkspace = await fs.stat(legacyRoomRoot)
+    .then(stat => stat.isDirectory())
+    .catch(() => false);
+  if (hasLegacyWorkspace) {
+    return targetDir;
+  }
+
+  throw new Error('ROOM workspace is not registered. Run "room init" first.');
+}
+
 program
   .command('init')
-  .description('Initialize ROOM Project Memory in the current directory')
-  .option('-p, --path <path>', 'Path to initialize', '.')
+  .description('Create a ROOM Home workspace and attach a source directory')
+  .option('-p, --path <path>', 'Source directory to attach', '.')
+  .option('-n, --name <name>', 'Workspace name')
   .action(async (options) => {
     const targetDir = path.resolve(options.path);
-    const roomDir = path.join(targetDir, '.room');
-
-    console.log(`Initializing ROOM Project Memory at ${roomDir}...`);
+    console.log(`Registering ROOM workspace for ${targetDir}...`);
 
     try {
-      await fs.mkdir(roomDir, { recursive: true });
-
-      const subdirs = [
-        'context',
-        'tasks',
-        'discussions',
-        'documents',
-        'skills',
-        'members'
-      ];
-
-      for (const dir of subdirs) {
-        await fs.mkdir(path.join(roomDir, dir), { recursive: true });
+      const { record, created } = await createRoomWorkspace({
+        sourceRoot: targetDir,
+        name: options.name,
+        importLegacy: true
+      });
+      console.log(created ? 'ROOM workspace created successfully!' : 'ROOM workspace was already registered.');
+      console.log(`ROOM data: ${record.roomRoot}`);
+      console.log(`Source: ${targetDir}`);
+      if (record.manifest.legacyImport) {
+        console.log(`Copied ${record.manifest.legacyImport.fileCount} legacy file(s); the original .room was kept unchanged.`);
       }
-
-      // Create initial project.md
-      const projectMdPath = path.join(roomDir, 'context', 'overview.md');
-      const projectMdContent = `# Workspace Name
-
-## Overview
-Describe what this workspace is for.
-
-## Goals
-- 
-
-## Source Material
-- 
-
-## Open Questions
-- 
-`;
-      const projectMdExists = await fs.stat(projectMdPath).then(() => true).catch(() => false);
-      if (!projectMdExists) {
-        await fs.writeFile(projectMdPath, projectMdContent, 'utf-8');
-      }
-
-      // Create initial architecture/current.md
-      const archMdPath = path.join(roomDir, 'context', 'structure.md');
-      const archMdContent = `# Workspace Structure
-
-## Overview
-Describe the important parts of this workspace and how they relate to each other.
-
-## Key Areas
-- 
-`;
-      const archMdExists = await fs.stat(archMdPath).then(() => true).catch(() => false);
-      if (!archMdExists) {
-        await fs.writeFile(archMdPath, archMdContent, 'utf-8');
-      }
-
-      console.log('ROOM Project Memory initialized successfully!');
-      console.log(`Created structure under .room/`);
     } catch (error: any) {
       console.error('Failed to initialize ROOM:', error.message);
       process.exit(1);
@@ -85,30 +65,27 @@ Describe the important parts of this workspace and how they relate to each other
 
 program
   .command('scan')
-  .description('Scan project files and update .room/ metadata')
+  .description('Scan project files and update ROOM Home metadata')
   .option('-p, --path <path>', 'Path to project directory', '.')
   .action(async (options) => {
     const targetDir = path.resolve(options.path);
-    const roomDir = path.join(targetDir, '.room');
-
     try {
-      const stats = await fs.stat(roomDir);
-      if (!stats.isDirectory()) {
-        throw new Error('ROOM Project Memory is not initialized. Run "room init" first.');
-      }
-    } catch {
-      console.error('Error: ROOM Project Memory is not initialized. Run "room init" first.');
+      await resolveCliWorkspace(targetDir);
+    } catch (error: unknown) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
     }
 
     console.log(`Scanning repository structure at ${targetDir}...`);
     try {
       const result = await scanDirectory(targetDir);
-      await writeScanData(targetDir, result);
+      const workspace = await resolveCliWorkspace(targetDir);
+      await writeScanData(workspace, result);
+      const roomRoot = typeof workspace === 'string' ? path.join(workspace, '.room') : workspace.roomRoot;
       console.log('Project scan completed successfully!');
-      console.log('Updated .room/context/overview.md');
-      console.log('Updated .room/context/structure.md');
-      console.log('Updated .room/context/project-map.json');
+      console.log(`Updated ${path.join(roomRoot, 'context', 'overview.md')}`);
+      console.log(`Updated ${path.join(roomRoot, 'context', 'structure.md')}`);
+      console.log(`Updated ${path.join(roomRoot, 'context', 'project-map.json')}`);
     } catch (error: any) {
       console.error('Scan failed:', error.message);
       process.exit(1);
@@ -122,21 +99,18 @@ program
   .option('-p, --path <path>', 'Path to project directory', '.')
   .action(async (description, options) => {
     const targetDir = path.resolve(options.path);
-    const roomDir = path.join(targetDir, '.room');
-
+    let workspace: WorkspaceInput;
     try {
-      const stats = await fs.stat(roomDir);
-      if (!stats.isDirectory()) {
-        throw new Error('ROOM Project Memory is not initialized. Run "room init" first.');
-      }
-    } catch {
-      console.error('Error: ROOM Project Memory is not initialized. Run "room init" first.');
+      workspace = await resolveCliWorkspace(targetDir);
+    } catch (error: unknown) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
+      return;
     }
 
     console.log(`Analyzing impact of feature: "${description}"...`);
     try {
-      const report = await analyzeFeatureImpact(targetDir, description);
+      const report = await analyzeFeatureImpact(workspace, description);
       console.log('\n=======================================');
       console.log('       FEATURE IMPACT ANALYSIS');
       console.log('=======================================');
@@ -180,11 +154,13 @@ adrCmd
   .action(async (title, options) => {
     const targetDir = path.resolve(options.path);
     try {
-      const { filename, created } = await createNewADR(targetDir, title);
+      const workspace = await resolveCliWorkspace(targetDir);
+      const { filename, created } = await createNewADR(workspace, title);
+      const roomRoot = typeof workspace === 'string' ? path.join(workspace, '.room') : workspace.roomRoot;
       if (created) {
-        console.log(`Created new ADR at .room/decisions/${filename}`);
+        console.log(`Created new ADR at ${path.join(roomRoot, 'decisions', filename)}`);
       } else {
-        console.log(`ADR already exists at .room/decisions/${filename}`);
+        console.log(`ADR already exists at ${path.join(roomRoot, 'decisions', filename)}`);
       }
     } catch (error: any) {
       console.error('Failed to create ADR:', error.message);
@@ -215,7 +191,8 @@ program
     console.log(`Starting ROOM discussion for topic: "${topic}"...`);
     
     try {
-      const engine = new DiscussionEngine(targetDir);
+      const workspace = await resolveCliWorkspace(targetDir);
+      const engine = new DiscussionEngine(workspace);
       const log = await engine.runDiscussion(
         discussionId,
         `Discussion: ${topic.slice(0, 30)}...`,
@@ -228,8 +205,8 @@ program
       console.log('\n=======================================');
       console.log('      ROOM DISCUSSION COMPLETED');
       console.log('=======================================');
-      console.log(`Saved structured log: .room/discussions/${discussionId}.json`);
-      console.log(`Saved transcript: .room/discussions/${discussionId}.md`);
+      console.log(`Saved structured log: ${path.join(engine.roomRoot, 'discussions', `${discussionId}.json`)}`);
+      console.log(`Saved transcript: ${path.join(engine.roomRoot, 'discussions', `${discussionId}.md`)}`);
       console.log(`Review status: ${log.status}`);
       console.log(`Total messages exchanged: ${log.messages.length}`);
       console.log('=======================================\n');

@@ -33,6 +33,11 @@ import {
   WORKSPACE_BOUNDARY_POLICY
 } from './utils.js';
 import type { DiscussionLog } from './types.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
 
 export function globToRegex(pattern: string): RegExp {
   let result = pattern.trim();
@@ -61,7 +66,7 @@ export interface ContextSummaryEvent {
 }
 
 export async function compileContextWithOptionalSummary(
-  dirPath: string,
+  workspace: WorkspaceInput,
   source: ContextSummarySource,
   contextId: string,
   messages: PromptHistoryMessage[],
@@ -81,7 +86,7 @@ export async function compileContextWithOptionalSummary(
     onSummaryEvent?.({ type, contextId, candidateCount: candidateIndexes.length, ...(error ? { error } : {}) });
   };
 
-  const cacheInput = { dirPath, source, contextId };
+  const cacheInput = { workspace, source, contextId };
   const existingCache = await readContextSummaryCache(cacheInput);
   const reuse = checkContextSummaryCacheReuse(existingCache, messages, candidateIndexes);
 
@@ -141,13 +146,13 @@ export function buildBudgetedTranscript(log: DiscussionLog, maxHistoryTokens = 2
 }
 
 export async function buildBudgetedTranscriptWithCache(
-  dirPath: string,
+  workspace: WorkspaceInput,
   source: ContextSummarySource,
   contextId: string,
   log: DiscussionLog,
   maxHistoryTokens = 20000
 ): Promise<string> {
-  const cache = await readContextSummaryCache({ dirPath, source, contextId });
+  const cache = await readContextSummaryCache({ workspace, source, contextId });
   return buildBudgetedTranscript(log, maxHistoryTokens, cache?.summary);
 }
 
@@ -174,14 +179,14 @@ export function composeProjectContext(input: {
 }
 
 export async function loadWorkspaceMemoryContext(
-  dirPath: string,
+  workspace: WorkspaceInput,
   maxTokens = 2500,
   excludeId?: string
 ): Promise<string> {
   const sections: string[] = [];
 
   const adrs = await listMarkdownByMtime(
-    path.join(dirPath, '.room', 'decisions'),
+    resolveRoomPath(workspace, 'decisions'),
     file => /^ADR-/i.test(file),
     3
   );
@@ -190,7 +195,7 @@ export async function loadWorkspaceMemoryContext(
   }
 
   const summaries = await listMarkdownByMtime(
-    path.join(dirPath, '.room', 'documents'),
+    resolveRoomPath(workspace, 'documents'),
     file => file.endsWith('-summary.md') && (!excludeId || !file.includes(excludeId)),
     2
   );
@@ -204,14 +209,14 @@ export async function loadWorkspaceMemoryContext(
 }
 
 export async function buildSkillsContext(
-  dirPath: string,
+  workspace: WorkspaceInput,
   skillFiles: string[],
   maxTokensPerSkill = 1500
 ): Promise<string> {
   const sections: string[] = [];
   for (const skillFile of skillFiles) {
     try {
-      const resolvedSkillPath = await resolveSkillPath(dirPath, skillFile);
+      const resolvedSkillPath = await resolveSkillPath(workspace, skillFile);
       const skillContent = await fs.readFile(resolvedSkillPath, 'utf-8');
       const parsed = parseSkillFrontmatter(skillContent);
       const fitted = trimTextToTokenBudget(parsed.content.trim(), maxTokensPerSkill);
@@ -257,11 +262,11 @@ export async function readFirstExistingFile(paths: string[]): Promise<string> {
 }
 
 export async function autoMatchSkills(
-  dirPath: string,
+  workspace: WorkspaceInput,
   mentionedFilePaths: string[],
   discussionText: string
 ): Promise<string[]> {
-  const skillsDir = path.resolve(dirPath, '.room', 'skills');
+  const skillsDir = resolveRoomPath(workspace, 'skills');
   const matchedSkillFiles: string[] = [];
 
   try {
@@ -318,7 +323,7 @@ export async function autoMatchSkills(
   return matchedSkillFiles;
 }
 
-export async function resolveSkillPath(dirPath: string, skillFile: string): Promise<string> {
+export async function resolveSkillPath(workspace: WorkspaceInput, skillFile: string): Promise<string> {
   const trimmedSkillFile = (skillFile || '').trim();
   if (/[\\/]/.test(trimmedSkillFile)) {
     throw new Error(`Unsafe skill filename: ${skillFile}`);
@@ -330,8 +335,8 @@ export async function resolveSkillPath(dirPath: string, skillFile: string): Prom
   }
 
   const dirs = [
-    path.resolve(dirPath, '.room', 'skills'),
-    path.resolve(dirPath, '.room', 'roles')
+    resolveRoomPath(workspace, 'skills'),
+    resolveRoomPath(workspace, 'roles')
   ];
 
   for (const skillsDir of dirs) {
@@ -380,7 +385,7 @@ To approve, you MUST satisfy:
 }
 
 export async function summarizeDiscussionLoop(
-  dirPath: string,
+  workspace: WorkspaceInput,
   discussionId: string,
   agentNames: string[] = [],
   summaryAgentOverride: AgentConfig | undefined,
@@ -392,10 +397,10 @@ export async function summarizeDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const logPath = path.join(dirPath, '.room', 'discussions', `${discussionId}.json`);
+  const logPath = resolveRoomPath(workspace, 'discussions', `${discussionId}.json`);
   const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
-  const agents = await loadAgents(dirPath);
+  const agents = await loadAgents(workspace);
   const summaryAgent = summaryAgentOverride || agentNames
     .map(name => agents.find((a: AgentConfig) => a.name.toLowerCase() === name.toLowerCase()))
     .find((agent): agent is AgentConfig => !!agent) || agents.find((agent: AgentConfig) => {
@@ -409,7 +414,7 @@ export async function summarizeDiscussionLoop(
 
   await assertAgentExecutionAllowed(summaryAgent);
   const provider = getProvider(summaryAgent);
-  const transcript = await buildBudgetedTranscriptWithCache(dirPath, 'discussion', discussionId, discussionLog);
+  const transcript = await buildBudgetedTranscriptWithCache(workspace, 'discussion', discussionId, discussionLog);
   const prompt = `Summarize this ROOM chat into a durable workspace memory document.
 
 Focus on the useful state that should survive after the raw chat becomes too long.
@@ -417,7 +422,7 @@ Do not merely restate every message.
 Preserve important disagreements, decisions, open questions, options, and next steps.
 Return the Markdown content only. Do not create, save, update, or link to any file yourself.
 Do not mention provider memory, CLI brain folders, or local files outside this workspace.
-ROOM will save your returned Markdown to .room/documents after you respond.
+ROOM will save your returned Markdown to its managed workspace documents store after you respond.
 
 Output clean Markdown with these sections:
 - Summary
@@ -439,13 +444,14 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You are summarizing a collaborative ROOM chat into a compact memory artifact. Use the same natural language as the chat unless the user explicitly asked otherwise.`;
 
-  const summary = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), dirPath);
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const summary = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const titleSource = discussionLog.topic || discussionLog.title || discussionId;
   const filename = `${safeDocumentSlug(titleSource)}-${discussionId}-summary.md`;
   const content = summary.trim().startsWith('#')
     ? summary.trim()
     : `# Chat Summary: ${titleSource}\n\n${summary.trim()}`;
-  const documentsDir = path.join(dirPath, '.room', 'documents');
+  const documentsDir = resolveRoomPath(workspace, 'documents');
   await fs.mkdir(documentsDir, { recursive: true });
   await removeSupersededDiscussionSummaries(documentsDir, discussionId, filename);
   await fs.writeFile(path.join(documentsDir, filename), `${content}\n`, 'utf-8');
@@ -455,7 +461,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     source: { type: 'discussion', id: discussionId },
     target: { type: 'artifact', id: filename },
     data: {
-      path: path.join('.room', 'documents', filename),
+      path: path.join('documents', filename),
       kind: 'summary'
     }
   });

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import type { WorkspaceLocation } from '@room/engine';
 
 export const ROOM_DIR = '.room';
 export const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy'] as const;
@@ -43,7 +44,7 @@ export interface SkillPreviewItem {
   error?: string;
 }
 
-let currentProjectRoot: string | null = null;
+let currentWorkspace: WorkspaceLocation | null = null;
 
 export function resolveProjectPath(dirPath: string): string {
   if (typeof dirPath !== 'string' || !dirPath.trim()) {
@@ -54,16 +55,49 @@ export function resolveProjectPath(dirPath: string): string {
 
 export function bindCurrentProjectRoot(dirPath: string): string {
   const projectRoot = resolveProjectPath(dirPath);
-  currentProjectRoot = projectRoot;
+  currentWorkspace = {
+    sourceRoot: projectRoot,
+    roomRoot: path.join(projectRoot, ROOM_DIR)
+  };
   return projectRoot;
 }
 
-export function requireBoundProjectRoot(dirPath: string): string {
+export function bindCurrentWorkspace(workspace: WorkspaceLocation): WorkspaceLocation {
+  currentWorkspace = {
+    sourceRoot: resolveProjectPath(workspace.sourceRoot),
+    roomRoot: path.resolve(workspace.roomRoot)
+  };
+  return currentWorkspace;
+}
+
+export function requireBoundWorkspace(dirPath: string): WorkspaceLocation {
   const projectRoot = resolveProjectPath(dirPath);
-  if (!currentProjectRoot || projectRoot !== currentProjectRoot) {
-    throw new Error('Project path is not the active workspace.');
+  if (!currentWorkspace || projectRoot !== currentWorkspace.sourceRoot) {
+    throw new Error('Project path is not the active workspace source.');
   }
-  return projectRoot;
+  return { ...currentWorkspace };
+}
+
+export function requireBoundProjectRoot(dirPath: string): string {
+  return requireBoundWorkspace(dirPath).sourceRoot;
+}
+
+export function resolveRoomDataRoot(projectRoot: string): string {
+  const resolvedProjectRoot = resolveProjectPath(projectRoot);
+  if (currentWorkspace?.sourceRoot === resolvedProjectRoot) {
+    return currentWorkspace.roomRoot;
+  }
+  return path.join(resolvedProjectRoot, ROOM_DIR);
+}
+
+export function resolveWithinRoomData(projectRoot: string, ...parts: string[]): string {
+  const roomRoot = resolveRoomDataRoot(projectRoot);
+  const resolved = path.resolve(roomRoot, ...parts);
+  const safeRoot = roomRoot.endsWith(path.sep) ? roomRoot : `${roomRoot}${path.sep}`;
+  if (resolved !== roomRoot && !resolved.startsWith(safeRoot)) {
+    throw new Error('Invalid ROOM data path.');
+  }
+  return resolved;
 }
 
 export function resolveWithinProject(projectRoot: string, ...parts: string[]): string {

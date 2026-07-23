@@ -602,7 +602,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                       <span>{item.readable ? '✓' : '!'}</span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.filename}{item.source ? ` · .room/${item.source}` : ''}
+                          {item.filename}{item.source ? ` · ROOM Home/${item.source}` : ''}
                         </span>
                         <span style={{ display: 'block', color: 'hsl(var(--text-muted))', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {item.readable ? `${item.heading || 'No heading'} · ${formatFileSize(item.bytes || 0)}` : item.error}
@@ -670,8 +670,8 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
                     {editingSkillSource === 'roles'
-                      ? 'Loaded from legacy .room/roles. Saving migrates this skill to .room/skills.'
-                      : 'Saved edits are written to .room/skills and can be assigned immediately.'}
+                      ? 'Loaded from an imported legacy roles folder. Saving moves this skill into the workspace skills store.'
+                      : 'Saved edits are written to the ROOM Home workspace and can be assigned immediately.'}
                   </span>
                   <button
                     type="button"

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { normalizeLocalCliModelName } from './localCliPolicy.js';
 import { PERSONA_TEMPLATES, DEFAULT_MEMBER_NAMES } from './personaTemplates.js';
 import { normalizeProviderId, isValidProviderId } from '../providers/registry.js';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export interface AgentConfig {
   id?: string;
@@ -166,9 +167,9 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   };
 }
 
-export async function loadAgents(dirPath: string): Promise<AgentConfig[]> {
-  const agentsDir = path.join(dirPath, '.room', 'members');
-  const legacyAgentsDir = path.join(dirPath, '.room', 'agents');
+export async function loadAgents(workspace: WorkspaceInput): Promise<AgentConfig[]> {
+  const agentsDir = resolveRoomPath(workspace, 'members');
+  const legacyAgentsDir = resolveRoomPath(workspace, 'agents');
   const agents: AgentConfig[] = [];
 
   const loadFromDir = async (dir: string) => {
@@ -219,21 +220,21 @@ export async function loadAgents(dirPath: string): Promise<AgentConfig[]> {
   return agents;
 }
 
-export async function saveAgent(dirPath: string, agent: AgentConfig): Promise<void> {
+export async function saveAgent(workspace: WorkspaceInput, agent: AgentConfig): Promise<void> {
   const validated = validateAgentConfig(agent);
   if (!validated.success) {
     throw new Error(validated.error);
   }
 
-  const agentsDir = path.join(dirPath, '.room', 'members');
+  const agentsDir = resolveRoomPath(workspace, 'members');
   await fs.mkdir(agentsDir, { recursive: true });
 
   const filePath = await resolveAgentFilePath(agentsDir, validated.agent);
   await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
 }
 
-export async function createDefaultAgents(dirPath: string) {
-  const agentsDir = path.join(dirPath, '.room', 'members');
+export async function createDefaultAgents(workspace: WorkspaceInput) {
+  const agentsDir = resolveRoomPath(workspace, 'members');
   await fs.mkdir(agentsDir, { recursive: true });
 
   const defaults: AgentConfig[] = PERSONA_TEMPLATES

@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { resolveWorkspaceLocation, type WorkspaceInput } from './workspace.js';
 
 export interface ScanResult {
   projectName: string;
@@ -144,8 +145,8 @@ export async function scanDirectory(dirPath: string): Promise<ScanResult> {
   return result;
 }
 
-export async function writeScanData(dirPath: string, scan: ScanResult) {
-  const roomDir = path.join(dirPath, '.room');
+export async function writeScanData(workspace: WorkspaceInput, scan: ScanResult) {
+  const roomDir = resolveWorkspaceLocation(workspace).roomRoot;
   const contextDir = path.join(roomDir, 'context');
   await fs.mkdir(contextDir, { recursive: true });
 

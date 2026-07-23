@@ -156,7 +156,7 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
           </div>
         )}
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Task notes and task run transcripts stored under <code>.room/tasks/</code>.
+          Task notes and task run transcripts stored in this ROOM Home workspace.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {!hasTaskFiles ? (

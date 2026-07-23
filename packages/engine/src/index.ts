@@ -1,4 +1,6 @@
 export { scanDirectory, writeScanData, ScanResult } from './scanner.js';
+export * from './workspace.js';
+export * from './roomHome.js';
 export * from './providers/index.js';
 export * from './agents/registry.js';
 export * from './agents/personaTemplates.js';

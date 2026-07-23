@@ -18,6 +18,7 @@ export interface LocalCliConfig extends ProviderConfig {
   stdinFormat?: 'text' | 'json';
   permissionMode?: LocalCliPermissionMode;
   cwd?: string;
+  roomRoot?: string;
   timeoutMs?: number;
 }
 
@@ -29,6 +30,7 @@ export class LocalCliProvider implements Provider {
   private cliPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'none';
   private stdinFormat: 'text' | 'json';
   private cwd: string;
+  private roomRoot: string;
   private modelName: string;
   private permissionMode: LocalCliPermissionMode;
   private timeoutMs: number;
@@ -38,6 +40,7 @@ export class LocalCliProvider implements Provider {
     this.cliPreset = config.cliPreset || 'none';
     this.stdinFormat = config.stdinFormat || 'text';
     this.cwd = config.cwd || process.cwd();
+    this.roomRoot = config.roomRoot || path.join(this.cwd, '.room');
     this.modelName = normalizeLocalCliModelName(config.modelName) || '';
     this.permissionMode = config.permissionMode || 'safe';
     this.timeoutMs = config.timeoutMs || DEFAULT_LOCAL_CLI_TIMEOUT_MS;
@@ -99,7 +102,7 @@ export class LocalCliProvider implements Provider {
       let mcpContentHash = '';
       let previousMcpContent: string | null = null;
       const toolAccess = resolveToolAccess(options?.toolAccess, this.permissionMode);
-      const mcpConfigPath = path.join(this.cwd, '.room', 'mcp.json');
+      const mcpConfigPath = path.join(this.roomRoot, 'mcp.json');
       const targetMcpPath = path.join(this.cwd, '.mcp.json');
       const ownerMcpPath = path.join(this.cwd, '.mcp.json.room-owner');
 

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   selectProjectDir: () => ipcRenderer.invoke('select-project-dir'),
   openProjectDir: (dirPath) => ipcRenderer.invoke('open-project-dir', dirPath),
+  listRoomWorkspaces: () => ipcRenderer.invoke('list-room-workspaces'),
   createWorkspace: (workspaceName) => ipcRenderer.invoke('create-workspace', workspaceName),
   roomInit: (dirPath) => ipcRenderer.invoke('room-init', dirPath),
   getProjectData: (dirPath) => ipcRenderer.invoke('get-project-data', dirPath),

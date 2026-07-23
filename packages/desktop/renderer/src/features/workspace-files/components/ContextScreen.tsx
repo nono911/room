@@ -53,7 +53,7 @@ export const ContextScreen: React.FC<ContextScreenProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '560px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Workspace context and structure stored under <code>.room/context/</code>. These are included by the Discuss Context Picker.
+          Workspace context and structure stored under ROOM Home. These are included by the Discuss Context Picker.
         </div>
         <button
           className="btn-primary"

@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export interface TaskCard {
   id: string;
@@ -25,8 +26,8 @@ export interface NewTaskCardInput {
   assignee?: string;
 }
 
-function boardPaths(dirPath: string) {
-  const tasksDir = path.join(dirPath, '.room', 'tasks');
+function boardPaths(workspace: WorkspaceInput) {
+  const tasksDir = resolveRoomPath(workspace, 'tasks');
   return {
     tasksDir,
     jsonPath: path.join(tasksDir, 'board.json'),
@@ -34,9 +35,9 @@ function boardPaths(dirPath: string) {
   };
 }
 
-export async function loadTaskBoard(dirPath: string): Promise<TaskBoard> {
+export async function loadTaskBoard(workspace: WorkspaceInput): Promise<TaskBoard> {
   try {
-    const content = await fs.readFile(boardPaths(dirPath).jsonPath, 'utf-8');
+    const content = await fs.readFile(boardPaths(workspace).jsonPath, 'utf-8');
     const parsed = JSON.parse(content) as TaskBoard;
     return { cards: Array.isArray(parsed.cards) ? parsed.cards : [] };
   } catch (err: any) {
@@ -48,13 +49,13 @@ export async function loadTaskBoard(dirPath: string): Promise<TaskBoard> {
 }
 
 export async function addTaskCards(
-  dirPath: string,
+  workspace: WorkspaceInput,
   inputs: NewTaskCardInput[],
   sourceDiscussionId?: string
 ): Promise<TaskCard[]> {
-  const { tasksDir, jsonPath, markdownPath } = boardPaths(dirPath);
+  const { tasksDir, jsonPath, markdownPath } = boardPaths(workspace);
   await fs.mkdir(tasksDir, { recursive: true });
-  const board = await loadTaskBoard(dirPath);
+  const board = await loadTaskBoard(workspace);
   let nextNum = board.cards.reduce((max, card) => {
     const match = card.id.match(/^card-(\d+)$/);
     return match ? Math.max(max, parseInt(match[1], 10)) : max;
@@ -122,13 +123,13 @@ export function renderTaskBoardMarkdown(board: TaskBoard): string {
 }
 
 export async function updateTaskCardStatus(
-  dirPath: string,
+  workspace: WorkspaceInput,
   cardId: string,
   status: 'todo' | 'in_progress' | 'done'
 ): Promise<boolean> {
-  const { jsonPath, markdownPath } = boardPaths(dirPath);
+  const { jsonPath, markdownPath } = boardPaths(workspace);
   try {
-    const board = await loadTaskBoard(dirPath);
+    const board = await loadTaskBoard(workspace);
     const card = board.cards.find(c => c.id === cardId);
     if (card) {
       card.status = status;

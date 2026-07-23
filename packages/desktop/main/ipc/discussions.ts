@@ -3,8 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { DiscussionEngine, loadAgents, validateAgentConfig, type AgentConfig } from '@room/engine';
 import {
-  ROOM_DIR, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
-  requireBoundProjectRoot, resolveWithinProject,
+  DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
+  requireBoundProjectRoot, requireBoundWorkspace, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
 } from './shared.js';
 import { readProjectConfigFromDisk, type ProjectConfig } from './config-store.js';
@@ -54,23 +54,26 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
       } else if (ref.startsWith('file:')) {
         const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
         label = `Workspace File: ${relPath}`;
+        const selectedPath = relPath.startsWith('.room/')
+          ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
+          : resolveWithinProject(projectRoot, relPath);
         content = await readTextFileWithLimitLocal(
-          resolveWithinProject(projectRoot, relPath),
+          selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
         );
       } else if (ref.startsWith('document:')) {
         const filename = sanitizeFileName(ref.slice('document:'.length));
         label = `Document: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'documents', filename),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'reviews', filename),
-          resolveWithinProject(projectRoot, ROOM_DIR, 'decisions', filename)
+          resolveWithinRoomData(projectRoot, 'documents', filename),
+          resolveWithinRoomData(projectRoot, 'reviews', filename),
+          resolveWithinRoomData(projectRoot, 'decisions', filename)
         ]);
       } else if (ref.startsWith('task:')) {
         const filename = sanitizeFileName(ref.slice('task:'.length));
         label = `Task: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'tasks', filename)
+          resolveWithinRoomData(projectRoot, 'tasks', filename)
         ]);
       } else if (ref.startsWith('discussion:')) {
         const filename = sanitizeFileName(ref.slice('discussion:'.length));
@@ -79,7 +82,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         }
         label = `Previous Discussion: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinProject(projectRoot, ROOM_DIR, 'discussions', filename)
+          resolveWithinRoomData(projectRoot, 'discussions', filename)
         ]);
       }
     } catch (error: any) {
@@ -143,7 +146,8 @@ export function registerDiscussionsIpc(): void {
     startControlledRun(discussionId);
     try {
       const projectRoot = requireBoundProjectRoot(dirPath);
-      const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
+      const workspace = requireBoundWorkspace(dirPath);
+      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
       const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
       const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
@@ -174,7 +178,7 @@ export function registerDiscussionsIpc(): void {
           );
         }
 
-        const discussionsDir = resolveWithinProject(projectRoot, ROOM_DIR, 'discussions');
+        const discussionsDir = resolveWithinRoomData(projectRoot, 'discussions');
         const finalLogPath = resolveWithinProject(discussionsDir, `${discussionId}.json`);
         try {
           log = JSON.parse(await fs.readFile(finalLogPath, 'utf-8'));
@@ -212,6 +216,7 @@ export function registerDiscussionsIpc(): void {
     try {
       await applyApiKeysToEnvironment();
       const projectRoot = requireBoundProjectRoot(dirPath);
+      const workspace = requireBoundWorkspace(dirPath);
       const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
         ? discussionId
         : '';
@@ -219,7 +224,7 @@ export function registerDiscussionsIpc(): void {
         return { success: false, error: 'Invalid discussion id.' };
       }
 
-      const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
+      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       const projectConfig = await readProjectConfigFromDisk(projectRoot);
       const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
       const summaryAgentNames = summaryAgentName
@@ -236,6 +241,7 @@ export function registerDiscussionsIpc(): void {
     try {
       await applyApiKeysToEnvironment();
       const projectRoot = requireBoundProjectRoot(dirPath);
+      const workspace = requireBoundWorkspace(dirPath);
       const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
         ? discussionId
         : '';
@@ -243,7 +249,7 @@ export function registerDiscussionsIpc(): void {
         return { success: false, error: 'Invalid discussion id.' };
       }
 
-      const engine = new DiscussionEngine(projectRoot, { providerRegistry: await readProvidersFromDisk() });
+      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       const result = await engine.generateTasksFromDiscussion(safeDiscussionId, moderatorName);
       return { success: true, ...result };
     } catch (error: any) {

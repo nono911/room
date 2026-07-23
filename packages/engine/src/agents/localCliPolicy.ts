@@ -48,5 +48,5 @@ export function assertLocalCliExecutionAllowed(
   }
 
   const reason = policy.reason || 'Local CLI execution requires workspace dangerous mode.';
-  throw new Error(`${reason} Agent "${agent.name}" is not allowed to run until allowDangerousCli is enabled in .room/config.json.`);
+  throw new Error(`${reason} Agent "${agent.name}" is not allowed to run until dangerous CLI access is enabled in the ROOM workspace settings.`);
 }

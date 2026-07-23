@@ -1,11 +1,10 @@
 import * as fs from 'fs/promises';
 import { normalizeLocalCliModelName } from '@room/engine';
 import {
-  ROOM_DIR,
   SUPPORTED_LOCAL_CLI_PRESETS,
   isObjectWithAllowedKeys,
   isPlainObject,
-  resolveWithinProject
+  resolveWithinRoomData
 } from './shared.js';
 
 export const ALLOWED_PROJECT_MAIN_AGENTS = ['none', ...SUPPORTED_LOCAL_CLI_PRESETS] as const;
@@ -130,7 +129,7 @@ export function validateMcpConfig(rawConfig: unknown): { success: true; config: 
 }
 
 export async function readProjectConfigFromDisk(projectRoot: string): Promise<ProjectConfig> {
-  const projectConfigPath = resolveWithinProject(projectRoot, ROOM_DIR, 'config.json');
+  const projectConfigPath = resolveWithinRoomData(projectRoot, 'config.json');
   try {
     const content = await fs.readFile(projectConfigPath, 'utf-8');
     const parsed = JSON.parse(content);
@@ -145,7 +144,7 @@ export async function readProjectConfigFromDisk(projectRoot: string): Promise<Pr
 }
 
 export async function readMcpConfigFromDisk(projectRoot: string): Promise<McpConfig> {
-  const mcpPath = resolveWithinProject(projectRoot, ROOM_DIR, 'mcp.json');
+  const mcpPath = resolveWithinRoomData(projectRoot, 'mcp.json');
   try {
     const content = await fs.readFile(mcpPath, 'utf-8');
     const parsed = JSON.parse(content);

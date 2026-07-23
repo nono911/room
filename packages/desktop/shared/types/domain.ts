@@ -7,6 +7,14 @@ export interface MemberTeam {
   updatedAt: string;
 }
 
+export interface RoomWorkspaceSummary {
+  id: string;
+  name: string;
+  sourcePath: string;
+  lastOpenedAt: string;
+  importedLegacy: boolean;
+}
+
 export interface ProjectData {
   projectMd: string;
   archMd: string;

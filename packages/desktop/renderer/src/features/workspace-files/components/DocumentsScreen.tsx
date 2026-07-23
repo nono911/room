@@ -71,7 +71,7 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
     <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', minHeight: '520px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Documents from <code>.room/documents/</code>. If empty, markdown discussion transcripts from <code>.room/discussions/</code> are shown, including stable message IDs and references.
+          Documents from this ROOM Home workspace. If empty, discussion transcripts are shown, including stable message IDs and references.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {items.length === 0 ? (
