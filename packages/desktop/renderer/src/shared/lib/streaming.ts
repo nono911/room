@@ -62,7 +62,7 @@ export const formatDiscussionLogMessages = (log: any): UIMessage[] => {
 
 export const getAgentProgressMessage = (step = 0): string => {
   const messages = [
-    'Reading the workspace context...',
+    'Reading the Room context...',
     'Reviewing the discussion so far...',
     'Planning the response...',
     'Checking details before answering...',

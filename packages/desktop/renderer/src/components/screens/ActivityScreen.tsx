@@ -86,7 +86,7 @@ export function ActivityScreen({
         <div>
           <span className="workspace-page-eyebrow">Work</span>
           <h1>Activity</h1>
-          <p>Live work and durable outcomes from this workspace, in one place.</p>
+          <p>Live work and durable outcomes from this Room, in one place.</p>
         </div>
         <button type="button" className="btn-primary" onClick={() => setActiveTab('Run:Think')}>New run</button>
       </header>

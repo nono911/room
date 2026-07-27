@@ -19,7 +19,7 @@ vi.mock('../../../../main/ipc/config-store.js', () => ({
   isDangerousAgentAllowed: vi.fn().mockResolvedValue(false)
 }));
 
-import { bindCurrentProjectRoot } from '../../../../main/ipc/shared.js';
+import { bindCurrentRoom } from '../../../../main/ipc/shared.js';
 import { registerAgentsIpc } from '../../../../main/ipc/agents.js';
 
 describe('registerAgentsIpc save-agent', () => {
@@ -30,13 +30,26 @@ describe('registerAgentsIpc save-agent', () => {
 
   it('materializes a stable member id when saving a manual member without one', async () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'room-save-agent-manual-'));
-    bindCurrentProjectRoot(projectRoot);
+    const roomRoot = path.join(projectRoot, 'rooms', 'room_personal');
+    await fs.mkdir(roomRoot, { recursive: true });
+    bindCurrentRoom({
+      roomRoot,
+      manifest: {
+        schemaVersion: 1,
+        id: 'room_personal',
+        name: 'Personal Room',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastOpenedAt: new Date().toISOString(),
+        sources: []
+      }
+    });
 
     const saveAgentHandler = ipcHandlers.get('save-agent');
     expect(saveAgentHandler).toBeTypeOf('function');
 
     const result = await saveAgentHandler?.({}, {
-      dirPath: projectRoot,
+      roomId: 'room_personal',
       agent: {
         name: 'Manual Researcher',
         role: 'Research',
@@ -47,7 +60,7 @@ describe('registerAgentsIpc save-agent', () => {
 
     expect(result.success).toBe(true);
 
-    const membersDir = path.join(projectRoot, '.room', 'members');
+    const membersDir = path.join(roomRoot, 'members');
     const files = await fs.readdir(membersDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^mem_[a-z0-9][a-z0-9_-]{2,80}\.json$/);
@@ -59,9 +72,22 @@ describe('registerAgentsIpc save-agent', () => {
 
   it('materializes a legacy member onto an id-backed file and removes the old legacy file when renaming', async () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'room-save-agent-legacy-'));
-    bindCurrentProjectRoot(projectRoot);
+    const roomRoot = path.join(projectRoot, 'rooms', 'room_personal');
+    await fs.mkdir(roomRoot, { recursive: true });
+    bindCurrentRoom({
+      roomRoot,
+      manifest: {
+        schemaVersion: 1,
+        id: 'room_personal',
+        name: 'Personal Room',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastOpenedAt: new Date().toISOString(),
+        sources: []
+      }
+    });
 
-    const membersDir = path.join(projectRoot, '.room', 'members');
+    const membersDir = path.join(roomRoot, 'members');
     await fs.mkdir(membersDir, { recursive: true });
     await fs.writeFile(
       path.join(membersDir, 'planner.json'),
@@ -78,7 +104,7 @@ describe('registerAgentsIpc save-agent', () => {
     expect(saveAgentHandler).toBeTypeOf('function');
 
     const result = await saveAgentHandler?.({}, {
-      dirPath: projectRoot,
+      roomId: 'room_personal',
       agent: {
         previousName: 'Planner',
         name: 'Lead Planner',

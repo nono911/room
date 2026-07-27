@@ -7,7 +7,7 @@ import {
 } from '@room/engine';
 import type { MemberTeam } from '../../shared/types/domain.js';
 import {
-  requireBoundProjectRoot,
+  requireBoundRoom,
   resolveWithinProject,
   resolveWithinRoomData,
   sanitizeFileName
@@ -480,6 +480,7 @@ export async function addMembersToTeam(
   }
 }
 
-export function requireProjectRootForTeams(dirPath: string): string {
-  return requireBoundProjectRoot(dirPath);
+export function requireProjectRootForTeams(roomId: string): string {
+  requireBoundRoom(roomId);
+  return roomId;
 }

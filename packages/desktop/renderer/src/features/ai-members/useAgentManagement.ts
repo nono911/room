@@ -104,7 +104,7 @@ export function useAgentManagement({
   const [newAgentRole, setNewAgentRole] = useState<string>('Assistant');
   const [newAgentProvider, setNewAgentProvider] = useState<string>('gemini');
   const [newAgentCommand, setNewAgentCommand] = useState<string>('');
-  const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
+  const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
   const [newAgentPreset, setNewAgentPreset] = useState<'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none'>('none');
   const [newAgentStdinFormat, setNewAgentStdinFormat] = useState<'text' | 'json'>('text');
@@ -153,7 +153,7 @@ export function useAgentManagement({
     setNewAgentCommand('');
 
     setNewAgentRole('Assistant');
-    setNewAgentPrompt('You are a helpful AI assistant in the ROOM workspace. Cooperate with the team to achieve the user objective.');
+    setNewAgentPrompt('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
 
     setNewAgentSkills([]);
     setNewAgentStdinFormat('text');
@@ -277,7 +277,7 @@ export function useAgentManagement({
         : undefined;
       if (newAgentProvider === 'Local CLI') {
         if (newAgentPreset === 'none') {
-          const confirmed = window.confirm('ROOM will execute this custom command from the workspace directory. Custom Local CLI agents require workspace dangerous mode. Continue?');
+          const confirmed = window.confirm('ROOM will execute this custom command in the current Room context. Custom Local CLI agents require dangerous mode. Continue?');
           if (!confirmed) return;
         } else if (permissionMode === 'dangerous') {
           const confirmed = window.confirm('Warning: This Local CLI preset will run with dangerous permissions enabled. Continue?');

@@ -75,7 +75,7 @@ export const DocumentsScreen: React.FC<DocumentsScreenProps> = ({
     <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', minHeight: '520px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Durable documents, reviews, and discussion transcripts from this ROOM Home workspace.
+          Durable documents, reviews, and discussion transcripts stored in this Room.
         </div>
         <div className="document-section-tabs">
           {(['documents', 'reviews', 'discussions'] as const).map(section => (

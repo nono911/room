@@ -120,7 +120,7 @@ export async function browseWorkspaceFiles(
     : root;
   const startStat = await fs.stat(startDir);
   if (!startStat.isDirectory()) {
-    throw new Error('Selected workspace path is not a directory.');
+    throw new Error('Selected Source path is not a directory.');
   }
 
   const normalizedQuery = query.trim().toLowerCase();

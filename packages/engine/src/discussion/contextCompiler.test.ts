@@ -151,7 +151,7 @@ describe('compileDiscussionContext', () => {
     );
 
     expect(context.projectContextBlock).toContain('Overview stays visible.');
-    expect(context.projectContextBlock).toContain('[Project context trimmed to fit the prompt budget.]');
+    expect(context.projectContextBlock).toContain('[Room context trimmed to fit the prompt budget.]');
     expect(context.historyBlock).toContain('message 2');
     expect(context.metrics.projectContextTrimmed).toBe(true);
     expect(context.metrics.maxProjectContextTokens).toBe(20);
@@ -165,14 +165,14 @@ describe('compileDiscussionContext', () => {
     );
 
     expect(context.projectContextBlock).toBe(
-      '=== Project Context ===\nOverview\n\nStructure\n\nStructure with extra detail'
+      '=== Room Context ===\nOverview\n\nStructure\n\nStructure with extra detail'
     );
   });
 
   it('uses an explicit empty project context placeholder', () => {
     const context = compileDiscussionContext([message(1, 'user')], '');
 
-    expect(context.projectContextBlock).toBe('=== Project Context ===\n(No workspace context provided.)');
+    expect(context.projectContextBlock).toBe('=== Room Context ===\n(No Room context provided.)');
   });
 
   it('inserts an omitted-message summary without changing included metadata', () => {

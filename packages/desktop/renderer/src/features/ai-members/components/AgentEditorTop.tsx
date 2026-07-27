@@ -110,7 +110,7 @@ export const AgentTemplatePicker: React.FC<AgentTemplatePickerProps> = ({
       ))}
     </div>
     <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
-      Templates fill role, persona, and workspace skills. Installed machine skills remain manually selected.
+      Templates fill role, persona, and Room skills. Installed machine skills remain manually selected.
     </span>
   </div>
 );

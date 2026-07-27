@@ -27,16 +27,17 @@ export function useWorkspaceData({
     if (data.success) {
       setHasCompletedScan(!!localStorage.getItem(`room_scan_completed:${pathStr}`) || !!data.hasScanData);
       setProjectData({
-        projectMd: data.projectMd,
-        archMd: data.archMd,
+        room: data.room,
+        projectMd: data.projectMd || '',
+        archMd: data.archMd || '',
         hasScanData: data.hasScanData,
-        tasks: data.tasks,
+        tasks: data.tasks || [],
         taskRuns: data.taskRuns || [],
-        decisions: data.decisions,
+        decisions: data.decisions || [],
         reviews: data.reviews || [],
         documents: data.documents || [],
-        discussions: data.discussions,
-        skills: data.skills,
+        discussions: data.discussions || [],
+        skills: data.skills || [],
         machineSkills: data.machineSkills || [],
         agents: data.agents || [],
         teams: data.teams || [],
@@ -45,7 +46,7 @@ export function useWorkspaceData({
       return data;
     }
 
-    setErrorMsg(data.error || 'Failed to load project metadata.');
+    setErrorMsg(data.error || 'Failed to load Room metadata.');
     return null;
   };
 
@@ -87,7 +88,7 @@ export function useWorkspaceData({
       await loadTaskBoardCards(pathStr);
       return true;
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error fetching project data.');
+      setErrorMsg(err.message || 'Error fetching Room data.');
       return false;
     }
   };

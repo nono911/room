@@ -97,10 +97,10 @@ export const AgentSkillsPanel: React.FC<AgentSkillsPanelProps> = ({
         </button>
       </div>
 
-      <SkillSectionTitle title="Workspace Skills" detail="Stored in ROOM Home" />
+      <SkillSectionTitle title="Room Skills" detail="Stored in ROOM Home" />
       {workspaceSkills.length === 0 ? (
         <span style={{ fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>
-          No workspace skills found. Create one below or save the agent without workspace skills.
+          No Room skills found. Create one below or save the agent without Room skills.
         </span>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '190px', overflowY: 'auto', paddingRight: '4px' }}>
@@ -212,7 +212,7 @@ export const AgentSkillsPanel: React.FC<AgentSkillsPanelProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
-                Edit Workspace Skill
+                Edit Room Skill
               </div>
               <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {editingSkillFile}
@@ -242,8 +242,8 @@ export const AgentSkillsPanel: React.FC<AgentSkillsPanelProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
             <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
               {editingSkillSource === 'roles'
-                ? 'Saving this imported legacy role moves it into workspace skills.'
-                : 'Saved edits stay in this ROOM Home workspace.'}
+                ? 'Saving this role moves it into Room skills.'
+                : 'Saved edits stay in this Room.'}
             </span>
             <button type="button" className="btn-primary" disabled={loading} onClick={handleSaveEditingSkill} style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}>
               Save Skill
@@ -254,7 +254,7 @@ export const AgentSkillsPanel: React.FC<AgentSkillsPanelProps> = ({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', paddingTop: '12px', borderTop: '1px dashed hsl(var(--border-dim))' }}>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-muted))', textTransform: 'uppercase' }}>
-          Create Workspace Skill
+          Create Room Skill
         </span>
         <input
           type="text"

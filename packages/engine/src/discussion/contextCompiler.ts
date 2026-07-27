@@ -106,9 +106,9 @@ export function compileDiscussionContext(
     ? trimTextToTokenBudget(rawProjectContext, resolvedOptions.maxProjectContextTokens)
     : { text: '', truncated: false };
   const compiledProjectContext = fittedProjectContext.text
-    ? `${fittedProjectContext.text}${fittedProjectContext.truncated ? '\n\n[Project context trimmed to fit the prompt budget.]' : ''}`
-    : '(No workspace context provided.)';
-  const projectContextBlock = `=== Project Context ===\n${compiledProjectContext}`;
+    ? `${fittedProjectContext.text}${fittedProjectContext.truncated ? '\n\n[Room context trimmed to fit the prompt budget.]' : ''}`
+    : '(No Room context provided.)';
+  const projectContextBlock = `=== Room Context ===\n${compiledProjectContext}`;
   const priorMessageInstruction = buildPriorMessageInstruction(includedMessages.length, omittedMessageCount);
 
   return {

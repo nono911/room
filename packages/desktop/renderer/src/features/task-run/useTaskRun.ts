@@ -10,6 +10,7 @@ import {
 
 interface UseTaskRunDeps {
   projectPath: string | null;
+  activeSourceId?: string;
   projectData: ProjectData | null;
   loadProjectData: (pathStr: string) => Promise<void>;
   setLoading: (value: boolean) => void;
@@ -21,7 +22,7 @@ interface UseTaskRunDeps {
  * Extracted from App.tsx (Phase E). Behavior-preserving: uses functional
  * setState updates and unsubscribes the discussion-event listener in finally.
  */
-export function useTaskRun({ projectPath, projectData, loadProjectData, setLoading, setErrorMsg }: UseTaskRunDeps) {
+export function useTaskRun({ projectPath, activeSourceId, projectData, loadProjectData, setLoading, setErrorMsg }: UseTaskRunDeps) {
   const [codingTaskInput, setCodingTaskInput] = useState<string>('');
   const [taskRunType, setTaskRunType] = useState<string>('general');
   const [codingTaskMessages, setCodingTaskMessages] = useState<UIMessage[]>([]);
@@ -65,6 +66,10 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
 
   const handleRunCodingTask = async () => {
     if (!projectPath || !codingTaskInput.trim()) return;
+    if (taskRunType === 'coding' && !activeSourceId) {
+      setErrorMsg('Attach a Source before running a coding task.');
+      return;
+    }
     if (!codingTaskDeveloperName) {
       setErrorMsg('Select a Doer AI member before running the task.');
       return;
@@ -244,6 +249,7 @@ export function useTaskRun({ projectPath, projectData, loadProjectData, setLoadi
 
     try {
       const res = await api.runTask(projectPath, task, {
+        sourceId: activeSourceId,
         taskType: taskRunType,
         doerName: codingTaskDeveloperName,
         reviewerNames: codingTaskReviewerNames,

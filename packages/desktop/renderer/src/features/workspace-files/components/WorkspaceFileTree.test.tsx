@@ -35,6 +35,7 @@ describe('WorkspaceFileTree request generations', () => {
       projectPath === '/workspace/a' ? workspaceA.promise : workspaceB.promise
     ));
     const props = {
+      sourceId: 'source_test',
       selectedPath: null,
       refreshToken: 0,
       onSelect: vi.fn(),
@@ -64,6 +65,7 @@ describe('WorkspaceFileTree request generations', () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     const props = {
+      sourceId: 'source_test',
       projectPath: '/workspace/a',
       selectedPath: null,
       onSelect: vi.fn(),
@@ -94,6 +96,7 @@ describe('WorkspaceFileTree request generations', () => {
     render(
       <WorkspaceFileTree
         projectPath="/workspace/a"
+        sourceId="source_test"
         selectedPath={null}
         refreshToken={0}
         onSelect={vi.fn()}

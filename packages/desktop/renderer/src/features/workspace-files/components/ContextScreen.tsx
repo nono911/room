@@ -31,19 +31,19 @@ export const ContextScreen: React.FC<ContextScreenProps> = ({
     try {
       const overviewRes = await api.saveContextFile(projectPath, 'overview.md', contextOverviewDraft);
       if (!overviewRes.success) {
-        setErrorMsg(overviewRes.error || 'Failed to save workspace overview.');
+        setErrorMsg(overviewRes.error || 'Failed to save Room overview.');
         return;
       }
 
       const structureRes = await api.saveContextFile(projectPath, 'structure.md', contextStructureDraft);
       if (!structureRes.success) {
-        setErrorMsg(structureRes.error || 'Failed to save workspace structure.');
+        setErrorMsg(structureRes.error || 'Failed to save Room structure.');
         return;
       }
 
       await loadWorkspaceCoreData(projectPath);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save workspace context.');
+      setErrorMsg(err.message || 'Failed to save Room context.');
     } finally {
       setLoading(false);
     }
@@ -53,7 +53,7 @@ export const ContextScreen: React.FC<ContextScreenProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '560px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--text-secondary))' }}>
-          Workspace context and structure stored under ROOM Home. These are included by the Discuss Context Picker.
+          Room context and structure stored under ROOM Home. These are included by the Discuss Context Picker.
         </div>
         <button
           className="btn-primary"
@@ -74,7 +74,7 @@ export const ContextScreen: React.FC<ContextScreenProps> = ({
             value={contextOverviewDraft}
             onChange={(e) => setContextOverviewDraft(e.target.value)}
             disabled={loading}
-            placeholder="Describe the project, goals, source material, constraints, and open questions..."
+            placeholder="Describe the Room, goals, source material, constraints, and open questions..."
             style={{
               height: '520px',
               resize: 'vertical',
@@ -97,7 +97,7 @@ export const ContextScreen: React.FC<ContextScreenProps> = ({
             value={contextStructureDraft}
             onChange={(e) => setContextStructureDraft(e.target.value)}
             disabled={loading}
-            placeholder="Describe key areas, documents, characters, systems, constraints, or how this workspace is organized..."
+            placeholder="Describe key areas, documents, systems, constraints, or how this Room and its Sources are organized..."
             style={{
               height: '520px',
               resize: 'vertical',

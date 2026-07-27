@@ -1,7 +1,11 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { app } from 'electron';
-import { builtInProviderEntries, isValidProviderId, type ProviderEntry } from '@room/engine';
+import {
+  builtInProviderEntries,
+  ensurePersonalRoom,
+  isValidProviderId,
+  type ProviderEntry
+} from '@room/engine';
 import { isPlainObject } from './shared.js';
 
 export interface ApiKeyConfig {
@@ -10,13 +14,14 @@ export interface ApiKeyConfig {
   openaiApiKey?: string;
 }
 
-export function getApiKeysPath(): string {
-  return path.join(app.getPath('userData'), 'api-keys.json');
+async function getSystemFilePath(filename: string): Promise<string> {
+  const room = await ensurePersonalRoom();
+  return path.join(room.roomRoot, 'system', filename);
 }
 
 export async function readApiKeysFromDisk(): Promise<ApiKeyConfig> {
   try {
-    const content = await fs.readFile(getApiKeysPath(), 'utf-8');
+    const content = await fs.readFile(await getSystemFilePath('api-keys.json'), 'utf-8');
     const parsed = JSON.parse(content);
     if (!isPlainObject(parsed)) return {};
 
@@ -31,16 +36,11 @@ export async function readApiKeysFromDisk(): Promise<ApiKeyConfig> {
 }
 
 export async function writeApiKeysToDisk(config: ApiKeyConfig): Promise<void> {
-  const filePath = getApiKeysPath();
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const filePath = await getSystemFilePath('api-keys.json');
   await fs.writeFile(filePath, JSON.stringify(config, null, 2), 'utf-8');
   try {
     await fs.chmod(filePath, 0o600);
   } catch {}
-}
-
-export function getProvidersPath(): string {
-  return path.join(app.getPath('userData'), 'providers.json');
 }
 
 export function sanitizeProviderEntry(raw: unknown): ProviderEntry | null {
@@ -91,7 +91,7 @@ async function isLocalServiceRunning(url: string): Promise<boolean> {
 export async function readProvidersFromDisk(): Promise<ProviderEntry[]> {
   let entries: ProviderEntry[] = [];
   try {
-    const content = await fs.readFile(getProvidersPath(), 'utf-8');
+    const content = await fs.readFile(await getSystemFilePath('providers.json'), 'utf-8');
     const parsed = JSON.parse(content);
     const rawEntries = isPlainObject(parsed) && Array.isArray(parsed.providers) ? parsed.providers : [];
     entries = rawEntries
@@ -130,8 +130,7 @@ export async function readProvidersFromDisk(): Promise<ProviderEntry[]> {
 }
 
 export async function writeProvidersToDisk(providers: ProviderEntry[]): Promise<void> {
-  const filePath = getProvidersPath();
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const filePath = await getSystemFilePath('providers.json');
   await fs.writeFile(filePath, JSON.stringify({ providers }, null, 2), 'utf-8');
   try {
     await fs.chmod(filePath, 0o600);

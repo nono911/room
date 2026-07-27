@@ -30,11 +30,11 @@ export interface McpConfig {
 
 export function validateProjectConfig(rawConfig: unknown): { success: true; config: ProjectConfig } | { success: false; error: string } {
   if (!isPlainObject(rawConfig)) {
-    return { success: false, error: 'Invalid project config format.' };
+    return { success: false, error: 'Invalid Room config format.' };
   }
 
   if (!isObjectWithAllowedKeys(rawConfig, ALLOWED_PROJECT_CONFIG_KEYS)) {
-    return { success: false, error: 'Project config contains unsupported keys.' };
+    return { success: false, error: 'Room config contains unsupported keys.' };
   }
 
   const mainAgentRaw = typeof rawConfig.mainAgent === 'string' ? rawConfig.mainAgent.trim() : 'none';

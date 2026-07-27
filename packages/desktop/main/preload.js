@@ -12,43 +12,61 @@ const selectOptions = (options, keys) => {
 };
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  selectProjectDir: () => ipcRenderer.invoke('select-project-dir'),
-  openProjectDir: (dirPath) => ipcRenderer.invoke('open-project-dir', dirPath),
-  listRoomWorkspaces: () => ipcRenderer.invoke('list-room-workspaces'),
-  createWorkspace: (workspaceName) => ipcRenderer.invoke('create-workspace', workspaceName),
-  roomInit: (dirPath) => ipcRenderer.invoke('room-init', dirPath),
-  getProjectData: (dirPath) => ipcRenderer.invoke('get-project-data', dirPath),
-  readRoomFile: (dirPath, section, filename) => ipcRenderer.invoke('read-room-file', { dirPath, section, filename }),
-  listWorkspaceFiles: (dirPath) => ipcRenderer.invoke('list-workspace-files', dirPath),
-  browseWorkspaceFiles: (dirPath, directory, query) => ipcRenderer.invoke('browse-workspace-files', { dirPath, directory, query }),
-  searchContextItems: (dirPath, query) => ipcRenderer.invoke('search-context-items', { dirPath, query }),
-  readWorkspaceFile: (dirPath, filePath) => ipcRenderer.invoke('read-workspace-file', { dirPath, filePath }),
-  revealWorkspaceFile: (dirPath, filePath) => ipcRenderer.invoke('reveal-workspace-file', { dirPath, filePath }),
-  loadContextSets: (dirPath) => ipcRenderer.invoke('load-context-sets', { dirPath }),
-  saveContextSets: (dirPath, contextSets) => ipcRenderer.invoke('save-context-sets', { dirPath, contextSets }),
-  runScan: (dirPath, mainAgent, modelName, allowDangerousCli) => ipcRenderer.invoke('run-scan', { dirPath, mainAgent, modelName, allowDangerousCli }),
-  runDiscussion: (dirPath, topic, agentNames, options = {}) => ipcRenderer.invoke('run-discussion', {
-    dirPath,
-    topic,
-    agentNames,
-    ...selectOptions(options, [
-      'maxRounds',
-      'reviewMode',
-      'allowReadOnlyTools',
-      'contextRefs',
-      'discussionId',
-      'qualityGate',
-      'moderatorName',
-      'autoSummary',
-      'summaryAgentName',
-      'useProjectSummaryAgent',
-      'temporaryAgents'
-    ])
-  }),
-  runTask: (dirPath, task, options = {}) => ipcRenderer.invoke('run-task', {
-    dirPath,
+  initializePersonalRoom: () => ipcRenderer.invoke('initialize-personal-room'),
+  attachRoomSource: (roomId) => ipcRenderer.invoke('attach-room-source', { roomId }),
+  detachRoomSource: (roomId, sourceId) =>
+    ipcRenderer.invoke('detach-room-source', { roomId, sourceId }),
+  setActiveRoomSource: (roomId, sourceId) =>
+    ipcRenderer.invoke('set-active-room-source', { roomId, sourceId }),
+  getProjectData: (roomId) => ipcRenderer.invoke('get-room-data', roomId),
+  readRoomFile: (roomId, section, filename) =>
+    ipcRenderer.invoke('read-room-file', { roomId, section, filename }),
+  listWorkspaceFiles: (roomId, sourceId) =>
+    ipcRenderer.invoke('list-source-files', { roomId, sourceId }),
+  browseWorkspaceFiles: (roomId, sourceId, directory, query) =>
+    ipcRenderer.invoke('browse-source-files', { roomId, sourceId, directory, query }),
+  searchContextItems: (roomId, sourceId, query) =>
+    ipcRenderer.invoke('search-context-items', { roomId, sourceId, query }),
+  readWorkspaceFile: (roomId, sourceId, filePath) =>
+    ipcRenderer.invoke('read-source-file', { roomId, sourceId, filePath }),
+  revealWorkspaceFile: (roomId, sourceId, filePath) =>
+    ipcRenderer.invoke('reveal-source-file', { roomId, sourceId, filePath }),
+  loadContextSets: (roomId) => ipcRenderer.invoke('load-context-sets', { roomId }),
+  saveContextSets: (roomId, contextSets) =>
+    ipcRenderer.invoke('save-context-sets', { roomId, contextSets }),
+  runScan: (roomId, sourceId, mainAgent, modelName, allowDangerousCli) =>
+    ipcRenderer.invoke('run-scan', {
+      roomId,
+      sourceId,
+      mainAgent,
+      modelName,
+      allowDangerousCli
+    }),
+  runDiscussion: (roomId, topic, agentNames, options = {}) =>
+    ipcRenderer.invoke('run-discussion', {
+      roomId,
+      topic,
+      agentNames,
+      ...selectOptions(options, [
+        'sourceId',
+        'maxRounds',
+        'reviewMode',
+        'allowReadOnlyTools',
+        'contextRefs',
+        'discussionId',
+        'qualityGate',
+        'moderatorName',
+        'autoSummary',
+        'summaryAgentName',
+        'useProjectSummaryAgent',
+        'temporaryAgents'
+      ])
+    }),
+  runTask: (roomId, task, options = {}) => ipcRenderer.invoke('run-task', {
+    roomId,
     task,
     ...selectOptions(options, [
+      'sourceId',
       'taskType',
       'doerName',
       'reviewerNames',
@@ -61,36 +79,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ])
   }),
   interruptRun: (runId, message) => ipcRenderer.invoke('interrupt-run', { runId, message }),
-  summarizeDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('summarize-discussion', {
-    dirPath,
-    discussionId,
-    ...selectOptions(options, ['agentNames', 'summaryAgentName', 'useProjectSummaryAgent'])
-  }),
-  generateTasksFromDiscussion: (dirPath, discussionId, options = {}) => ipcRenderer.invoke('generate-tasks-from-discussion', {
-    dirPath,
-    discussionId,
-    ...selectOptions(options, ['moderatorName'])
-  }),
-  loadTaskBoard: (dirPath) => ipcRenderer.invoke('load-task-board', { dirPath }),
+  summarizeDiscussion: (roomId, discussionId, options = {}) =>
+    ipcRenderer.invoke('summarize-discussion', {
+      roomId,
+      discussionId,
+      ...selectOptions(options, [
+        'sourceId',
+        'agentNames',
+        'summaryAgentName',
+        'useProjectSummaryAgent'
+      ])
+    }),
+  generateTasksFromDiscussion: (roomId, discussionId, options = {}) =>
+    ipcRenderer.invoke('generate-tasks-from-discussion', {
+      roomId,
+      discussionId,
+      ...selectOptions(options, ['sourceId', 'moderatorName'])
+    }),
+  loadTaskBoard: (roomId) => ipcRenderer.invoke('load-task-board', { roomId }),
   onDiscussionEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('discussion-event', listener);
     return () => ipcRenderer.removeListener('discussion-event', listener);
   },
-  saveRoomFile: (dirPath, section, filename, content) => ipcRenderer.invoke('save-room-file', { dirPath, section, filename, content }),
-  saveContextFile: (dirPath, filename, content) => ipcRenderer.invoke('save-context-file', { dirPath, filename, content }),
-  saveSkill: (dirPath, name, content, source) => ipcRenderer.invoke('save-skill', { dirPath, name, content, source }),
-  previewAgentSkills: (dirPath, agent) => ipcRenderer.invoke('preview-agent-skills', { dirPath, agent }),
-  saveAgent: (dirPath, agent) => ipcRenderer.invoke('save-agent', { dirPath, agent }),
-  deleteAgent: (dirPath, agentName, memberId) => ipcRenderer.invoke('delete-agent', { dirPath, agentName, memberId }),
-  loadTeams: (dirPath) => ipcRenderer.invoke('load-teams', { dirPath }),
-  saveTeam: (dirPath, team) => ipcRenderer.invoke('save-team', { dirPath, team }),
-  deleteTeam: (dirPath, teamId) => ipcRenderer.invoke('delete-team', { dirPath, teamId }),
-  updateTeamMembers: (dirPath, teamId, memberIds) => ipcRenderer.invoke('update-team-members', { dirPath, teamId, memberIds }),
-  createTeamWithMembers: (dirPath, team, members, skillDrafts = []) =>
-    ipcRenderer.invoke('create-team-with-members', { dirPath, team, members, skillDrafts }),
-  addMembersToTeam: (dirPath, teamId, members, skillDrafts = []) =>
-    ipcRenderer.invoke('add-members-to-team', { dirPath, teamId, members, skillDrafts }),
+  saveRoomFile: (roomId, section, filename, content) =>
+    ipcRenderer.invoke('save-room-file', { roomId, section, filename, content }),
+  saveContextFile: (roomId, filename, content) =>
+    ipcRenderer.invoke('save-context-file', { roomId, filename, content }),
+  saveSkill: (roomId, name, content, source) =>
+    ipcRenderer.invoke('save-skill', { roomId, name, content, source }),
+  previewAgentSkills: (roomId, agent) =>
+    ipcRenderer.invoke('preview-agent-skills', { roomId, agent }),
+  saveAgent: (roomId, agent) => ipcRenderer.invoke('save-agent', { roomId, agent }),
+  deleteAgent: (roomId, agentName, memberId) =>
+    ipcRenderer.invoke('delete-agent', { roomId, agentName, memberId }),
+  loadTeams: (roomId) => ipcRenderer.invoke('load-teams', { roomId }),
+  saveTeam: (roomId, team) => ipcRenderer.invoke('save-team', { roomId, team }),
+  deleteTeam: (roomId, teamId) => ipcRenderer.invoke('delete-team', { roomId, teamId }),
+  updateTeamMembers: (roomId, teamId, memberIds) =>
+    ipcRenderer.invoke('update-team-members', { roomId, teamId, memberIds }),
+  createTeamWithMembers: (roomId, team, members, skillDrafts = []) =>
+    ipcRenderer.invoke('create-team-with-members', { roomId, team, members, skillDrafts }),
+  addMembersToTeam: (roomId, teamId, members, skillDrafts = []) =>
+    ipcRenderer.invoke('add-members-to-team', { roomId, teamId, members, skillDrafts }),
   detectLocalAgents: () => ipcRenderer.invoke('detect-local-agents'),
   loadProviders: () => ipcRenderer.invoke('load-providers'),
   saveProvider: (provider) => ipcRenderer.invoke('save-provider', provider),
@@ -98,8 +129,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testProvider: (providerId) => ipcRenderer.invoke('test-provider', providerId),
   detectCliModels: (cliId) => ipcRenderer.invoke('detect-cli-models', cliId),
   detectApiModels: (providerId) => ipcRenderer.invoke('detect-api-models', { providerId }),
-  loadMcpConfig: (dirPath) => ipcRenderer.invoke('load-mcp-config', dirPath),
-  saveMcpConfig: (dirPath, config) => ipcRenderer.invoke('save-mcp-config', { dirPath, config }),
-  loadProjectConfig: (dirPath) => ipcRenderer.invoke('load-project-config', dirPath),
-  saveProjectConfig: (dirPath, config) => ipcRenderer.invoke('save-project-config', { dirPath, config })
+  loadMcpConfig: (roomId) => ipcRenderer.invoke('load-mcp-config', roomId),
+  saveMcpConfig: (roomId, config) => ipcRenderer.invoke('save-mcp-config', { roomId, config }),
+  loadProjectConfig: (roomId) => ipcRenderer.invoke('load-project-config', roomId),
+  saveProjectConfig: (roomId, config) =>
+    ipcRenderer.invoke('save-project-config', { roomId, config })
 });

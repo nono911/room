@@ -34,8 +34,8 @@ export function useSetupGuidance({
 }: UseSetupGuidanceOptions) {
   const onboardingSteps = [
     {
-      title: 'ROOM starts with shared project memory',
-      body: 'Keep a short workspace overview and attach the files, notes, or documents that should guide discussions, tasks, and decisions.',
+      title: 'ROOM starts with shared Room memory',
+      body: 'Keep a short Room overview and attach the files, notes, or documents that should guide discussions, tasks, and decisions.',
       action: 'Open Context',
       run: () => setActiveTab('Context')
     },
@@ -75,7 +75,7 @@ export function useSetupGuidance({
 
   const setupItems = [
     {
-      label: 'Review workspace context',
+      label: 'Review Room context',
       done: hasUsefulContext,
       action: 'Open',
       run: () => setActiveTab('Context')

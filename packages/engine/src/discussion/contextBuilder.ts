@@ -178,7 +178,7 @@ export function composeProjectContext(input: {
     sections.push(input.workspaceMemory.trim());
   }
   if (input.structure?.trim()) {
-    sections.push(`Workspace Structure:\n${input.structure.trim()}`);
+    sections.push(`Room Structure:\n${input.structure.trim()}`);
   }
   return sections.join('\n\n');
 }
@@ -210,7 +210,7 @@ export async function loadWorkspaceMemoryContext(
 
   if (sections.length === 0) return '';
   const fitted = trimTextToTokenBudget(sections.join('\n\n'), maxTokens);
-  return `Workspace Memory (recent decisions and past discussion summaries):\n${fitted.text}${fitted.truncated ? '\n\n[Workspace memory trimmed to fit the prompt budget.]' : ''}`;
+  return `Room Memory (recent decisions and past discussion summaries):\n${fitted.text}${fitted.truncated ? '\n\n[Room memory trimmed to fit the prompt budget.]' : ''}`;
 }
 
 export async function buildSkillsContext(
@@ -460,7 +460,8 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You are summarizing a collaborative ROOM chat into a compact memory artifact. Use the same natural language as the chat unless the user explicitly asked otherwise.`;
 
-  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
+    || resolveWorkspaceLocation(workspace).roomRoot;
   const summary = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const titleSource = discussionLog.topic || discussionLog.title || discussionId;
   const filename = `${safeDocumentSlug(titleSource)}-${discussionId}-summary.md`;

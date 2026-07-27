@@ -1324,6 +1324,104 @@
   color: white;
 }
 
+.room-boot-state,
+.source-empty-state {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px;
+  text-align: center;
+  color: hsl(var(--text-secondary));
+}
+
+.room-boot-state h1,
+.source-empty-state h2 {
+  margin: 0;
+  color: white;
+}
+
+.room-boot-orb {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, hsl(var(--accent-purple)), hsl(var(--primary)));
+  box-shadow: 0 0 28px hsl(var(--accent-purple) / 0.45);
+  animation: roomBootPulse 1.4s ease-in-out infinite alternate;
+}
+
+.source-empty-state {
+  min-height: 420px;
+  border-right: 1px solid hsl(var(--border-dim));
+  background:
+    radial-gradient(circle at 50% 35%, hsl(var(--accent-purple) / 0.12), transparent 42%),
+    hsl(var(--bg-card) / 0.55);
+}
+
+.source-empty-state p {
+  max-width: 390px;
+  line-height: 1.6;
+}
+
+.source-empty-icon {
+  font-size: 2rem;
+  color: hsl(var(--accent-purple));
+}
+
+.home-source-cta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 15px 18px;
+  border: 1px solid hsl(var(--accent-purple) / 0.35);
+  border-radius: 14px;
+  background: linear-gradient(115deg, hsl(var(--accent-purple) / 0.13), hsl(var(--bg-card)));
+  color: white;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease;
+}
+
+.home-source-cta:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--accent-purple) / 0.7);
+}
+
+.home-source-cta span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.home-source-cta small {
+  color: hsl(var(--text-muted));
+}
+
+.sidebar-attach-source {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed hsl(var(--accent-purple) / 0.45);
+  border-radius: 8px;
+  background: hsl(var(--accent-purple) / 0.08);
+  color: hsl(var(--text-secondary));
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.sidebar-attach-source:hover {
+  border-color: hsl(var(--accent-purple));
+  color: white;
+}
+
+@keyframes roomBootPulse {
+  from { transform: scale(0.88); opacity: 0.65; }
+  to { transform: scale(1.05); opacity: 1; }
+}
+
 @media (max-width: 1050px) {
   .home-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));

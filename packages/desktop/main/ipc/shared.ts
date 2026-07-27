@@ -1,9 +1,13 @@
 import * as path from 'path';
+import * as fsSync from 'fs';
 import * as fs from 'fs/promises';
 import {
   isMachineSkillReference,
+  toWorkspaceLocation,
   validateAgentConfig,
   type AgentConfig,
+  type RoomRecord,
+  type SourceProvenance,
   type WorkspaceLocation
 } from '@room/engine';
 
@@ -49,54 +53,82 @@ export interface SkillPreviewItem {
   error?: string;
 }
 
-let currentWorkspace: WorkspaceLocation | null = null;
+let currentRoom: RoomRecord | null = null;
 
 export function resolveProjectPath(dirPath: string): string {
   if (typeof dirPath !== 'string' || !dirPath.trim()) {
-    throw new Error('Invalid project path.');
+    throw new Error('Invalid path.');
   }
   return path.resolve(dirPath);
 }
 
-export function bindCurrentProjectRoot(dirPath: string): string {
-  const projectRoot = resolveProjectPath(dirPath);
-  currentWorkspace = {
-    sourceRoot: projectRoot,
-    roomRoot: path.join(projectRoot, ROOM_DIR)
+export function bindCurrentRoom(record: RoomRecord): RoomRecord {
+  currentRoom = {
+    manifest: {
+      ...record.manifest,
+      sources: record.manifest.sources.map(source => ({ ...source }))
+    },
+    roomRoot: path.resolve(record.roomRoot)
   };
-  return projectRoot;
+  return currentRoom;
 }
 
-export function bindCurrentWorkspace(workspace: WorkspaceLocation): WorkspaceLocation {
-  currentWorkspace = {
-    sourceRoot: resolveProjectPath(workspace.sourceRoot),
-    roomRoot: path.resolve(workspace.roomRoot)
+export function requireBoundRoom(roomId: string): RoomRecord {
+  if (typeof roomId !== 'string' || !roomId.trim()) {
+    throw new Error('Invalid Room ID.');
+  }
+  if (!currentRoom || roomId !== currentRoom.manifest.id) {
+    throw new Error('Room is not active.');
+  }
+  return {
+    manifest: {
+      ...currentRoom.manifest,
+      sources: currentRoom.manifest.sources.map(source => ({ ...source }))
+    },
+    roomRoot: currentRoom.roomRoot
   };
-  return currentWorkspace;
 }
 
-export function requireBoundWorkspace(dirPath: string): WorkspaceLocation {
-  const projectRoot = resolveProjectPath(dirPath);
-  if (!currentWorkspace || projectRoot !== currentWorkspace.sourceRoot) {
-    throw new Error('Project path is not the active workspace source.');
+export function requireBoundWorkspace(roomId: string, sourceId?: string): WorkspaceLocation {
+  const workspace = toWorkspaceLocation(requireBoundRoom(roomId), sourceId);
+  if (workspace.sourceRoot) {
+    const stat = fsSync.lstatSync(workspace.sourceRoot);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error('The active Source is no longer a real directory.');
+    }
+    if (fsSync.realpathSync(workspace.sourceRoot) !== path.resolve(workspace.sourceRoot)) {
+      throw new Error('The active Source path changed after it was attached.');
+    }
   }
-  return { ...currentWorkspace };
+  return workspace;
 }
 
-export function requireBoundProjectRoot(dirPath: string): string {
-  return requireBoundWorkspace(dirPath).sourceRoot;
-}
-
-export function resolveRoomDataRoot(projectRoot: string): string {
-  const resolvedProjectRoot = resolveProjectPath(projectRoot);
-  if (currentWorkspace?.sourceRoot === resolvedProjectRoot) {
-    return currentWorkspace.roomRoot;
+export function requireBoundProjectRoot(roomId: string, sourceId?: string): string {
+  const workspace = requireBoundWorkspace(roomId, sourceId);
+  if (!workspace.sourceRoot) {
+    throw new Error('Attach a Source to use files, search, scan, Git, or coding actions.');
   }
-  return path.join(resolvedProjectRoot, ROOM_DIR);
+  return workspace.sourceRoot;
 }
 
-export function resolveWithinRoomData(projectRoot: string, ...parts: string[]): string {
-  const roomRoot = resolveRoomDataRoot(projectRoot);
+export function createSourceProvenance(
+  room: RoomRecord,
+  workspace: WorkspaceLocation
+): SourceProvenance {
+  const source = workspace.sourceId
+    ? room.manifest.sources.find(item => item.id === workspace.sourceId)
+    : undefined;
+  return source
+    ? { mode: 'source', sourceId: source.id, sourceName: source.name }
+    : { mode: 'room-only' };
+}
+
+export function resolveRoomDataRoot(roomId: string): string {
+  return requireBoundRoom(roomId).roomRoot;
+}
+
+export function resolveWithinRoomData(roomId: string, ...parts: string[]): string {
+  const roomRoot = resolveRoomDataRoot(roomId);
   const resolved = path.resolve(roomRoot, ...parts);
   const safeRoot = roomRoot.endsWith(path.sep) ? roomRoot : `${roomRoot}${path.sep}`;
   if (resolved !== roomRoot && !resolved.startsWith(safeRoot)) {
@@ -110,7 +142,7 @@ export function resolveWithinProject(projectRoot: string, ...parts: string[]): s
   const resolved = path.resolve(root, ...parts);
   const safeRoot = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
   if (resolved !== root && !resolved.startsWith(safeRoot)) {
-    throw new Error('Invalid project path.');
+    throw new Error('Invalid path.');
   }
   return resolved;
 }
@@ -120,6 +152,10 @@ export async function resolveCanonicalWithinProject(
   ...parts: string[]
 ): Promise<string> {
   const root = resolveProjectPath(projectRoot);
+  const rootStat = await fs.lstat(root);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error('The active Source must be a real directory.');
+  }
   const resolved = resolveWithinProject(root, ...parts);
   const relativePath = path.relative(root, resolved);
   let currentPath = root;
@@ -129,7 +165,7 @@ export async function resolveCanonicalWithinProject(
       currentPath = path.join(currentPath, segment);
       const stat = await fs.lstat(currentPath);
       if (stat.isSymbolicLink()) {
-        throw new Error('Workspace paths cannot contain symbolic links.');
+        throw new Error('Source paths cannot contain symbolic links.');
       }
     }
   }
@@ -144,7 +180,7 @@ export async function resolveCanonicalWithinProject(
     || canonicalRelativePath.startsWith(`..${path.sep}`)
     || path.isAbsolute(canonicalRelativePath)
   ) {
-    throw new Error('Workspace path resolves outside the active source.');
+    throw new Error('Source path resolves outside the active Source.');
   }
 
   return resolved;
@@ -158,12 +194,12 @@ export function sanitizeFileName(input: string, fallback = 'untitled'): string {
 
 export function sanitizeWorkspaceRelativePath(input: string): string {
   if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('Invalid workspace file path.');
+    throw new Error('Invalid Source file path.');
   }
 
   const normalized = input.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || normalized.split('/').some(part => !part || part === '.' || part === '..')) {
-    throw new Error('Invalid workspace file path.');
+    throw new Error('Invalid Source file path.');
   }
 
   return normalized;

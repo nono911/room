@@ -43,6 +43,7 @@ export interface CodingTaskResult {
   statusSummary?: string;
   associatedCardId?: string;
   continuedFromTaskId?: string;
+  sourceProvenance?: SourceProvenance;
 }
 
 export interface DiscussionLog {
@@ -51,4 +52,9 @@ export interface DiscussionLog {
   topic: string;
   status: 'active' | 'completed' | 'interrupted' | 'needs_revision' | 'approved' | 'blocked';
   messages: DiscussionMessage[];
+  sourceProvenance?: SourceProvenance;
 }
+
+export type SourceProvenance =
+  | { mode: 'room-only' }
+  | { mode: 'source'; sourceId: string; sourceName: string };

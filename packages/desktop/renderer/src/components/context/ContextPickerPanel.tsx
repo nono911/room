@@ -79,7 +79,7 @@ export const ContextPickerPanel: React.FC<ContextPickerPanelProps> = ({
             <div>
               <div style={{ fontSize: '1rem', fontWeight: 700 }}>Add Context</div>
               <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
-                Search project tasks, docs, and files without loading the whole workspace into the picker.
+                Search Room tasks and documents plus active Source files without loading everything into the picker.
               </div>
             </div>
             <button type="button" className="btn-secondary" onClick={closeContextPicker} style={{ padding: '8px 12px', fontSize: '0.78rem' }}>

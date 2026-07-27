@@ -9,7 +9,7 @@ import {
   type AgentConfig
 } from '@room/engine';
 import {
-  requireBoundProjectRoot, resolveWithinProject, resolveWithinRoomData,
+  requireBoundRoom, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeAgentFileName, readTextFileWithLimit,
   extractMarkdownHeading,
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -71,7 +71,7 @@ async function readSkillPreview(projectRoot: string, filename: string): Promise<
     } catch {}
   }
 
-  return { filename: safeFilename, readable: false, error: 'Skill file was not found in this ROOM Home workspace.' };
+  return { filename: safeFilename, readable: false, error: 'Skill file was not found in this Room.' };
 }
 
 function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat?: string): string {
@@ -155,10 +155,10 @@ async function cleanupLegacyMemberFiles(
 }
 
 export function registerAgentsIpc(): void {
-  ipcMain.handle('save-agent', async (_event, { dirPath, agent }: { dirPath: string; agent: unknown }) => {
+  ipcMain.handle('save-agent', async (_event, { roomId, agent }: { roomId: string; agent: unknown }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const agentsDir = resolveWithinRoomData(projectRoot, 'members');
+      requireBoundRoom(roomId);
+      const agentsDir = resolveWithinRoomData(roomId, 'members');
       const previousName = typeof (agent as { previousName?: unknown })?.previousName === 'string'
         ? (agent as { previousName?: string }).previousName?.trim() || undefined
         : undefined;
@@ -173,7 +173,7 @@ export function registerAgentsIpc(): void {
 
       if (persistedAgent.provider === 'Local CLI') {
         try {
-          assertLocalCliExecutionAllowed(persistedAgent, await isDangerousAgentAllowed(projectRoot));
+          assertLocalCliExecutionAllowed(persistedAgent, await isDangerousAgentAllowed(roomId));
         } catch (error: any) {
           return { success: false, error: error.message };
         }
@@ -184,7 +184,7 @@ export function registerAgentsIpc(): void {
       await fs.writeFile(filePath, JSON.stringify(persistedAgent, null, 2), 'utf-8');
 
       if (!validated.agent.id) {
-        await cleanupLegacyMemberFiles(projectRoot, persistedAgent, previousName);
+        await cleanupLegacyMemberFiles(roomId, persistedAgent, previousName);
       }
 
       return { success: true, agent: persistedAgent };
@@ -195,20 +195,20 @@ export function registerAgentsIpc(): void {
 
   ipcMain.handle('delete-agent', async (
     _event,
-    { dirPath, agentName, memberId }: { dirPath: string; agentName?: string; memberId?: string }
+    { roomId, agentName, memberId }: { roomId: string; agentName?: string; memberId?: string }
   ) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const filePaths: string[] = [];
       if (typeof memberId === 'string' && /^mem_[a-z0-9][a-z0-9_-]{2,80}$/.test(memberId)) {
-        filePaths.push(resolveWithinRoomData(projectRoot, 'members', `${memberId}.json`));
+        filePaths.push(resolveWithinRoomData(roomId, 'members', `${memberId}.json`));
       }
       if (agentName) {
         const safeAgentName = sanitizeFileName(agentName.toLowerCase(), 'agent');
         const filename = `${safeAgentName.replace(/[^a-z0-9_-]/g, '-')}.json`;
         filePaths.push(
-          resolveWithinRoomData(projectRoot, 'members', filename),
-          resolveWithinRoomData(projectRoot, 'agents', filename)
+          resolveWithinRoomData(roomId, 'members', filename),
+          resolveWithinRoomData(roomId, 'agents', filename)
         );
       }
 
@@ -228,7 +228,7 @@ export function registerAgentsIpc(): void {
         return { success: false, error: 'Agent was not found.' };
       }
       if (memberId) {
-        await removeMemberFromTeams(projectRoot, memberId);
+        await removeMemberFromTeams(roomId, memberId);
       }
       return { success: true };
     } catch (error: any) {
@@ -236,13 +236,13 @@ export function registerAgentsIpc(): void {
     }
   });
 
-  ipcMain.handle('preview-agent-skills', async (_event, { dirPath, agent }: { dirPath: string; agent: any }) => {
+  ipcMain.handle('preview-agent-skills', async (_event, { roomId, agent }: { roomId: string; agent: any }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const skills: string[] = Array.isArray(agent?.skills)
         ? agent.skills.filter((skill: unknown): skill is string => typeof skill === 'string')
         : [];
-      const items = await Promise.all(skills.map(skill => readSkillPreview(projectRoot, skill)));
+      const items = await Promise.all(skills.map(skill => readSkillPreview(roomId, skill)));
       const readableCount = items.filter(item => item.readable).length;
       return {
         success: true,

@@ -398,7 +398,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', lineHeight: '1.4' }}>
                       {newAgentPreset === 'claude' && "Safe mode by default; dangerous mode must be explicitly enabled."}
-                      {newAgentPreset === 'gemini' && "Safe mode by default; workspace trust and yolo execution are disabled until dangerous mode."}
+                      {newAgentPreset === 'gemini' && "Safe mode by default; Source trust and yolo execution are disabled until dangerous mode."}
                       {newAgentPreset === 'codex' && "Safe sandboxed mode by default; network access override is disabled until dangerous mode."}
                       {newAgentPreset === 'copilot' && "Safe mode by default; auto-approve tooling requires dangerous mode."}
                       {newAgentPreset === 'codewhale' && "Safe mode by default; auto-exec and prompt mode disabled until dangerous mode."}
@@ -424,7 +424,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     </label>
                     {newAgentPermissionMode === 'dangerous' && (
                       <div style={{ fontSize: '0.7rem', color: '#ef4444', lineHeight: '1.4' }}>
-                        Warning: dangerous mode may allow destructive actions in your workspace.
+                        Warning: dangerous mode may allow destructive actions in the active Source.
                       </div>
                     )}
                   </div>
@@ -482,7 +482,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
             }}
           />
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
-            Sent to the model as the primary persona contract, then ROOM appends selected skills, discussion protocol, and workspace context.
+            Sent to the model as the primary persona contract, then ROOM appends selected skills, discussion protocol, and Room context.
           </span>
         </div>
 

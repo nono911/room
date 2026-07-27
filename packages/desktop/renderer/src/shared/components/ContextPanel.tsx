@@ -13,7 +13,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   return (
     <section className="context-panel" style={{ width: '340px', flexShrink: 0 }}>
       <div className="panel-header">
-        <span>Workspace Context</span>
+        <span>Room Context</span>
         <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
@@ -22,7 +22,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       {projectData ? (
         <>
           <div className="panel-section">
-            <div className="panel-section-title">Workspace Overview</div>
+            <div className="panel-section-title">Room Overview</div>
             <div className="markdown-preview">
               {projectData.projectMd || '# No description found.'}
             </div>
@@ -69,7 +69,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
         </>
       ) : (
         <div style={{ padding: '24px', textAlign: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.9rem' }}>
-          Open and initialize a project to view workspace context metrics here.
+          Open your Room to view context metrics here.
         </div>
       )}
     </section>

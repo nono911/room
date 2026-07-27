@@ -69,7 +69,7 @@ export function FilePreviewPane({
           </div>
         ) : preview.kind === 'image' ? (
           <div className="unified-preview media-preview">
-            <img src={preview.dataUrl} alt={title || 'Workspace file preview'} />
+            <img src={preview.dataUrl} alt={title || 'Source file preview'} />
           </div>
         ) : preview.kind === 'pdf' ? (
           <embed className="unified-preview pdf-preview" src={preview.dataUrl} type={preview.mimeType} />

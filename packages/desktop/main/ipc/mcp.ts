@@ -2,25 +2,25 @@ import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
-  requireBoundProjectRoot, resolveWithinRoomData
+  requireBoundRoom, resolveWithinRoomData
 } from './shared.js';
 import { readMcpConfigFromDisk, validateMcpConfig } from './config-store.js';
 
 export function registerMcpIpc(): void {
-  ipcMain.handle('load-mcp-config', async (event, dirPath: string) => {
+  ipcMain.handle('load-mcp-config', async (event, roomId: string) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const config = await readMcpConfigFromDisk(projectRoot);
+      requireBoundRoom(roomId);
+      const config = await readMcpConfigFromDisk(roomId);
       return { success: true, config };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('save-mcp-config', async (event, { dirPath, config }: { dirPath: string; config: any }) => {
+  ipcMain.handle('save-mcp-config', async (event, { roomId, config }: { roomId: string; config: any }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const mcpPath = resolveWithinRoomData(projectRoot, 'mcp.json');
+      requireBoundRoom(roomId);
+      const mcpPath = resolveWithinRoomData(roomId, 'mcp.json');
       const validated = validateMcpConfig(config);
       if (!validated.success) {
         return { success: false, error: validated.error };

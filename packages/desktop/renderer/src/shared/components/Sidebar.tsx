@@ -1,11 +1,14 @@
 import React from 'react';
-import type { ProjectData } from '../../types/domain.js';
+import type { ProjectData, RoomSourceSummary } from '../../types/domain.js';
 
 interface SidebarProps {
   sidebarExpanded: boolean;
   setSidebarExpanded: (expanded: boolean) => void;
   projectPath: string | null;
-  handleCloseProjectWorkspace: () => void;
+  roomName?: string;
+  activeSource?: RoomSourceSummary | null;
+  onAttachSource: () => void;
+  onDetachSource: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   aiMembersSidebarExpanded: boolean;
@@ -24,7 +27,7 @@ type NavItem = {
 
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
-    label: 'Workspace',
+    label: 'Room',
     items: [
       { route: 'Home', label: 'Home', icon: '⌂', isActive: tab => tab === 'Home' || tab === 'Overview' },
       {
@@ -70,7 +73,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sidebarExpanded,
   setSidebarExpanded,
   projectPath,
-  handleCloseProjectWorkspace,
+  roomName,
+  activeSource,
+  onAttachSource,
+  onDetachSource,
   activeTab,
   setActiveTab,
   aiMembersSidebarExpanded,
@@ -80,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   resetAgentForm
 }) => {
   const registeredAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
-  const workspaceName = projectPath?.split(/[/\\]/).pop() || 'Workspace';
+  const workspaceName = roomName || 'Personal Room';
 
   const toggleMembers = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -100,19 +106,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {projectPath && (
         <div className="sidebar-project-selector workspace-source-card">
           <div className="workspace-source-label">
-            <span>Workspace</span>
-            <button type="button" onClick={handleCloseProjectWorkspace}>Close</button>
+            <span>Room</span>
+            {activeSource && <button type="button" onClick={onDetachSource}>Detach</button>}
           </div>
           <div className="workspace-source-name" title={projectPath}>
             <span className="workspace-source-mark">R</span>
             <span>{workspaceName}</span>
           </div>
-          <div className="workspace-source-path" title={projectPath}>Attached source · {projectPath}</div>
+          {activeSource ? (
+            <div className="workspace-source-path" title={activeSource.path}>
+              Source · {activeSource.name}
+            </div>
+          ) : (
+            <button type="button" className="sidebar-attach-source" onClick={onAttachSource}>
+              + Attach Source folder
+            </button>
+          )}
         </div>
       )}
 
       <div className="sidebar-scroll">
-        <nav className="workflow-nav" aria-label="Workspace navigation">
+        <nav className="workflow-nav" aria-label="Room navigation">
           {NAV_GROUPS.map(group => (
             <section className="workflow-nav-group" key={group.label}>
               {sidebarExpanded && <h2>{group.label}</h2>}

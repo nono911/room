@@ -3,15 +3,18 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  createRoomWorkspace,
-  findRoomWorkspaceBySource,
-  listRoomWorkspaces,
+  attachRoomSource,
+  detachRoomSource,
+  ensurePersonalRoom,
+  getRoomById,
+  listRooms,
+  setActiveRoomSource,
   toWorkspaceLocation
 } from './roomHome.js';
 
 const temporaryRoots: string[] = [];
 
-async function createTemporaryRoot(): Promise<string> {
+async function temporaryRoot(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'room-home-test-'));
   temporaryRoots.push(root);
   return root;
@@ -23,126 +26,106 @@ afterEach(async () => {
   ));
 });
 
-describe('ROOM Home workspaces', () => {
-  it('creates central workspace data without writing .room into the source', async () => {
-    const root = await createTemporaryRoot();
-    const sourceRoot = path.join(root, 'source');
-    const roomHome = path.join(root, 'home');
-    await fs.mkdir(sourceRoot);
+describe('Personal Room domain', () => {
+  it('creates a source-less Personal Room under ROOM Home', async () => {
+    const roomHome = await temporaryRoot();
+    const room = await ensurePersonalRoom(roomHome);
 
-    const result = await createRoomWorkspace({
-      sourceRoot,
-      roomHome,
-      name: 'Example'
+    expect(room.manifest).toMatchObject({
+      id: 'room_personal',
+      name: 'Personal Room',
+      sources: []
+    });
+    expect(room.manifest.activeSourceId).toBeUndefined();
+    expect(room.roomRoot).toBe(path.join(roomHome, 'rooms', 'room_personal'));
+    expect(toWorkspaceLocation(room)).toEqual({ roomRoot: room.roomRoot });
+    expect(await fs.readFile(path.join(room.roomRoot, 'context', 'overview.md'), 'utf-8'))
+      .toContain('# Personal Room');
+    expect(await listRooms(roomHome)).toHaveLength(1);
+    expect((await getRoomById('room_personal', roomHome))?.manifest.id).toBe('room_personal');
+  });
+
+  it('attaches and detaches a Source without deleting Room memory or Source files', async () => {
+    const root = await temporaryRoot();
+    const roomHome = path.join(root, 'home');
+    const sourceRoot = path.join(root, 'source');
+    await fs.mkdir(sourceRoot);
+    await fs.writeFile(path.join(sourceRoot, 'keep.txt'), 'source', 'utf-8');
+    const room = await ensurePersonalRoom(roomHome);
+    await fs.writeFile(path.join(room.roomRoot, 'documents', 'memory.md'), '# Memory\n', 'utf-8');
+
+    const attached = await attachRoomSource(room, sourceRoot);
+    const sourceId = attached.manifest.activeSourceId;
+    const canonicalSource = await fs.realpath(sourceRoot);
+    expect(sourceId).toMatch(/^source_[a-f0-9]{32}$/);
+    expect(toWorkspaceLocation(attached)).toEqual({
+      roomRoot: room.roomRoot,
+      sourceRoot: canonicalSource,
+      sourceId
     });
 
-    expect(result.created).toBe(true);
-    expect(result.record.roomRoot.startsWith(path.join(roomHome, 'workspaces'))).toBe(true);
-    expect(await fs.readFile(path.join(result.record.roomRoot, 'context', 'overview.md'), 'utf-8'))
-      .toContain('# Workspace Name');
-    await expect(fs.stat(path.join(sourceRoot, '.room'))).rejects.toThrow();
-    expect(toWorkspaceLocation(result.record)).toEqual({
-      sourceRoot,
-      roomRoot: result.record.roomRoot
-    });
+    const detached = await detachRoomSource(attached, sourceId!);
+    expect(detached.manifest.sources).toEqual([]);
+    expect(detached.manifest.activeSourceId).toBeUndefined();
+    expect(await fs.readFile(path.join(room.roomRoot, 'documents', 'memory.md'), 'utf-8'))
+      .toBe('# Memory\n');
+    expect(await fs.readFile(path.join(sourceRoot, 'keep.txt'), 'utf-8')).toBe('source');
   });
 
-  it('copies legacy data once and keeps the legacy source untouched', async () => {
-    const root = await createTemporaryRoot();
-    const sourceRoot = path.join(root, 'source');
-    const legacyRoot = path.join(sourceRoot, '.room');
+  it('supports multiple attached Sources while exposing one active Source', async () => {
+    const root = await temporaryRoot();
+    const room = await ensurePersonalRoom(path.join(root, 'home'));
+    const firstPath = path.join(root, 'first');
+    const secondPath = path.join(root, 'second');
+    await fs.mkdir(firstPath);
+    await fs.mkdir(secondPath);
+
+    const first = await attachRoomSource(room, firstPath);
+    const second = await attachRoomSource(first, secondPath);
+    const firstId = first.manifest.activeSourceId!;
+    const switched = await setActiveRoomSource(second, firstId);
+
+    expect(switched.manifest.sources).toHaveLength(2);
+    expect(switched.manifest.activeSourceId).toBe(firstId);
+    expect(toWorkspaceLocation(switched).sourceRoot).toBe(await fs.realpath(firstPath));
+  });
+
+  it('rejects ROOM Home, traversal-like IDs, and unknown Source IDs', async () => {
+    const roomHome = await temporaryRoot();
+    const room = await ensurePersonalRoom(roomHome);
+
+    await expect(attachRoomSource(room, roomHome)).rejects.toThrow('ROOM Home');
+    await expect(attachRoomSource(room, path.parse(roomHome).root)).rejects.toThrow('filesystem root');
+    expect(await getRoomById('../escape', roomHome)).toBeNull();
+    expect(() => toWorkspaceLocation(room, 'source_missing')).toThrow('not attached');
+    await expect(setActiveRoomSource(room, 'source_missing')).rejects.toThrow('not attached');
+  });
+
+  it('records canonical paths and does not follow an attached symlink alias later', async () => {
+    const root = await temporaryRoot();
+    const realSource = path.join(root, 'real');
+    const sourceAlias = path.join(root, 'alias');
+    await fs.mkdir(realSource);
+    await fs.symlink(realSource, sourceAlias, 'dir');
+    const room = await ensurePersonalRoom(path.join(root, 'home'));
+
+    const attached = await attachRoomSource(room, sourceAlias);
+    expect(attached.manifest.sources[0].path).toBe(sourceAlias);
+    expect(attached.manifest.sources[0].canonicalPath).toBe(await fs.realpath(realSource));
+    expect(toWorkspaceLocation(attached).sourceRoot).toBe(await fs.realpath(realSource));
+  });
+
+  it('rejects symlinks inside ROOM managed storage', async () => {
+    const root = await temporaryRoot();
     const roomHome = path.join(root, 'home');
-    await fs.mkdir(path.join(legacyRoot, 'documents'), { recursive: true });
-    await fs.writeFile(path.join(legacyRoot, 'documents', 'notes.md'), '# Legacy notes\n', 'utf-8');
+    const externalDirectory = path.join(root, 'external');
+    await fs.mkdir(externalDirectory);
+    const room = await ensurePersonalRoom(roomHome);
+    const documentsDirectory = path.join(room.roomRoot, 'documents');
+    await fs.rm(documentsDirectory, { recursive: true });
+    await fs.symlink(externalDirectory, documentsDirectory, 'dir');
 
-    const first = await createRoomWorkspace({ sourceRoot, roomHome });
-    const second = await createRoomWorkspace({ sourceRoot, roomHome });
-
-    expect(first.created).toBe(true);
-    expect(second.created).toBe(false);
-    expect(second.record.manifest.id).toBe(first.record.manifest.id);
-    expect(first.record.manifest.legacyImport?.fileCount).toBe(1);
-    expect(await fs.readFile(path.join(first.record.roomRoot, 'documents', 'notes.md'), 'utf-8'))
-      .toBe('# Legacy notes\n');
-    expect(await fs.readFile(path.join(legacyRoot, 'documents', 'notes.md'), 'utf-8'))
-      .toBe('# Legacy notes\n');
-    expect(await listRoomWorkspaces(roomHome)).toHaveLength(1);
-    expect((await findRoomWorkspaceBySource(sourceRoot, roomHome))?.manifest.id)
-      .toBe(first.record.manifest.id);
-  });
-
-  it('does not import a top-level legacy .room symlink', async () => {
-    const root = await createTemporaryRoot();
-    const sourceRoot = path.join(root, 'source');
-    const outsideRoot = path.join(root, 'outside');
-    const roomHome = path.join(root, 'home');
-    await fs.mkdir(sourceRoot);
-    await fs.mkdir(outsideRoot);
-    await fs.writeFile(path.join(outsideRoot, 'secret.md'), '# Outside\n', 'utf-8');
-    await fs.symlink(outsideRoot, path.join(sourceRoot, '.room'), 'dir');
-
-    const result = await createRoomWorkspace({ sourceRoot, roomHome });
-
-    expect(result.record.manifest.legacyImport).toBeUndefined();
-    await expect(fs.stat(path.join(result.record.roomRoot, 'secret.md'))).rejects.toThrow();
-    expect((await fs.lstat(path.join(sourceRoot, '.room'))).isSymbolicLink()).toBe(true);
-    expect(await fs.readFile(path.join(outsideRoot, 'secret.md'), 'utf-8')).toBe('# Outside\n');
-  });
-
-  it('removes machine skill selections from imported legacy agents', async () => {
-    const root = await createTemporaryRoot();
-    const sourceRoot = path.join(root, 'source');
-    const legacyMembers = path.join(sourceRoot, '.room', 'members');
-    const roomHome = path.join(root, 'home');
-    const legacyAgent = {
-      name: 'Imported Reviewer',
-      role: 'Reviewer',
-      provider: 'gemini',
-      systemPrompt: 'Review the work.',
-      skills: ['review.md', 'machine://codex/playwright']
-    };
-    await fs.mkdir(legacyMembers, { recursive: true });
-    await fs.writeFile(
-      path.join(legacyMembers, 'reviewer.json'),
-      JSON.stringify(legacyAgent, null, 2),
-      'utf-8'
-    );
-
-    const result = await createRoomWorkspace({ sourceRoot, roomHome });
-    const imported = JSON.parse(await fs.readFile(
-      path.join(result.record.roomRoot, 'members', 'reviewer.json'),
-      'utf-8'
-    )) as { skills?: string[] };
-    const source = JSON.parse(await fs.readFile(
-      path.join(legacyMembers, 'reviewer.json'),
-      'utf-8'
-    )) as { skills?: string[] };
-
-    expect(imported.skills).toEqual(['review.md']);
-    expect(source.skills).toEqual(['review.md', 'machine://codex/playwright']);
-  });
-
-  it('rejects attaching a directory inside ROOM Home', async () => {
-    const root = await createTemporaryRoot();
-    const roomHome = path.join(root, 'home');
-    const sourceRoot = path.join(roomHome, 'workspaces', 'manual');
-    await fs.mkdir(sourceRoot, { recursive: true });
-
-    await expect(createRoomWorkspace({ sourceRoot, roomHome }))
-      .rejects.toThrow('cannot be attached');
-  });
-
-  it('does not treat ROOM Home itself as legacy project data', async () => {
-    const root = await createTemporaryRoot();
-    const sourceRoot = path.join(root, 'source');
-    const roomHome = path.join(sourceRoot, '.room');
-    await fs.mkdir(roomHome, { recursive: true });
-    await fs.writeFile(path.join(roomHome, 'global-state.json'), '{}\n', 'utf-8');
-
-    const result = await createRoomWorkspace({ sourceRoot, roomHome });
-
-    expect(result.record.manifest.legacyImport).toBeUndefined();
-    await expect(fs.stat(path.join(result.record.roomRoot, 'global-state.json'))).rejects.toThrow();
-    expect(await fs.readFile(path.join(roomHome, 'global-state.json'), 'utf-8')).toBe('{}\n');
+    await expect(ensurePersonalRoom(roomHome)).rejects.toThrow('must be a real directory');
+    expect(await fs.readdir(externalDirectory)).toEqual([]);
   });
 });

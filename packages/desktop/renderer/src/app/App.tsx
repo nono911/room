@@ -5,7 +5,7 @@ import type { ProjectData, TaskBoardCard } from '../types/domain.js';
 import { api } from '../shared/ipc/client.js';
 import { useTaskRun } from '../features/task-run/useTaskRun.js';
 import { useDiscussion } from '../features/discussions/useDiscussion.js';
-import { useAgentManagement, resolveAgentDefaultSelection } from '../features/ai-members/useAgentManagement.js';
+import { useAgentManagement } from '../features/ai-members/useAgentManagement.js';
 import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useContextSets } from '../shared/hooks/useContextSets.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
@@ -16,7 +16,6 @@ import { useSetupGuidance } from './hooks/useSetupGuidance.js';
 import { useWorkspaceData } from './hooks/useWorkspaceData.js';
 import { useWorkspaceLifecycle } from './hooks/useWorkspaceLifecycle.js';
 import { AppThemeStyles } from './components/AppThemeStyles.js';
-import { WelcomeScreen } from './components/WelcomeScreen.js';
 import { WorkspaceRoutes } from './components/WorkspaceRoutes.js';
 
 // Layout and Onboarding components
@@ -26,9 +25,6 @@ import { ErrorBanner } from '../shared/components/ErrorBanner.js';
 import { SetupChecklist } from '../components/onboarding/SetupChecklist.js';
 import { OnboardingTour } from '../components/onboarding/OnboardingTour.js';
 import { ContextPickerPanel } from '../components/context/ContextPickerPanel.js';
-import { agentPersonaTemplates, teamPresets } from '../shared/data/staticData.js';
-import { useProviders } from '../features/providers/context/ProvidersContext.js';
-import { createDiscussionSelectionId } from '../features/discussions/lib/discussionSelection.js';
 
 const RESTORABLE_WORKSPACE_TABS = new Set([
   'Home',
@@ -70,23 +66,19 @@ function loadWorkspaceTab(projectPath: string): string {
 }
 
 export default function App() {
-  const { providers, getModelOptions, detectedClis } = useProviders();
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Home');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const {
+    room,
+    activeSource,
+    activeSourceId,
+    initializingRoom,
     projectPath,
     isRoomProject,
-    hasLegacyRoom,
-    newWorkspaceName,
-    setNewWorkspaceName,
-    recentProjects,
     handleOpenProject,
-    handleCreateWorkspace,
-    handleSelectRecentProject,
-    handleInitProject,
-    handleCloseProjectWorkspace
+    handleDetachSource
   } = useWorkspaceLifecycle({
     clearWorkspaceDerivedState,
     restoreWorkspaceRoute: (pathStr: string) => setActiveTab(loadWorkspaceTab(pathStr)),
@@ -99,10 +91,7 @@ export default function App() {
   const [scanStatus, setScanStatus] = useState<string>('');
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
 
-  // Custom workspace control states
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
-  const [hoveredPreset, setHoveredPreset] = useState<any | null>(null);
-  // Main Workspace Agent & Visual Customizer State
   const {
     projectConfig,
     setProjectConfig,
@@ -141,6 +130,7 @@ export default function App() {
     setContinuedFromTaskId
   } = useTaskRun({
     projectPath,
+    activeSourceId,
     projectData,
     loadProjectData: async (p: string) => {
       await loadProjectData(p);
@@ -153,7 +143,6 @@ export default function App() {
   const {
     selectedDiscussionAgents,
     selectedDiscussionParticipantKeys,
-    queueDiscussionAgentSelectionByNames,
     selectedDiscussionMemberIds, setSelectedDiscussionMemberIds,
     appendSelectedDiscussionMemberIds,
     toggleSelectedDiscussionMemberId,
@@ -197,6 +186,7 @@ export default function App() {
     handleKeyDown
   } = useDiscussion({
     projectPath,
+    activeSourceId,
     projectData,
     loadProjectData: async (p: string) => {
       await loadProjectData(p);
@@ -230,6 +220,7 @@ export default function App() {
     estimateContextTokens
   } = useContextPicker({
     projectPath,
+    activeSourceId,
     selectedDiscussionContextRefs,
     setSelectedDiscussionContextRefs,
     selectedCodingTaskContextRefs,
@@ -273,11 +264,11 @@ export default function App() {
   useEffect(() => {
     if (!scanStartedAt) return;
     const messages = [
-      'Scanning repository files and detecting project structure...',
-      'Updating readable workspace overview and structure...',
+      'Scanning Source files and detecting structure...',
+      'Updating the Room overview and Source structure...',
       projectConfig.mainAgent && projectConfig.mainAgent !== 'none'
-        ? 'Running the configured main agent to enrich the workspace overview...'
-        : 'Refreshing workspace metadata...'
+        ? 'Running the configured scanner agent to enrich the Room overview...'
+        : 'Refreshing Room metadata...'
     ];
     setScanStatus(messages[0]);
     const interval = window.setInterval(() => {
@@ -400,11 +391,11 @@ export default function App() {
         setErrorMsg(res.error || 'Scan failed.');
         return;
       }
-      setScanStatus('Refreshing ROOM workspace data...');
+      setScanStatus('Refreshing Room data...');
       localStorage.setItem(`room_scan_completed:${projectPath}`, new Date().toISOString());
       setHasCompletedScan(true);
       await loadProjectData(projectPath);
-      finishScanStatus('Scan complete. Workspace context is up to date.');
+      finishScanStatus('Scan complete. Room context is up to date.');
     } catch (err: any) {
       finishScanStatus('Scan failed.');
       setErrorMsg(err.message || 'Scan failed.');
@@ -419,7 +410,7 @@ export default function App() {
     const developer = (projectData?.agents || []).find((agent: any) => agent.name === codingTaskDeveloperName);
     if (!developer || developer.provider !== 'Local CLI') return;
 
-    const confirmed = window.confirm('Allow this Local CLI Developer to write in the workspace for coding tasks? This enables dangerous permissions for the selected AI member and dangerous workspace CLI permissions for this project.');
+    const confirmed = window.confirm('Allow this Local CLI Developer to write in the active Source for coding tasks? This enables dangerous permissions for the selected AI member and Source.');
     if (!confirmed) return;
 
     setLoading(true);
@@ -468,7 +459,7 @@ export default function App() {
         contentLineHeight={contentLineHeight}
       />
       <div className="titlebar-drag">
-        ROOM — AI-Native Project Workspace
+        ROOM — AI-Native Room
       </div>
       <OnboardingTour
         showOnboardingTour={showOnboardingTour}
@@ -499,221 +490,17 @@ export default function App() {
       />
       <CommandPalette enabled={!!projectPath && isRoomProject} setActiveTab={setActiveTab} />
 
-      {projectPath === null || !isRoomProject ? (
-        <>
-          <WelcomeScreen
-            newWorkspaceName={newWorkspaceName}
-            setNewWorkspaceName={setNewWorkspaceName}
-            loading={loading}
-            handleCreateWorkspace={handleCreateWorkspace}
-            handleOpenProject={handleOpenProject}
-            errorMsg={errorMsg}
-            recentProjects={recentProjects}
-            handleSelectRecentProject={handleSelectRecentProject}
-          />
-          {projectPath !== null && !isRoomProject && (
-            <div className="modal-backdrop">
-              <div className="modal-content" style={{ maxWidth: '860px', width: '90%', animation: 'modalScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-                <div className="modal-header">
-                  <h3 className="modal-title">{hasLegacyRoom ? 'Import Existing ROOM Workspace' : 'Initialize ROOM Workspace'}</h3>
-                </div>
-                <div className="modal-body" style={{ gap: '16px' }}>
-                  {/* Detailed UX Explanation */}
-                  <div style={{ fontSize: '0.82rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.5, textAlign: 'center', marginBottom: '4px', width: '100%' }}>
-                    {hasLegacyRoom
-                      ? 'ROOM จะคัดลอกข้อมูล .room เดิมไปยัง ROOM Home โดยไม่ลบหรือแก้ไขต้นฉบับ'
-                      : 'ROOM จะสร้าง workspace ใน ~/.room และเชื่อมโฟลเดอร์นี้เป็น source'}
-                    <br />
-                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>💡 วางเมาส์ชี้ที่ปุ่มเพื่อดูรายละเอียดบทบาทหน้าที่ของ AI แต่ละตำแหน่ง</span>
-                  </div>
-
-                  {/* Compact Template Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '6px' }}>
-                    {(() => {
-                      const getPresetEmoji = (name: string) => {
-                        const lowercaseName = name.toLowerCase();
-                        if (lowercaseName.includes('film') || lowercaseName.includes('creative')) return '🎨';
-                        if (lowercaseName.includes('software') || lowercaseName.includes('coding')) return '💻';
-                        if (lowercaseName.includes('agile')) return '⚡';
-                        if (lowercaseName.includes('research') || lowercaseName.includes('analysis')) return '🔍';
-                        if (lowercaseName.includes('writing') || lowercaseName.includes('editorial') || lowercaseName.includes('story')) return '✍️';
-                        if (lowercaseName.includes('business') || lowercaseName.includes('planning')) return '📈';
-                        if (lowercaseName.includes('startup') || lowercaseName.includes('corporate') || lowercaseName.includes('executive')) return '🏢';
-                        if (lowercaseName.includes('vetting')) return '🛡️';
-                        if (lowercaseName.includes('customer') || lowercaseName.includes('b2c')) return '👥';
-                        if (lowercaseName.includes('fintech') || lowercaseName.includes('investing') || lowercaseName.includes('trading')) return '💰';
-                        if (lowercaseName.includes('health') || lowercaseName.includes('education')) return '🎓';
-                        return '📁';
-                      };
-
-                      const handleInitPreset = async (preset: typeof teamPresets[0]) => {
-                        if (loading) return;
-                        setLoading(true);
-                        try {
-                          const res = await api.roomInit(projectPath!);
-                          if (res.success) {
-                            clearWorkspaceDerivedState();
-                            const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
-
-                            const nextSelected: string[] = [];
-                            for (const roleName of preset.roles) {
-                              const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
-                              if (tmpl) {
-                                try {
-                                  const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
-                                  const memberId = createDiscussionSelectionId('mem', tmpl.name);
-
-                                  await api.saveAgent(projectPath!, {
-                                    id: memberId,
-                                    name: tmpl.name,
-                                    role: tmpl.role,
-                                    provider: defaults.provider,
-                                    modelName: defaults.provider === 'Local CLI' ? undefined : (defaults.modelName || undefined),
-                                    cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
-                                    permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined,
-                                    systemPrompt: tmpl.prompt,
-                                    skills: skillFiles
-                                  });
-                                  nextSelected.push(tmpl.name);
-                                } catch (err) {
-                                  console.error(err);
-                                }
-                              }
-                            }
-
-                            const reopened = await handleSelectRecentProject(projectPath!);
-                            if (reopened) {
-                              queueDiscussionAgentSelectionByNames(nextSelected);
-                            }
-                          } else {
-                            setErrorMsg(res.error || 'Failed to create ROOM Home workspace.');
-                          }
-                        } catch (err: any) {
-                          setErrorMsg(err.message || 'Error occurred during workspace initialization.');
-                        } finally {
-                          setLoading(false);
-                        }
-                      };
-
-                      return teamPresets.map(preset => {
-                        const isHovered = hoveredPreset?.name === preset.name;
-                        return (
-                          <div
-                            key={preset.name}
-                            onClick={() => handleInitPreset(preset)}
-                            onMouseEnter={() => setHoveredPreset(preset)}
-                            onMouseLeave={() => setHoveredPreset(null)}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              background: isHovered ? 'hsla(var(--primary-raw), 0.15)' : 'hsl(var(--bg-input))',
-                              border: isHovered ? '1px solid hsl(var(--primary))' : '1px solid hsl(var(--border-dim))',
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              userSelect: 'none',
-                              height: '38px',
-                              overflow: 'hidden',
-                              boxShadow: isHovered ? '0 0 8px hsla(var(--primary-raw), 0.3)' : 'none'
-                            }}
-                            className="preset-init-card"
-                          >
-                            <span style={{ fontSize: '0.9rem', flexShrink: 0 }}>{getPresetEmoji(preset.name)}</span>
-                            <span style={{ 
-                              color: 'white', 
-                              fontSize: '0.76rem', 
-                              fontWeight: 600, 
-                              overflow: 'hidden', 
-                              textOverflow: 'ellipsis', 
-                              whiteSpace: 'nowrap'
-                            }}>
-                              {preset.name}
-                            </span>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-
-                  {/* Preset Preview Panel */}
-                  <div style={{
-                    height: '112px',
-                    minHeight: '112px',
-                    maxHeight: '112px',
-                    borderRadius: '8px',
-                    background: 'hsla(var(--bg-card-raw), 0.4)',
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid hsl(var(--border-dim))',
-                    padding: '12px 16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '0.8rem',
-                    color: 'white',
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    transition: 'all 0.15s ease',
-                    boxShadow: 'inset 0 1px 0 0 hsla(0, 0%, 100%, 0.05)'
-                  }}>
-                    {hoveredPreset ? (
-                      <>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <strong style={{ fontSize: '0.85rem', color: 'hsl(var(--primary))' }}>
-                            {hoveredPreset.name}
-                          </strong>
-                          <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))' }}>
-                            ({hoveredPreset.roles.length} AI Positions)
-                          </span>
-                        </div>
-                        <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.78rem', lineHeight: '1.4' }}>
-                          {hoveredPreset.description}
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px', alignItems: 'center' }}>
-                          <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.72rem', marginRight: '4px' }}>AI ในทีม:</span>
-                          {hoveredPreset.roles.map((r: string) => {
-                            const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === r.toLowerCase());
-                            const roleTitle = tmpl ? tmpl.role : r;
-                            return (
-                              <span
-                                key={r}
-                                title={tmpl ? tmpl.prompt : undefined}
-                                style={{
-                                  fontSize: '0.7rem',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  background: 'hsla(var(--bg-input-raw), 0.6)',
-                                  border: '1px solid hsl(var(--border-dim))',
-                                  color: 'hsl(var(--text-secondary))'
-                                }}
-                              >
-                                {r} ({roleTitle})
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ textAlign: 'center', color: 'hsl(var(--text-muted))', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                        <span>💡 วางเมาส์ชี้ที่ปุ่ม Preset เพื่อดูรายละเอียดบทบาทหน้าที่ของ AI ในทีมนี้</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                  <button className="btn-secondary" onClick={handleCloseProjectWorkspace} disabled={loading} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                    Cancel
-                  </button>
-                  <button className="btn-primary" onClick={handleInitProject} disabled={loading} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                    {loading ? 'Preparing...' : (hasLegacyRoom ? 'Import into ROOM Home' : 'Create in ROOM Home')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
+      {initializingRoom ? (
+        <div className="room-boot-state">
+          <div className="room-boot-orb" />
+          <h1>Opening Personal Room</h1>
+          <p>Preparing your source-independent memory…</p>
+        </div>
+      ) : projectPath === null || !isRoomProject ? (
+        <div className="room-boot-state">
+          <h1>Personal Room could not open</h1>
+          <p>{errorMsg || 'Restart ROOM to try again.'}</p>
+        </div>
       ) : (
         <div className="app-container" style={{
           gridTemplateColumns: [
@@ -726,7 +513,10 @@ export default function App() {
             sidebarExpanded={sidebarExpanded}
             setSidebarExpanded={setSidebarExpanded}
             projectPath={projectPath}
-            handleCloseProjectWorkspace={handleCloseProjectWorkspace}
+            roomName={room?.name}
+            activeSource={activeSource}
+            onAttachSource={() => void handleOpenProject()}
+            onDetachSource={() => void handleDetachSource()}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             aiMembersSidebarExpanded={aiMembersSidebarExpanded}
@@ -753,6 +543,8 @@ export default function App() {
               <WorkspaceRoutes
                 activeTab={activeTab}
                 projectPath={projectPath}
+                activeSourceId={activeSourceId}
+                onAttachSource={() => void handleOpenProject()}
                 projectData={projectData}
                 loading={loading}
                 agentOperationLoading={agentOperationLoading}

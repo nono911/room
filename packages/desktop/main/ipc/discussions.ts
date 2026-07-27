@@ -5,7 +5,7 @@ import { DiscussionEngine, loadAgents, type AgentConfig } from '@room/engine';
 import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   normalizeTemporaryAgents,
-  requireBoundProjectRoot, requireBoundWorkspace, resolveCanonicalWithinProject,
+  createSourceProvenance, requireBoundRoom, requireBoundWorkspace, resolveCanonicalWithinProject,
   resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
 } from './shared.js';
@@ -36,7 +36,11 @@ async function readTextFileWithLimitLocal(filePath: string, maxBytes: number): P
   return buffer.toString('utf-8');
 }
 
-async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Promise<string> {
+async function buildDiscussionContext(
+  roomId: string,
+  sourceRoot: string | undefined,
+  rawRefs: unknown
+): Promise<string> {
   if (!Array.isArray(rawRefs)) return '';
 
   const sections: string[] = [];
@@ -55,10 +59,12 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         continue;
       } else if (ref.startsWith('file:')) {
         const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
-        label = `Workspace File: ${relPath}`;
+        label = `Source File: ${relPath}`;
         const selectedPath = relPath.startsWith('.room/')
-          ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
-          : await resolveCanonicalWithinProject(projectRoot, relPath);
+          ? resolveWithinRoomData(roomId, relPath.slice('.room/'.length))
+          : sourceRoot
+            ? await resolveCanonicalWithinProject(sourceRoot, relPath)
+            : (() => { throw new Error('Attach a Source to include source files.'); })();
         content = await readTextFileWithLimitLocal(
           selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -67,15 +73,15 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         const filename = sanitizeFileName(ref.slice('document:'.length));
         label = `Document: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'documents', filename),
-          resolveWithinRoomData(projectRoot, 'reviews', filename),
-          resolveWithinRoomData(projectRoot, 'decisions', filename)
+          resolveWithinRoomData(roomId, 'documents', filename),
+          resolveWithinRoomData(roomId, 'reviews', filename),
+          resolveWithinRoomData(roomId, 'decisions', filename)
         ]);
       } else if (ref.startsWith('task:')) {
         const filename = sanitizeFileName(ref.slice('task:'.length));
         label = `Task: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'tasks', filename)
+          resolveWithinRoomData(roomId, 'tasks', filename)
         ]);
       } else if (ref.startsWith('discussion:')) {
         const filename = sanitizeFileName(ref.slice('discussion:'.length));
@@ -84,7 +90,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         }
         label = `Previous Discussion: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'discussions', filename)
+          resolveWithinRoomData(roomId, 'discussions', filename)
         ]);
       }
     } catch (error: any) {
@@ -111,13 +117,13 @@ function createProjectSummaryAgent(projectConfig: ProjectConfig): AgentConfig | 
   }
 
   return {
-    name: 'Project Summary Agent',
+    name: 'Room Summary Agent',
     role: 'Room Reporter',
     provider: 'Local CLI',
     modelName: projectConfig.modelName || undefined,
-    systemPrompt: `You are the Room Reporter for this workspace.
+    systemPrompt: `You are the Room Reporter for this Room.
 
-Your job is to turn chat transcripts into durable workspace memory.
+Your job is to turn chat transcripts into durable Room memory.
 Do not contribute new ideas. Capture what was decided, what remains open, useful context, risks, options, and next steps.
 Use the same natural language as the chat unless the user explicitly asks otherwise.`,
     cliPreset: projectConfig.mainAgent as AgentConfig['cliPreset'],
@@ -127,7 +133,7 @@ Use the same natural language as the chat unless the user explicitly asks otherw
 }
 
 export function registerDiscussionsIpc(): void {
-  ipcMain.handle('run-discussion', async (event, { dirPath, topic, agentNames, maxRounds, reviewMode, allowReadOnlyTools, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { dirPath: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
+  ipcMain.handle('run-discussion', async (event, { roomId, sourceId, topic, agentNames, maxRounds, reviewMode, allowReadOnlyTools, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { roomId: string; sourceId?: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
     const safeRequestedDiscussionId = typeof requestedDiscussionId === 'string' && /^discussion-\d+$/.test(requestedDiscussionId)
       ? requestedDiscussionId
       : '';
@@ -138,11 +144,11 @@ export function registerDiscussionsIpc(): void {
     };
     startControlledRun(discussionId);
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const workspace = requireBoundWorkspace(dirPath);
+      const workspace = requireBoundWorkspace(roomId, sourceId);
+      const sourceProvenance = createSourceProvenance(requireBoundRoom(roomId), workspace);
       const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
-      const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
+      const additionalContext = await buildDiscussionContext(roomId, workspace.sourceRoot, contextRefs);
       const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
       let log = await engine.runDiscussion(
         discussionId,
@@ -171,7 +177,7 @@ export function registerDiscussionsIpc(): void {
           );
         }
 
-        const discussionsDir = resolveWithinRoomData(projectRoot, 'discussions');
+        const discussionsDir = resolveWithinRoomData(roomId, 'discussions');
         const finalLogPath = resolveWithinProject(discussionsDir, `${discussionId}.json`);
         try {
           log = JSON.parse(await fs.readFile(finalLogPath, 'utf-8'));
@@ -180,7 +186,7 @@ export function registerDiscussionsIpc(): void {
 
       let summary: { filename: string; content: string } | undefined;
       if (autoSummary && log.status !== 'interrupted') {
-        const projectConfig = await readProjectConfigFromDisk(projectRoot);
+        const projectConfig = await readProjectConfigFromDisk(roomId);
         const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
         const summaryAgentNames = summaryAgentName
           ? [summaryAgentName]
@@ -192,6 +198,12 @@ export function registerDiscussionsIpc(): void {
         );
       }
 
+      log.sourceProvenance = sourceProvenance;
+      await fs.writeFile(
+        resolveWithinRoomData(roomId, 'discussions', `${discussionId}.json`),
+        JSON.stringify(log, null, 2),
+        'utf-8'
+      );
       return { success: true, log, summary, moderatorActions };
     } catch (error: any) {
       sendDiscussionEvent({
@@ -205,11 +217,10 @@ export function registerDiscussionsIpc(): void {
     }
   });
 
-  ipcMain.handle('summarize-discussion', async (event, { dirPath, discussionId, agentNames, summaryAgentName, useProjectSummaryAgent }: { dirPath: string; discussionId: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
+  ipcMain.handle('summarize-discussion', async (event, { roomId, sourceId, discussionId, agentNames, summaryAgentName, useProjectSummaryAgent }: { roomId: string; sourceId?: string; discussionId: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
     try {
       await applyApiKeysToEnvironment();
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const workspace = requireBoundWorkspace(dirPath);
+      const workspace = requireBoundWorkspace(roomId, sourceId);
       const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
         ? discussionId
         : '';
@@ -218,7 +229,7 @@ export function registerDiscussionsIpc(): void {
       }
 
       const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
-      const projectConfig = await readProjectConfigFromDisk(projectRoot);
+      const projectConfig = await readProjectConfigFromDisk(roomId);
       const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
       const summaryAgentNames = summaryAgentName
         ? [summaryAgentName]
@@ -230,11 +241,10 @@ export function registerDiscussionsIpc(): void {
     }
   });
 
-  ipcMain.handle('generate-tasks-from-discussion', async (event, { dirPath, discussionId, moderatorName }: { dirPath: string; discussionId: string; moderatorName?: string }) => {
+  ipcMain.handle('generate-tasks-from-discussion', async (event, { roomId, sourceId, discussionId, moderatorName }: { roomId: string; sourceId?: string; discussionId: string; moderatorName?: string }) => {
     try {
       await applyApiKeysToEnvironment();
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const workspace = requireBoundWorkspace(dirPath);
+      const workspace = requireBoundWorkspace(roomId, sourceId);
       const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
         ? discussionId
         : '';

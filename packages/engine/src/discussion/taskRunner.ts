@@ -36,7 +36,7 @@ import { parseCodingApproval, extractTaskReviewSummary } from './approvalDetecto
 import { updateTaskCardStatus } from './taskBoard.js';
 import {
   resolveRoomPath,
-  resolveWorkspaceLocation,
+  resolveExecutionRoot,
   type WorkspaceInput
 } from '../workspace.js';
 
@@ -88,7 +88,7 @@ export async function runCodingTaskLoop(
     throw new Error('Invalid task id.');
   }
 
-  const { sourceRoot } = resolveWorkspaceLocation(workspace);
+  const sourceRoot = resolveExecutionRoot(workspace);
   const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
   const developer = agents.find(agent => agent.name.toLowerCase() === developerName.toLowerCase())
     || agents.find(agent => isDeveloperAgent(agent));
@@ -142,7 +142,7 @@ export async function runCodingTaskLoop(
     resolveRoomPath(workspace, 'architecture', 'current.md')
   ]);
   if (structure) {
-    projectContext += `\n\nWorkspace Structure:\n${structure}`;
+    projectContext += `\n\nRoom Structure:\n${structure}`;
   }
   if (options.additionalContext?.trim()) {
     projectContext += `\n\nSelected Context:\n${options.additionalContext.trim()}`;
@@ -253,7 +253,7 @@ ${task}
 Workspace root:
 ${sourceRoot}
 
-${developerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
+${developerContext.projectContextBlock || '=== Room Context ===\n(No Room context provided.)'}
 
 Task history available for this pass:
 ${developerContext.historyBlock}
@@ -360,7 +360,7 @@ ${task}
 Workspace root:
 ${sourceRoot}
 
-${reviewerContext.projectContextBlock || '=== Project Context ===\n(No workspace context provided.)'}
+${reviewerContext.projectContextBlock || '=== Room Context ===\n(No Room context provided.)'}
 
 Task history available for this pass:
 ${reviewerContext.historyBlock}
@@ -373,7 +373,7 @@ ${reviewerRules}
       const reviewerSystemPrompt = composeAgentSystemPrompt(
         reviewer.systemPrompt,
         reviewer.provider === 'Local CLI',
-        'You review deliverables in the ROOM workspace task loop. You must provide clear, actionable findings and explicitly set the APPROVAL_STATUS at the end of your reply.',
+        'You review deliverables in the Room task loop. You must provide clear, actionable findings and explicitly set the APPROVAL_STATUS at the end of your reply.',
         REFERENCE_TRACING_PROTOCOL,
         buildReviewProtocol(reviewer),
         reviewerSkillsContext

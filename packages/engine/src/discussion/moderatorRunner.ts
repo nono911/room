@@ -99,7 +99,8 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.`;
 
-  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
+    || resolveWorkspaceLocation(workspace).roomRoot;
   const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const { actions, errors: actionErrors } = parseModeratorActions(content);
   const executed = await executeModeratorActions(workspace, actions, discussionId);
@@ -196,7 +197,8 @@ ${WORKSPACE_BOUNDARY_POLICY}
 
 You convert finished ROOM chats into actionable task plans for the project task board.`;
 
-  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot;
+  const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
+    || resolveWorkspaceLocation(workspace).roomRoot;
   const content = stripExternalFileLinks(await provider.execute(prompt, systemPrompt), sourceRoot);
   const { actions, errors } = parseModeratorActions(content);
   const taskActions = actions.filter(action => action.action === 'create_task');

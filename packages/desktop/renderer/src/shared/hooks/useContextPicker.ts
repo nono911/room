@@ -7,6 +7,7 @@ type ContextPickerTab = 'Suggested' | 'Tasks' | 'Docs' | 'Files';
 
 interface UseContextPickerDeps {
   projectPath: string | null;
+  activeSourceId?: string;
   selectedDiscussionContextRefs: string[];
   setSelectedDiscussionContextRefs: Dispatch<SetStateAction<string[]>>;
   selectedCodingTaskContextRefs: string[];
@@ -16,6 +17,7 @@ interface UseContextPickerDeps {
 
 export function useContextPicker({
   projectPath,
+  activeSourceId,
   selectedDiscussionContextRefs,
   setSelectedDiscussionContextRefs,
   selectedCodingTaskContextRefs,
@@ -34,7 +36,7 @@ export function useContextPicker({
     const timer = window.setTimeout(async () => {
       setContextPickerLoading(true);
       try {
-        const res = await api.searchContextItems(projectPath, contextPickerQuery);
+        const res = await api.searchContextItems(projectPath, activeSourceId, contextPickerQuery);
         if (cancelled) return;
         if (res.success) {
           setContextPickerItems(res.items || []);
@@ -58,7 +60,7 @@ export function useContextPicker({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [projectPath, contextPickerTarget, contextPickerQuery, setErrorMsg]);
+  }, [activeSourceId, projectPath, contextPickerTarget, contextPickerQuery, setErrorMsg]);
 
   const openContextPicker = (target: ContextPickerTarget) => {
     setContextPickerTarget(target);
@@ -98,8 +100,8 @@ export function useContextPicker({
   };
 
   const getContextLabel = (ref: string) => {
-    if (ref === 'workspace:overview') return 'Workspace Overview';
-    if (ref === 'workspace:structure') return 'Workspace Structure';
+    if (ref === 'workspace:overview') return 'Room Overview';
+    if (ref === 'workspace:structure') return 'Room Structure';
     const known = contextPickerItems.find(item => item.ref === ref);
     if (known) return known.label;
     if (ref.startsWith('task:')) return `Task: ${ref.slice('task:'.length)}`;

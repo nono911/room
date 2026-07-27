@@ -2,10 +2,11 @@ import type { ProjectData } from '../../types/domain.js';
 import { renderMarkdownContent } from '../../shared/lib/markdown/MarkdownContent.js';
 
 interface HomeScreenProps {
-  projectPath: string | null;
   projectData: ProjectData | null;
   activeDiscussionRunId: string | null;
   activeTaskRunId: string | null;
+  activeSourceName?: string;
+  onAttachSource: () => void;
   setActiveTab: (tab: string) => void;
 }
 
@@ -22,10 +23,11 @@ function countArtifacts(projectData: ProjectData | null): number {
 }
 
 export function HomeScreen({
-  projectPath,
   projectData,
   activeDiscussionRunId,
   activeTaskRunId,
+  activeSourceName,
+  onAttachSource,
   setActiveTab
 }: HomeScreenProps) {
   const members = (projectData?.agents || []).filter(agent => !agent.isVirtual);
@@ -35,21 +37,30 @@ export function HomeScreen({
     : activeDiscussionRunId
       ? { label: 'Discussion in progress', route: 'Run:Think' }
       : null;
-  const sourceName = projectPath?.split(/[/\\]/).pop() || 'No source attached';
-
   return (
     <div className="workspace-home">
       <header className="home-hero">
         <div>
           <span className="workspace-page-eyebrow">ROOM Home</span>
-          <h1>What should this workspace move forward?</h1>
-          <p>{sourceName} is attached as source. Runs, memory, agents, and artifacts stay in ROOM Home.</p>
+          <h1>What should this Room move forward?</h1>
+          <p>{activeSourceName
+            ? `${activeSourceName} is the active Source. Runs, memory, agents, and artifacts stay in this Room.`
+            : 'No Source attached. General runs, memory, agents, skills, and artifacts are ready now.'}</p>
         </div>
         <button type="button" className="home-primary-action" onClick={() => setActiveTab('Run:Think')}>
           <span>✦</span>
           Start a run
         </button>
       </header>
+      {!activeSourceName && (
+        <button type="button" className="home-source-cta" onClick={onAttachSource}>
+          <span>⌁</span>
+          <span>
+            <strong>Attach Source folder</strong>
+            <small>Enable files, search, scan, Git, and coding actions.</small>
+          </span>
+        </button>
+      )}
 
       {activeRun && (
         <button type="button" className="home-continue-run" onClick={() => setActiveTab(activeRun.route)}>
@@ -62,7 +73,7 @@ export function HomeScreen({
         </button>
       )}
 
-      <section className="home-metrics" aria-label="Workspace health">
+      <section className="home-metrics" aria-label="Room health">
         <button type="button" onClick={() => setActiveTab('Context')}>
           <span className={hasContext ? 'healthy' : 'attention'}>{hasContext ? 'Ready' : 'Needs context'}</span>
           <strong>Shared memory</strong>
@@ -76,7 +87,7 @@ export function HomeScreen({
         <button type="button" onClick={() => setActiveTab('Skills')}>
           <span>{(projectData?.skills.length || 0) + (projectData?.machineSkills?.length || 0)}</span>
           <strong>Skills available</strong>
-          <small>Workspace + this Mac</small>
+          <small>Room + this Mac</small>
         </button>
         <button type="button" onClick={() => setActiveTab('Artifacts')}>
           <span>{countArtifacts(projectData)}</span>
@@ -112,14 +123,14 @@ export function HomeScreen({
         <section className="home-overview-card">
           <div className="home-section-heading">
             <div>
-              <span className="workspace-page-eyebrow">Workspace brief</span>
+              <span className="workspace-page-eyebrow">Room brief</span>
               <h2>Shared context</h2>
             </div>
             <button type="button" onClick={() => setActiveTab('Context')}>Edit</button>
           </div>
           <div className="home-overview-markdown">
             {renderMarkdownContent(
-              projectData?.projectMd?.trim() || 'No workspace overview yet. Add the goals, constraints, and source material every run should know.',
+              projectData?.projectMd?.trim() || 'No Room overview yet. Add the goals, constraints, and source material every run should know.',
               false,
               'message-markdown'
             )}

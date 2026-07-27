@@ -16,6 +16,7 @@ import { type TaskCard } from './taskBoard.js';
 import { type ActionExecutionResult } from './actionExecutor.js';
 import {
   resolveRoomPath,
+  resolveExecutionRoot,
   resolveWorkspaceLocation,
   type WorkspaceInput,
   type WorkspaceLocation
@@ -33,7 +34,7 @@ export class DiscussionEngine {
 
   constructor(workspace: WorkspaceInput, options: DiscussionEngineOptions = {}) {
     this.workspace = resolveWorkspaceLocation(workspace);
-    this.dirPath = this.workspace.sourceRoot;
+    this.dirPath = resolveExecutionRoot(this.workspace);
     this.roomRoot = this.workspace.roomRoot;
     this.providerRegistry = options.providerRegistry;
   }
@@ -65,7 +66,7 @@ export class DiscussionEngine {
     }
 
     if ((agent.permissionMode || 'safe') !== 'dangerous') {
-      throw new Error(`Coding tasks require workspace write access for Local CLI Developer "${agent.name}". Edit this AI member, enable dangerous permissions, then enable dangerous workspace CLI permissions in project settings.`);
+      throw new Error(`Coding tasks require Source write access for Local CLI Developer "${agent.name}". Edit this AI member, enable dangerous permissions, then enable dangerous CLI permissions in Room settings.`);
     }
 
     await this.assertAgentExecutionAllowed(agent);

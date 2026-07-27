@@ -42,12 +42,12 @@ const TEMPLATE_ALIASES: Record<string, { baseTemplateName: string; role: string;
   Copywriter: {
     baseTemplateName: 'Screenwriter',
     role: 'Copywriter',
-    promptIntro: 'You are the Copywriter for this workspace. Your job is to draft crisp, audience-aware product, marketing, and interface copy that is easy to use and easy to trust.'
+    promptIntro: 'You are the Copywriter for this Room. Your job is to draft crisp, audience-aware product, marketing, and interface copy that is easy to use and easy to trust.'
   },
   Support: {
     baseTemplateName: 'Researcher',
     role: 'Support',
-    promptIntro: 'You are the Support Specialist for this workspace. Your job is to triage user issues, write empathetic troubleshooting guidance, and turn recurring problems into repeatable support playbooks.'
+    promptIntro: 'You are the Support Specialist for this Room. Your job is to triage user issues, write empathetic troubleshooting guidance, and turn recurring problems into repeatable support playbooks.'
   }
 };
 
@@ -102,7 +102,7 @@ function resolveTemplateSource(templateName: string): ResolvedTemplateSource | n
     role: templateName,
     provider: normalizeProviderId(fallbackTemplate.provider),
     prompt: buildAliasedPrompt(
-      `You are the ${templateName} for this workspace. Adapt your output to this role while staying practical, evidence-aware, and useful to the team.`,
+      `You are the ${templateName} for this Room. Adapt your output to this role while staying practical, evidence-aware, and useful to the team.`,
       fallbackTemplate.prompt
     ),
     skills: roleTemplateSkills[templateName as keyof typeof roleTemplateSkills] ?? []

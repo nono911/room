@@ -186,7 +186,7 @@ describe('composeProjectContext', () => {
     expect(result.indexOf('SELECTED')).toBeLessThan(result.indexOf('OVERVIEW'));
     expect(result.indexOf('OVERVIEW')).toBeLessThan(result.indexOf('STRUCTURE'));
     expect(result).toContain('Selected Context:\nSELECTED');
-    expect(result).toContain('Workspace Structure:\nSTRUCTURE');
+    expect(result).toContain('Room Structure:\nSTRUCTURE');
   });
 
   it('keeps the selected context when the budget forces trimming', () => {
@@ -200,7 +200,7 @@ describe('composeProjectContext', () => {
 
   it('omits empty sections', () => {
     expect(composeProjectContext({ overview: '  ' })).toBe('');
-    expect(composeProjectContext({ structure: 'S' })).toBe('Workspace Structure:\nS');
+    expect(composeProjectContext({ structure: 'S' })).toBe('Room Structure:\nS');
   });
 });
 
@@ -225,7 +225,7 @@ describe('loadWorkspaceMemoryContext', () => {
     await fs.writeFile(path.join(tmpDir, '.room', 'decisions', 'ADR-001-db.md'), 'Use SQLite.');
     await fs.writeFile(path.join(tmpDir, '.room', 'documents', 'topic-discussion-1-summary.md'), 'Past summary body.');
     const memory = await loadWorkspaceMemoryContext(tmpDir);
-    expect(memory).toContain('Workspace Memory');
+    expect(memory).toContain('Room Memory');
     expect(memory).toContain('[Decision: ADR-001-db.md]');
     expect(memory).toContain('Use SQLite.');
     expect(memory).toContain('[Past Discussion Summary: topic-discussion-1-summary.md]');
@@ -242,7 +242,7 @@ describe('loadWorkspaceMemoryContext', () => {
   it('trims to the token budget', async () => {
     await fs.writeFile(path.join(tmpDir, '.room', 'decisions', 'ADR-001-big.md'), 'word '.repeat(10000));
     const memory = await loadWorkspaceMemoryContext(tmpDir, 200);
-    expect(memory).toContain('[Workspace memory trimmed to fit the prompt budget.]');
+    expect(memory).toContain('[Room memory trimmed to fit the prompt budget.]');
   });
 });
 

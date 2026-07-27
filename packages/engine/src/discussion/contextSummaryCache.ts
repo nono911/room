@@ -19,7 +19,7 @@ export interface ContextSummaryCache {
 
 export interface ContextSummaryCacheInput {
   workspace?: WorkspaceInput;
-  dirPath?: string;
+  dirPath?: WorkspaceInput;
   source: ContextSummarySource;
   contextId: string;
 }
@@ -36,7 +36,7 @@ export function contextSummaryCachePath(input: ContextSummaryCacheInput): string
   const dirname = input.source === 'discussion' ? 'discussions' : 'tasks';
   const workspace = input.workspace ?? input.dirPath;
   if (!workspace) {
-    throw new Error('Workspace location is required for context summary cache.');
+    throw new Error('Room location is required for context summary cache.');
   }
   return resolveRoomPath(workspace, dirname, `${input.contextId}.context-summary.json`);
 }

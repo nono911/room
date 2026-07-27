@@ -78,7 +78,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </button>
         </div>
         <div style={{ fontSize: '0.78rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5 }}>
-          Keys are stored locally on this machine in the app's private data, outside ROOM workspace files. Any OpenAI-compatible endpoint can be added. Leave a key field blank to keep the existing key.
+          Keys are stored locally on this machine in private app data, outside Room and Source files. Any OpenAI-compatible endpoint can be added. Leave a key field blank to keep the existing key.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {providers.map(provider => (
@@ -184,7 +184,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <div className="focus-editor-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--accent-purple))', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-          Workspace Agent & Scanner Defaults
+          Source Scanner Defaults
         </h4>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -231,12 +231,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             onChange={(e) => handleUpdateProjectConfig('allowDangerousCli', e.target.checked)}
           />
           <span>
-            <span style={{ fontWeight: 600, color: 'hsl(var(--text-primary))' }}>Enable dangerous workspace CLI permissions</span>
+            <span style={{ fontWeight: 600, color: 'hsl(var(--text-primary))' }}>Enable dangerous Source CLI permissions</span>
             <span style={{ color: 'hsl(var(--text-muted))' }}> for scan and Local CLI execution</span>
           </span>
         </label>
         <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', marginTop: '-14px' }}>
-          Safe mode is default. Enabling this grants elevated Local CLI behaviors (file writes, tools, networking) to the workspace main agent.
+          Safe mode is default. Enabling this grants elevated Local CLI behaviors (file writes, tools, networking) to the active Source scanner.
         </span>
       </div>
 
@@ -244,7 +244,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <div className="focus-editor-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--accent-blue))', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-3M9.7 9.3L14.5 4.5a1.5 1.5 0 012.1 2.1l-4.8 4.8m-2.1-2.1h.01M9.7 9.3v.01" /></svg>
-          Workspace Color Theme (Entire App)
+          Room Color Theme (Entire App)
         </h4>
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '16px' }}>

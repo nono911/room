@@ -205,10 +205,10 @@ export const roleTemplateSkills = {
   Developer: [
     {
       filename: 'workspace-implementation.md',
-      title: 'Workspace Implementation',
-      content: `Use this skill when executing a coding task in the user's workspace.
+      title: 'Source Implementation',
+      content: `Use this skill when executing a coding task against the user's active Source.
 
-- Work only inside the active workspace root.
+- Work only inside the active Source root.
 - Read the relevant files before editing.
 - Keep edits scoped to the task and existing code patterns.
 - Report changed files, validation commands, and blockers clearly.`
@@ -265,7 +265,7 @@ export const roleTemplateSkills = {
 - Keep API keys, tokens, and local credentials out of project files and logs.
 - Minimize stored personal or sensitive data.
 - Verify where data is persisted, transmitted, and displayed.
-- Flag accidental disclosure through exports, prompts, discussions, or workspace files.`
+- Flag accidental disclosure through exports, prompts, discussions, or Source files.`
     }
   ],
   QA: [
@@ -316,7 +316,7 @@ export const roleTemplateSkills = {
     {
       filename: 'chat-summary.md',
       title: 'Chat Summary',
-      content: `Use this skill when turning a discussion transcript into durable workspace memory.
+      content: `Use this skill when turning a discussion transcript into durable Room memory.
 
 - Do not add new ideas unless clearly marked as a recommendation.
 - Preserve decisions, options, open questions, risks, and next steps.
@@ -747,13 +747,13 @@ export const teamPresets: {
     roles: ['Product', 'UX', 'Architect', 'Implementer', 'Reviewer', 'QA']
   },
   {
-    name: 'Agile Delivery Workspace',
+    name: 'Agile Delivery Room',
     description: 'Manage backlog, iterate rapidly, build, refine copy, review codes, and assure high delivery quality.',
     roles: ['Scrum Master', 'Product', 'Developer', 'Copywriter', 'Reviewer', 'QA']
   },
   {
     name: 'Coding Execution',
-    description: 'Assign a software developer to edit the workspace, then send the result through senior review and QA.',
+    description: 'Assign a software developer to edit the active Source, then send the result through senior review and QA.',
     roles: ['Developer', 'Reviewer', 'QA']
   },
   {

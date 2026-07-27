@@ -14,6 +14,10 @@ const projectData = {
   skills: [],
   agents: []
 };
+const sourceProps = {
+  activeSourceId: 'source_test',
+  onAttachSource: vi.fn()
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -27,6 +31,26 @@ describe('FilesScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+  });
+
+  it('shows an Attach Source empty state without calling source IPC', async () => {
+    const onAttachSource = vi.fn();
+    render(
+      <FilesScreen
+        projectPath="room_personal"
+        onAttachSource={onAttachSource}
+        projectData={projectData}
+        initialSelectedFile={null}
+        setInitialSelectedFile={vi.fn()}
+        setErrorMsg={vi.fn()}
+        onAddContext={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: 'No Source attached' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Attach Source folder' }));
+    expect(onAttachSource).toHaveBeenCalledOnce();
+    expect(window.electronAPI.browseWorkspaceFiles).not.toHaveBeenCalled();
   });
 
   it('browses source lazily, previews markdown, and adds the selected file to context', async () => {
@@ -56,6 +80,7 @@ describe('FilesScreen', () => {
 
     render(
       <FilesScreen
+        {...sourceProps}
         projectPath="/mock/project"
         projectData={projectData}
         initialSelectedFile={null}
@@ -77,6 +102,7 @@ describe('FilesScreen', () => {
     mockApi.readRoomFile.mockResolvedValue({ success: true, content: '# Accepted decision' });
     render(
       <FilesScreen
+        {...sourceProps}
         projectPath="/mock/project"
         projectData={projectData}
         initialSelectedFile={{ section: 'decisions', file: '0001-storage.md' }}
@@ -100,6 +126,7 @@ describe('FilesScreen', () => {
     const mockApi = window.electronAPI as any;
     mockApi.readRoomFile.mockResolvedValue({ success: true, content: '# Accepted decision' });
     const props = {
+      ...sourceProps,
       projectPath: '/mock/project',
       projectData,
       initialSelectedFile: { section: 'decisions' as const, file: '0001-storage.md' },
@@ -135,6 +162,7 @@ describe('FilesScreen', () => {
       }
     });
     const props = {
+      ...sourceProps,
       projectPath: '/mock/project',
       projectData,
       initialSelectedFile: null,
@@ -149,7 +177,7 @@ describe('FilesScreen', () => {
     view.rerender(<FilesScreen {...props} initialTab="source" />);
 
     await waitFor(() => {
-      expect(mockApi.readWorkspaceFile).toHaveBeenCalledWith('/mock/project', 'README.md');
+      expect(mockApi.readWorkspaceFile).toHaveBeenCalledWith('/mock/project', 'source_test', 'README.md');
       expect(screen.getByText('Restored source')).toBeDefined();
     });
   });
@@ -180,12 +208,13 @@ describe('FilesScreen', () => {
     });
     const first = deferred<{ success: true; preview: { kind: 'text'; content: string; mimeType: string; language: string } }>();
     const second = deferred<{ success: true; preview: { kind: 'text'; content: string; mimeType: string; language: string } }>();
-    mockApi.readWorkspaceFile.mockImplementation((_projectPath: string, filePath: string) => (
+    mockApi.readWorkspaceFile.mockImplementation((_roomId: string, _sourceId: string, filePath: string) => (
       filePath === 'A.md' ? first.promise : second.promise
     ));
 
     render(
       <FilesScreen
+        {...sourceProps}
         projectPath="/mock/project"
         projectData={projectData}
         initialSelectedFile={null}

@@ -1,5 +1,4 @@
 import { spawn } from 'child_process';
-import { createHash } from 'crypto';
 import { StringDecoder } from 'string_decoder';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -24,8 +23,6 @@ export interface LocalCliConfig extends ProviderConfig {
 }
 
 export class LocalCliProvider implements Provider {
-  private static claudeMcpLocks = new Map<string, Promise<void>>();
-
   name = 'Local CLI';
   private command: string;
   private cliPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
@@ -48,44 +45,7 @@ export class LocalCliProvider implements Provider {
   }
 
   async execute(prompt: string, systemInstruction?: string, options?: ProviderExecuteOptions): Promise<string> {
-    if (this.cliPreset === 'claude') {
-      return LocalCliProvider.withClaudeMcpLock(this.cwd, () => this.executeInternal(prompt, systemInstruction, options));
-    }
-
     return this.executeInternal(prompt, systemInstruction, options);
-  }
-
-  private static async withClaudeMcpLock<T>(cwd: string, run: () => Promise<T>): Promise<T> {
-    const key = path.resolve(cwd);
-    const previous = LocalCliProvider.claudeMcpLocks.get(key) || Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const queued = previous.then(() => current);
-    LocalCliProvider.claudeMcpLocks.set(key, queued);
-
-    await previous;
-    try {
-      return await run();
-    } finally {
-      release();
-      if (LocalCliProvider.claudeMcpLocks.get(key) === queued) {
-        LocalCliProvider.claudeMcpLocks.delete(key);
-      }
-    }
-  }
-
-  private hashContent(content: string): string {
-    return createHash('sha256').update(content).digest('hex');
-  }
-
-  private async readRoomMcpOwner(ownerPath: string): Promise<{ ownerId?: string; contentHash?: string } | null> {
-    try {
-      return JSON.parse(await fs.readFile(ownerPath, 'utf-8'));
-    } catch {
-      return null;
-    }
   }
 
   private async executeInternal(prompt: string, systemInstruction?: string, options?: ProviderExecuteOptions): Promise<string> {
@@ -116,101 +76,19 @@ export class LocalCliProvider implements Provider {
         return;
       }
 
-      let wroteMcp = false;
-      let publishedTargetMcp = false;
-      let mcpOwnerId = '';
-      let mcpContentHash = '';
-      let previousMcpContent: string | null = null;
       const toolAccess = resolveToolAccess(options?.toolAccess, this.permissionMode);
       const mcpConfigPath = path.join(this.roomRoot, 'mcp.json');
-      const targetMcpPath = path.join(this.cwd, '.mcp.json');
-      const ownerMcpPath = path.join(this.cwd, '.mcp.json.room-owner');
-
-      const restorePublishedMcp = async () => {
-        if (!publishedTargetMcp) {
-          return;
-        }
-        try {
-          const currentContent = await fs.readFile(targetMcpPath, 'utf-8');
-          if (this.hashContent(currentContent) !== mcpContentHash) {
-            console.warn(`[Local CLI Provider] Skipped partial .mcp.json cleanup because target content changed at ${targetMcpPath}`);
-            return;
-          }
-          if (previousMcpContent !== null) {
-            await fs.writeFile(targetMcpPath, previousMcpContent, 'utf-8');
-          } else {
-            await fs.unlink(targetMcpPath);
-          }
-        } catch {
-          // Ignore partial cleanup error
-        } finally {
-          await fs.unlink(ownerMcpPath).catch(() => {});
-        }
-      };
+      let hasRoomMcpConfig = false;
 
       if (this.cliPreset === 'claude') {
-        let tempMcpPath = '';
-        let tempOwnerPath = '';
         try {
           const content = await fs.readFile(mcpConfigPath, 'utf-8');
-          const parsed = JSON.parse(content);
-          if (parsed && parsed.mcpServers && Object.keys(parsed.mcpServers).length > 0) {
-            try {
-              const existing = await fs.readFile(targetMcpPath, 'utf-8');
-              const existingOwner = await this.readRoomMcpOwner(ownerMcpPath);
-              const existingHash = this.hashContent(existing);
-              previousMcpContent = existingOwner?.contentHash === existingHash ? null : existing;
-            } catch {
-              previousMcpContent = null;
-            }
-            mcpOwnerId = `room-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            const managedContent = JSON.stringify(parsed, null, 2);
-            mcpContentHash = this.hashContent(managedContent);
-            tempMcpPath = path.join(this.cwd, `.mcp.room-${mcpOwnerId}.json`);
-            tempOwnerPath = path.join(this.cwd, `.mcp.room-${mcpOwnerId}.owner`);
-            await fs.writeFile(tempMcpPath, managedContent, 'utf-8');
-            await fs.writeFile(tempOwnerPath, JSON.stringify({
-              ownerId: mcpOwnerId,
-              contentHash: mcpContentHash,
-              createdAt: new Date().toISOString()
-            }, null, 2), 'utf-8');
-            await fs.rename(tempMcpPath, targetMcpPath);
-            publishedTargetMcp = true;
-            await fs.rename(tempOwnerPath, ownerMcpPath);
-            wroteMcp = true;
-            console.log(`[Local CLI Provider] Dynamically wrote .mcp.json at ${targetMcpPath}`);
-          }
-        } catch (err) {
-          await fs.unlink(tempMcpPath).catch(() => {});
-          await fs.unlink(tempOwnerPath).catch(() => {});
-          await restorePublishedMcp();
+          const parsed = JSON.parse(content) as { mcpServers?: Record<string, unknown> };
+          hasRoomMcpConfig = Object.keys(parsed.mcpServers || {}).length > 0;
+        } catch {
+          hasRoomMcpConfig = false;
         }
       }
-
-      const cleanup = async () => {
-        if (wroteMcp) {
-          try {
-            const currentContent = await fs.readFile(targetMcpPath, 'utf-8');
-            const currentOwner = await this.readRoomMcpOwner(ownerMcpPath);
-            if (
-              currentOwner?.ownerId !== mcpOwnerId ||
-              currentOwner?.contentHash !== mcpContentHash ||
-              this.hashContent(currentContent) !== mcpContentHash
-            ) {
-              console.warn(`[Local CLI Provider] Skipped .mcp.json cleanup because ownership marker changed at ${targetMcpPath}`);
-              return;
-            }
-            await restorePublishedMcp();
-            if (previousMcpContent !== null) {
-              console.log(`[Local CLI Provider] Restored existing .mcp.json at ${targetMcpPath}`);
-            } else {
-              console.log(`[Local CLI Provider] Cleaned up dynamic .mcp.json at ${targetMcpPath}`);
-            }
-          } catch (err) {
-            // Ignore clean up error
-          }
-        }
-      };
 
       // Configure presets
       if (this.cliPreset && this.cliPreset !== 'none') {
@@ -219,6 +97,9 @@ export class LocalCliProvider implements Provider {
 
         if (this.cliPreset === 'claude') {
           args = ['-p', '--output-format', 'stream-json', '--verbose'];
+          if (hasRoomMcpConfig) {
+            args.push('--mcp-config', mcpConfigPath);
+          }
           if (this.permissionMode === 'dangerous') {
             args.push('--permission-mode', 'bypassPermissions');
           }
@@ -276,7 +157,6 @@ export class LocalCliProvider implements Provider {
       } else {
         // Fallback to custom command parsing
         if (!this.command) {
-          await cleanup();
           reject(new Error('Local CLI command or preset is not configured.'));
           return;
         }
@@ -284,12 +164,10 @@ export class LocalCliProvider implements Provider {
         try {
           parts = parseShellArgs(this.command.trim());
         } catch (err: any) {
-          await cleanup();
           reject(new Error(`Invalid Local CLI command: ${err.message}`));
           return;
         }
         if (parts.length === 0) {
-          await cleanup();
           reject(new Error('Local CLI command is empty.'));
           return;
         }
@@ -365,7 +243,6 @@ export class LocalCliProvider implements Provider {
         }
         options?.signal?.removeEventListener('abort', onAbort);
         stopProcess();
-        await cleanup();
         reject(error);
       };
 
@@ -410,7 +287,6 @@ export class LocalCliProvider implements Provider {
         console.log(`[Local CLI Provider] Process exited with code ${code}`);
         handleStdoutText(stdoutDecoder.end());
         stderrData += stderrDecoder.end();
-        await cleanup();
         if (code !== 0 && code !== null) {
           const stderr = stderrData.trim();
           const stdout = stdoutData.trim();
@@ -467,7 +343,6 @@ export class LocalCliProvider implements Provider {
           cp.stdin.end();
         }
       } else {
-        await cleanup();
         reject(new Error('Failed to open stdin for the Local CLI process.'));
       }
     });

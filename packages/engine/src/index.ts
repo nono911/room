@@ -8,6 +8,7 @@ export * from './agents/personaTemplates.js';
 export * from './agents/localCliPolicy.js';
 export * from './agents/detection.js';
 export * from './discussion/engine.js';
+export * from './discussion/types.js';
 export * from './discussion/actions.js';
 export * from './discussion/actionExecutor.js';
 export * from './discussion/taskBoard.js';

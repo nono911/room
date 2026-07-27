@@ -48,9 +48,9 @@ function readTransactionArrayField(
 }
 
 export function registerTeamsIpc(): void {
-  ipcMain.handle('load-teams', async (_event, { dirPath }: { dirPath: string }) => {
+  ipcMain.handle('load-teams', async (_event, { roomId }: { roomId: string }) => {
     try {
-      const projectRoot = requireProjectRootForTeams(dirPath);
+      const projectRoot = requireProjectRootForTeams(roomId);
       const result = await loadTeamsWithDiagnostics(projectRoot);
       return { success: true, teams: result.teams, diagnostics: result.diagnostics };
     } catch (error) {
@@ -58,18 +58,18 @@ export function registerTeamsIpc(): void {
     }
   });
 
-  ipcMain.handle('save-team', async (_event, { dirPath, team }: { dirPath: string; team: unknown }) => {
+  ipcMain.handle('save-team', async (_event, { roomId, team }: { roomId: string; team: unknown }) => {
     try {
-      const projectRoot = requireProjectRootForTeams(dirPath);
+      const projectRoot = requireProjectRootForTeams(roomId);
       return { success: true, team: await saveTeam(projectRoot, team) };
     } catch (error) {
       return serializeTeamStoreError(error);
     }
   });
 
-  ipcMain.handle('delete-team', async (_event, { dirPath, teamId }: { dirPath: string; teamId: string }) => {
+  ipcMain.handle('delete-team', async (_event, { roomId, teamId }: { roomId: string; teamId: string }) => {
     try {
-      const projectRoot = requireProjectRootForTeams(dirPath);
+      const projectRoot = requireProjectRootForTeams(roomId);
       await deleteTeam(projectRoot, teamId);
       return { success: true };
     } catch (error) {
@@ -79,9 +79,9 @@ export function registerTeamsIpc(): void {
 
   ipcMain.handle(
     'update-team-members',
-    async (_event, { dirPath, teamId, memberIds }: { dirPath: string; teamId: string; memberIds: unknown }) => {
+    async (_event, { roomId, teamId, memberIds }: { roomId: string; teamId: string; memberIds: unknown }) => {
       try {
-        const projectRoot = requireProjectRootForTeams(dirPath);
+        const projectRoot = requireProjectRootForTeams(roomId);
         return { success: true, team: await updateTeamMembers(projectRoot, teamId, memberIds) };
       } catch (error) {
         return serializeTeamStoreError(error);
@@ -94,12 +94,12 @@ export function registerTeamsIpc(): void {
     async (
       _event,
       {
-        dirPath,
+        roomId,
         team,
         members,
         skillDrafts
       }: {
-        dirPath: string;
+        roomId: string;
         team: unknown;
         members: unknown[];
         skillDrafts?: SkillDraft[];
@@ -114,7 +114,7 @@ export function registerTeamsIpc(): void {
         if (!parsedSkillDrafts.success) {
           return { success: false, error: parsedSkillDrafts.error };
         }
-        const projectRoot = requireProjectRootForTeams(dirPath);
+        const projectRoot = requireProjectRootForTeams(roomId);
         return {
           success: true,
           ...(await createTeamWithMembers(
@@ -135,12 +135,12 @@ export function registerTeamsIpc(): void {
     async (
       _event,
       {
-        dirPath,
+        roomId,
         teamId,
         members,
         skillDrafts
       }: {
-        dirPath: string;
+        roomId: string;
         teamId: string;
         members: unknown[];
         skillDrafts?: SkillDraft[];
@@ -155,7 +155,7 @@ export function registerTeamsIpc(): void {
         if (!parsedSkillDrafts.success) {
           return { success: false, error: parsedSkillDrafts.error };
         }
-        const projectRoot = requireProjectRootForTeams(dirPath);
+        const projectRoot = requireProjectRootForTeams(roomId);
         return {
           success: true,
           ...(await addMembersToTeam(

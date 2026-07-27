@@ -31,7 +31,7 @@ import { parseMessageReferences, type MessageReference } from './references.js';
 import { isExplicitlyApproved } from './approvalDetector.js';
 import {
   resolveRoomPath,
-  resolveWorkspaceLocation,
+  resolveExecutionRoot,
   type WorkspaceInput
 } from '../workspace.js';
 
@@ -91,14 +91,14 @@ export async function runDiscussionLoop(
     throw new Error('Invalid discussion id.');
   }
 
-  const { sourceRoot } = resolveWorkspaceLocation(workspace);
+  const sourceRoot = resolveExecutionRoot(workspace);
   const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
   const workflowAgents = agentNames
     .map(name => agents.find(a => a.name.toLowerCase() === name.toLowerCase()))
     .filter((a): a is AgentConfig => !!a);
 
   if (workflowAgents.length === 0) {
-    throw new Error(`None of the requested AI members (${agentNames.join(', ') || 'none'}) were found in the workspace.`);
+    throw new Error(`None of the requested AI members (${agentNames.join(', ') || 'none'}) were found in the Room.`);
   }
 
   const discussionsDir = resolveRoomPath(workspace, 'discussions');

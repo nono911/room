@@ -4,6 +4,7 @@ import { api } from '../../../shared/ipc/client.js';
 
 interface WorkspaceFileTreeProps {
   projectPath: string;
+  sourceId: string;
   selectedPath: string | null;
   refreshToken: number;
   onSelect: (file: WorkspaceFileEntry) => void;
@@ -82,6 +83,7 @@ function TreeBranch({
 
 export function WorkspaceFileTree({
   projectPath,
+  sourceId,
   selectedPath,
   refreshToken,
   onSelect,
@@ -97,7 +99,7 @@ export function WorkspaceFileTree({
   const sourceGenerationRef = useRef(0);
   const activeSourceKeyRef = useRef('');
   const directoryRequestRef = useRef(new Map<string, number>());
-  const sourceKey = `${projectPath}:${refreshToken}`;
+  const sourceKey = `${projectPath}:${sourceId}:${refreshToken}`;
   if (activeSourceKeyRef.current !== sourceKey) {
     activeSourceKeyRef.current = sourceKey;
     sourceGenerationRef.current += 1;
@@ -115,16 +117,16 @@ export function WorkspaceFileTree({
     );
     setLoadingDirectories(current => new Set(current).add(directory));
     try {
-      const result = await api.browseWorkspaceFiles(projectPath, directory);
+      const result = await api.browseWorkspaceFiles(projectPath, sourceId, directory);
       if (!isCurrentRequest()) return;
       if (!result.success) {
-        onError(result.error || 'Failed to browse workspace files.');
+        onError(result.error || 'Failed to browse Source files.');
         return;
       }
       setCache(current => ({ ...current, [directory]: result.files || [] }));
     } catch (error) {
       if (!isCurrentRequest()) return;
-      onError(error instanceof Error ? error.message : 'Failed to browse workspace files.');
+      onError(error instanceof Error ? error.message : 'Failed to browse Source files.');
     } finally {
       if (!isCurrentRequest()) return;
       setLoadingDirectories(current => {
@@ -133,7 +135,7 @@ export function WorkspaceFileTree({
         return next;
       });
     }
-  }, [projectPath, sourceKey, onError]);
+  }, [projectPath, sourceId, sourceKey, onError]);
 
   useEffect(() => {
     setCache({});
@@ -155,17 +157,17 @@ export function WorkspaceFileTree({
     const timer = window.setTimeout(async () => {
       setSearching(true);
       try {
-        const result = await api.browseWorkspaceFiles(projectPath, '', normalizedQuery);
+        const result = await api.browseWorkspaceFiles(projectPath, sourceId, '', normalizedQuery);
         if (cancelled) return;
         if (result.success) {
           setSearchResults((result.files || []).filter(item => item.kind === 'file'));
           setTruncated(!!result.truncated);
         } else {
-          onError(result.error || 'Failed to search workspace files.');
+          onError(result.error || 'Failed to search Source files.');
         }
       } catch (error) {
         if (!cancelled) {
-          onError(error instanceof Error ? error.message : 'Failed to search workspace files.');
+          onError(error instanceof Error ? error.message : 'Failed to search Source files.');
         }
       } finally {
         if (!cancelled) {
@@ -177,7 +179,7 @@ export function WorkspaceFileTree({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [projectPath, query, refreshToken, onError]);
+  }, [projectPath, sourceId, query, refreshToken, onError]);
 
   const toggleDirectory = useCallback((entry: WorkspaceFileEntry) => {
     const willExpand = !expanded.has(entry.path);

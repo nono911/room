@@ -318,7 +318,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
           {selectedDoerNeedsWriteAccess && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', border: '1px solid hsl(var(--accent-orange) / 0.45)', borderRadius: '8px', background: 'hsl(var(--accent-orange) / 0.09)' }}>
               <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.4 }}>
-                This Local CLI Developer needs workspace write access for coding tasks.
+                This Local CLI Developer needs active Source write access for coding tasks.
               </span>
               <button
                 type="button"

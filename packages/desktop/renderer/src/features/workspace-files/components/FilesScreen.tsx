@@ -11,6 +11,8 @@ import { WorkspaceFileTree } from './WorkspaceFileTree.js';
 
 interface FilesScreenProps {
   projectPath: string | null;
+  activeSourceId?: string;
+  onAttachSource: () => void;
   projectData: ProjectData | null;
   initialSelectedFile: RoomArtifactSelection | null;
   setInitialSelectedFile: (value: RoomArtifactSelection | null) => void;
@@ -31,6 +33,8 @@ function roomPreview(content: string, file: string): WorkspaceFilePreview {
 
 export function FilesScreen({
   projectPath,
+  activeSourceId,
+  onAttachSource,
   projectData,
   initialSelectedFile,
   setInitialSelectedFile,
@@ -56,14 +60,14 @@ export function FilesScreen({
   }, [projectPath, initialTab, roomSection]);
 
   const openSourceFile = async (file: WorkspaceFileEntry) => {
-    if (!projectPath) return;
+    if (!projectPath || !activeSourceId) return;
     const requestId = ++previewRequestRef.current;
     setLoading(true);
     setSelectedSource(file);
     setSelectedArtifact(null);
     setErrorMsg(null);
     try {
-      const result = await api.readWorkspaceFile(projectPath, file.path);
+      const result = await api.readWorkspaceFile(projectPath, activeSourceId, file.path);
       if (requestId !== previewRequestRef.current) return;
       if (!result.success || !result.preview) {
         setPreview(null);
@@ -83,7 +87,7 @@ export function FilesScreen({
   };
 
   useEffect(() => {
-    if (!projectPath || initialTab !== 'source') return;
+    if (!projectPath || !activeSourceId || initialTab !== 'source') return;
     const lastPath = localStorage.getItem(`room:last-file:${projectPath}`);
     if (!lastPath) return;
     void openSourceFile({
@@ -94,7 +98,7 @@ export function FilesScreen({
       kind: 'file',
       extension: lastPath.split('.').pop()?.toLowerCase()
     });
-  }, [projectPath, initialTab]);
+  }, [projectPath, activeSourceId, initialTab]);
 
   useEffect(() => {
     setRefreshToken(value => value + 1);
@@ -144,8 +148,8 @@ export function FilesScreen({
   };
 
   const revealSource = async () => {
-    if (!projectPath || !selectedSource) return;
-    const result = await api.revealWorkspaceFile(projectPath, selectedSource.path);
+    if (!projectPath || !activeSourceId || !selectedSource) return;
+    const result = await api.revealWorkspaceFile(projectPath, activeSourceId, selectedSource.path);
     if (!result.success) setErrorMsg(result.error || 'Failed to reveal the selected file.');
   };
 
@@ -172,14 +176,24 @@ export function FilesScreen({
         </button>
       </div>
       <div className="unified-file-layout">
-        {projectPath && tab === 'source' ? (
+        {projectPath && activeSourceId && tab === 'source' ? (
           <WorkspaceFileTree
             projectPath={projectPath}
+            sourceId={activeSourceId}
             selectedPath={selectedSource?.path || null}
             refreshToken={refreshToken}
             onSelect={(file) => void openSourceFile(file)}
             onError={setErrorMsg}
           />
+        ) : tab === 'source' ? (
+          <div className="source-empty-state">
+            <span className="source-empty-icon">⌁</span>
+            <h2>No Source attached</h2>
+            <p>Room memory and artifacts are ready. Attach a folder when you want to browse files, search code, scan, or run coding actions.</p>
+            <button type="button" className="btn-primary" onClick={onAttachSource}>
+              Attach Source folder
+            </button>
+          </div>
         ) : (
           <RoomArtifactList
             projectData={projectData}

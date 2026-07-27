@@ -5,50 +5,32 @@ import * as path from 'path';
 import type { WorkspaceLocation } from './workspace.js';
 
 const ROOM_HOME_ENV = 'ROOM_HOME';
-const WORKSPACE_SCHEMA_VERSION = 1;
+const ROOM_SCHEMA_VERSION = 1;
+const PERSONAL_ROOM_ID = 'room_personal';
 
-export interface RoomWorkspaceSource {
+export interface RoomSource {
   id: string;
   type: 'directory';
+  name: string;
   path: string;
   canonicalPath: string;
+  attachedAt: string;
 }
 
-export interface LegacyImportRecord {
-  source: string;
-  importedAt: string;
-  fileCount: number;
-  byteCount: number;
-  skippedSymlinkCount: number;
-}
-
-export interface RoomWorkspaceManifest {
+export interface RoomManifest {
   schemaVersion: 1;
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
-  sources: RoomWorkspaceSource[];
-  legacyImport?: LegacyImportRecord;
+  sources: RoomSource[];
+  activeSourceId?: string;
 }
 
-export interface RoomWorkspaceRecord {
-  manifest: RoomWorkspaceManifest;
+export interface RoomRecord {
+  manifest: RoomManifest;
   roomRoot: string;
-}
-
-export interface CreateRoomWorkspaceOptions {
-  sourceRoot: string;
-  name?: string;
-  roomHome?: string;
-  importLegacy?: boolean;
-}
-
-interface CopyStats {
-  fileCount: number;
-  byteCount: number;
-  skippedSymlinkCount: number;
 }
 
 export function resolveRoomHome(explicitHome?: string): string {
@@ -56,21 +38,162 @@ export function resolveRoomHome(explicitHome?: string): string {
   return path.resolve(configured?.trim() || path.join(os.homedir(), '.room'));
 }
 
-export function toWorkspaceLocation(record: RoomWorkspaceRecord): WorkspaceLocation {
-  const primarySource = record.manifest.sources[0];
-  if (!primarySource) {
-    throw new Error(`ROOM workspace ${record.manifest.id} has no attached source.`);
+export function toWorkspaceLocation(
+  record: RoomRecord,
+  sourceId = record.manifest.activeSourceId
+): WorkspaceLocation {
+  const source = sourceId
+    ? record.manifest.sources.find(candidate => candidate.id === sourceId)
+    : undefined;
+  if (sourceId && !source) {
+    throw new Error(`Source ${sourceId} is not attached to Room ${record.manifest.id}.`);
   }
   return {
-    sourceRoot: primarySource.path,
-    roomRoot: record.roomRoot
+    roomRoot: record.roomRoot,
+    sourceRoot: source?.canonicalPath,
+    sourceId: source?.id
   };
+}
+
+export async function ensurePersonalRoom(roomHome?: string): Promise<RoomRecord> {
+  const home = resolveRoomHome(roomHome);
+  await fs.mkdir(home, { recursive: true, mode: 0o700 });
+  await assertManagedDirectory(home);
+  const roomsRoot = path.join(home, 'rooms');
+  await ensureManagedDirectory(roomsRoot);
+  const roomRoot = path.join(home, 'rooms', PERSONAL_ROOM_ID);
+  await ensureManagedDirectory(roomRoot);
+  const existing = await readRoomManifest(roomRoot);
+  if (existing) {
+    await initializeRoomData(roomRoot);
+    return touchRoom({ manifest: existing, roomRoot });
+  }
+
+  const now = new Date().toISOString();
+  const manifest: RoomManifest = {
+    schemaVersion: ROOM_SCHEMA_VERSION,
+    id: PERSONAL_ROOM_ID,
+    name: 'Personal Room',
+    createdAt: now,
+    updatedAt: now,
+    lastOpenedAt: now,
+    sources: []
+  };
+  await initializeRoomData(roomRoot);
+  await writeRoomManifest(roomRoot, manifest);
+  return { manifest, roomRoot };
+}
+
+export async function getRoomById(roomId: string, roomHome?: string): Promise<RoomRecord | null> {
+  if (!isRoomId(roomId)) return null;
+  const roomRoot = path.join(resolveRoomHome(roomHome), 'rooms', roomId);
+  const manifest = await readRoomManifest(roomRoot);
+  return manifest ? { manifest, roomRoot } : null;
+}
+
+export async function listRooms(roomHome?: string): Promise<RoomRecord[]> {
+  const roomsRoot = path.join(resolveRoomHome(roomHome), 'rooms');
+  const entries = await fs.readdir(roomsRoot, { withFileTypes: true }).catch(() => []);
+  const records: RoomRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !isRoomId(entry.name)) continue;
+    const roomRoot = path.join(roomsRoot, entry.name);
+    const manifest = await readRoomManifest(roomRoot);
+    if (manifest) records.push({ manifest, roomRoot });
+  }
+  return records.sort((a, b) => b.manifest.lastOpenedAt.localeCompare(a.manifest.lastOpenedAt));
+}
+
+export async function attachRoomSource(
+  record: RoomRecord,
+  sourcePath: string,
+  name?: string
+): Promise<RoomRecord> {
+  const resolvedPath = path.resolve(sourcePath);
+  const stat = await fs.stat(resolvedPath).catch(() => null);
+  if (!stat?.isDirectory()) throw new Error('The source must be an existing directory.');
+
+  const canonicalPath = await fs.realpath(resolvedPath);
+  if (canonicalPath === path.parse(canonicalPath).root) {
+    throw new Error('A filesystem root cannot be attached as a source.');
+  }
+  const recordRoomHome = path.dirname(path.dirname(record.roomRoot));
+  const canonicalRoomHome = await fs.realpath(recordRoomHome).catch(() => recordRoomHome);
+  if (isSameOrNestedPath(canonicalRoomHome, canonicalPath)) {
+    throw new Error('ROOM Home cannot be attached as a source.');
+  }
+
+  const existing = record.manifest.sources.find(source => source.canonicalPath === canonicalPath);
+  const now = new Date().toISOString();
+  const source: RoomSource = existing || {
+    id: `source_${randomUUID().replace(/-/g, '')}`,
+    type: 'directory',
+    name: name?.trim() || path.basename(canonicalPath),
+    path: resolvedPath,
+    canonicalPath,
+    attachedAt: now
+  };
+  const manifest: RoomManifest = {
+    ...record.manifest,
+    sources: existing ? record.manifest.sources : [...record.manifest.sources, source],
+    activeSourceId: source.id,
+    updatedAt: now,
+    lastOpenedAt: now
+  };
+  await writeRoomManifest(record.roomRoot, manifest);
+  return { ...record, manifest };
+}
+
+export async function setActiveRoomSource(
+  record: RoomRecord,
+  sourceId?: string
+): Promise<RoomRecord> {
+  if (sourceId && !record.manifest.sources.some(source => source.id === sourceId)) {
+    throw new Error(`Source ${sourceId} is not attached to Room ${record.manifest.id}.`);
+  }
+  const now = new Date().toISOString();
+  const manifest: RoomManifest = {
+    ...record.manifest,
+    activeSourceId: sourceId,
+    updatedAt: now,
+    lastOpenedAt: now
+  };
+  if (!sourceId) delete manifest.activeSourceId;
+  await writeRoomManifest(record.roomRoot, manifest);
+  return { ...record, manifest };
+}
+
+export async function detachRoomSource(
+  record: RoomRecord,
+  sourceId: string
+): Promise<RoomRecord> {
+  const sources = record.manifest.sources.filter(source => source.id !== sourceId);
+  if (sources.length === record.manifest.sources.length) {
+    throw new Error(`Source ${sourceId} is not attached to Room ${record.manifest.id}.`);
+  }
+  const now = new Date().toISOString();
+  const manifest: RoomManifest = {
+    ...record.manifest,
+    sources,
+    updatedAt: now,
+    lastOpenedAt: now
+  };
+  if (manifest.activeSourceId === sourceId) delete manifest.activeSourceId;
+  await writeRoomManifest(record.roomRoot, manifest);
+  return { ...record, manifest };
+}
+
+export async function touchRoom(record: RoomRecord): Promise<RoomRecord> {
+  const now = new Date().toISOString();
+  const manifest = { ...record.manifest, updatedAt: now, lastOpenedAt: now };
+  await writeRoomManifest(record.roomRoot, manifest);
+  return { ...record, manifest };
 }
 
 export async function initializeRoomData(roomRoot: string): Promise<void> {
   const resolvedRoot = path.resolve(roomRoot);
-  await fs.mkdir(resolvedRoot, { recursive: true, mode: 0o700 });
-  const subdirs = [
+  await ensureManagedDirectory(resolvedRoot);
+  await Promise.all([
     'context',
     'tasks',
     'discussions',
@@ -80,248 +203,42 @@ export async function initializeRoomData(roomRoot: string): Promise<void> {
     'skills',
     'members',
     'teams',
-    'strategies'
-  ];
-  await Promise.all(subdirs.map(dir => fs.mkdir(path.join(resolvedRoot, dir), { recursive: true })));
-
+    'strategies',
+    'system'
+  ].map(directory => ensureManagedDirectory(path.join(resolvedRoot, directory))));
   await writeFileIfMissing(
     path.join(resolvedRoot, 'context', 'overview.md'),
-    '# Workspace Name\n\n## Overview\nDescribe what this workspace is for.\n\n## Goals\n- \n\n## Source Material\n- \n\n## Open Questions\n- \n'
+    '# Personal Room\n\n## Overview\nYour source-independent ROOM memory.\n\n## Goals\n- \n\n## Open Questions\n- \n'
   );
   await writeFileIfMissing(
     path.join(resolvedRoot, 'context', 'structure.md'),
-    '# Workspace Structure\n\n## Overview\nDescribe the important parts of this workspace and how they relate to each other.\n\n## Key Areas\n- \n'
+    '# Room Structure\n\nAttach a Source when you want ROOM to inspect Source files or run coding tools.\n'
   );
 }
 
-export async function listRoomWorkspaces(roomHome?: string): Promise<RoomWorkspaceRecord[]> {
-  const workspacesRoot = path.join(resolveRoomHome(roomHome), 'workspaces');
-  const entries = await fs.readdir(workspacesRoot, { withFileTypes: true }).catch(() => []);
-  const records: RoomWorkspaceRecord[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const roomRoot = path.join(workspacesRoot, entry.name);
-    const manifest = await readWorkspaceManifest(roomRoot);
-    if (manifest) {
-      records.push({ manifest, roomRoot });
-    }
-  }
-
-  return records.sort((a, b) =>
-    b.manifest.lastOpenedAt.localeCompare(a.manifest.lastOpenedAt)
-    || a.manifest.name.localeCompare(b.manifest.name)
-  );
-}
-
-export async function findRoomWorkspaceBySource(
-  sourceRoot: string,
-  roomHome?: string
-): Promise<RoomWorkspaceRecord | null> {
-  const resolvedSource = path.resolve(sourceRoot);
-  const canonicalSource = await fs.realpath(resolvedSource).catch(() => resolvedSource);
-  const records = await listRoomWorkspaces(roomHome);
-  return records.find(record => record.manifest.sources.some(source =>
-    path.resolve(source.path) === resolvedSource
-    || path.resolve(source.canonicalPath) === canonicalSource
-  )) || null;
-}
-
-export async function createRoomWorkspace(
-  options: CreateRoomWorkspaceOptions
-): Promise<{ record: RoomWorkspaceRecord; created: boolean }> {
-  const sourceRoot = path.resolve(options.sourceRoot);
-  const sourceStat = await fs.stat(sourceRoot).catch(() => null);
-  if (!sourceStat?.isDirectory()) {
-    throw new Error('The attached source must be an existing directory.');
-  }
-
-  const roomHome = resolveRoomHome(options.roomHome);
-  const canonicalPath = await fs.realpath(sourceRoot);
-  const canonicalRoomHome = await fs.realpath(roomHome).catch(() => roomHome);
-  if (isSameOrNestedPath(canonicalRoomHome, canonicalPath)) {
-    throw new Error('A ROOM Home directory cannot be attached as a workspace source.');
-  }
-  const existing = await findRoomWorkspaceBySource(sourceRoot, roomHome);
-  if (existing) {
-    const record = await touchRoomWorkspace(existing);
-    return { record, created: false };
-  }
-  const workspaceId = `ws_${randomUUID().replace(/-/g, '')}`;
-  const workspacesRoot = path.join(roomHome, 'workspaces');
-  const roomRoot = path.join(workspacesRoot, workspaceId);
-  const temporaryRoot = path.join(workspacesRoot, `.${workspaceId}.${randomUUID()}.tmp`);
-  const now = new Date().toISOString();
-  const manifest: RoomWorkspaceManifest = {
-    schemaVersion: WORKSPACE_SCHEMA_VERSION,
-    id: workspaceId,
-    name: options.name?.trim() || path.basename(sourceRoot),
-    createdAt: now,
-    updatedAt: now,
-    lastOpenedAt: now,
-    sources: [{
-      id: 'source_main',
-      type: 'directory',
-      path: sourceRoot,
-      canonicalPath
-    }]
-  };
-
-  await fs.mkdir(workspacesRoot, { recursive: true, mode: 0o700 });
-  await fs.mkdir(temporaryRoot, { recursive: false, mode: 0o700 });
+async function readRoomManifest(roomRoot: string): Promise<RoomManifest | null> {
   try {
-    const legacyRoot = path.join(sourceRoot, '.room');
-    const canonicalLegacyRoot = await resolveSafeLegacyRoot(
-      legacyRoot,
-      canonicalPath
-    );
-    const legacyContainsRoomHome = canonicalLegacyRoot
-      ? isSameOrNestedPath(canonicalLegacyRoot, canonicalRoomHome)
-      : false;
-    if (options.importLegacy !== false && canonicalLegacyRoot && !legacyContainsRoomHome) {
-      const copyStats = await copyLegacyRoomContents(
-        legacyRoot,
-        temporaryRoot,
-        canonicalLegacyRoot
-      );
-      await stripImportedMachineSkillSelections(temporaryRoot);
-      manifest.legacyImport = {
-        source: legacyRoot,
-        importedAt: now,
-        ...copyStats
-      };
+    await assertManagedDirectory(roomRoot);
+    const manifestPath = path.join(roomRoot, 'room.json');
+    const manifestStat = await fs.lstat(manifestPath);
+    if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+      throw new Error(`ROOM manifest must be a real file: ${manifestPath}`);
     }
-
-    await initializeRoomData(temporaryRoot);
-    await writeWorkspaceManifest(temporaryRoot, manifest);
-    await fs.rename(temporaryRoot, roomRoot);
-  } catch (error) {
-    await fs.rm(temporaryRoot, { recursive: true, force: true }).catch(() => {});
-    throw error;
-  }
-
-  return {
-    record: { manifest, roomRoot },
-    created: true
-  };
-}
-
-export async function touchRoomWorkspace(record: RoomWorkspaceRecord): Promise<RoomWorkspaceRecord> {
-  const now = new Date().toISOString();
-  const manifest: RoomWorkspaceManifest = {
-    ...record.manifest,
-    updatedAt: now,
-    lastOpenedAt: now
-  };
-  await writeWorkspaceManifest(record.roomRoot, manifest);
-  return { ...record, manifest };
-}
-
-async function readWorkspaceManifest(roomRoot: string): Promise<RoomWorkspaceManifest | null> {
-  try {
-    const parsed = JSON.parse(await fs.readFile(path.join(roomRoot, 'workspace.json'), 'utf-8')) as unknown;
-    if (!isRoomWorkspaceManifest(parsed)) return null;
-    return parsed;
-  } catch {
+    const value = JSON.parse(await fs.readFile(manifestPath, 'utf-8')) as unknown;
+    return isRoomManifest(value) ? value : null;
+  } catch (error: unknown) {
+    if (!hasErrorCode(error, 'ENOENT')) throw error;
     return null;
   }
 }
 
-async function writeWorkspaceManifest(roomRoot: string, manifest: RoomWorkspaceManifest): Promise<void> {
-  const manifestPath = path.join(roomRoot, 'workspace.json');
-  const temporaryPath = path.join(roomRoot, `.workspace.${randomUUID()}.tmp`);
-  await fs.writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
-  await fs.rename(temporaryPath, manifestPath);
-}
-
-async function copyLegacyRoomContents(
-  sourceDir: string,
-  targetDir: string,
-  canonicalLegacyRoot: string
-): Promise<CopyStats> {
-  const stats: CopyStats = { fileCount: 0, byteCount: 0, skippedSymlinkCount: 0 };
-  const sourceStat = await fs.lstat(sourceDir);
-  const canonicalSourceDir = await fs.realpath(sourceDir);
-  if (
-    sourceStat.isSymbolicLink()
-    || !sourceStat.isDirectory()
-    || !isSameOrNestedPath(canonicalLegacyRoot, canonicalSourceDir)
-  ) {
-    throw new Error('Legacy ROOM data must remain inside the attached source.');
-  }
-  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const sourcePath = path.join(sourceDir, entry.name);
-    const targetPath = path.join(targetDir, entry.name);
-    const entryStat = await fs.lstat(sourcePath);
-    if (entry.isSymbolicLink() || entryStat.isSymbolicLink()) {
-      stats.skippedSymlinkCount += 1;
-      continue;
-    }
-    const canonicalSourcePath = await fs.realpath(sourcePath);
-    if (!isSameOrNestedPath(canonicalLegacyRoot, canonicalSourcePath)) {
-      throw new Error('Legacy ROOM data must remain inside the attached source.');
-    }
-    if (entry.isDirectory() && entryStat.isDirectory()) {
-      await fs.mkdir(targetPath, { recursive: false });
-      const childStats = await copyLegacyRoomContents(
-        sourcePath,
-        targetPath,
-        canonicalLegacyRoot
-      );
-      stats.fileCount += childStats.fileCount;
-      stats.byteCount += childStats.byteCount;
-      stats.skippedSymlinkCount += childStats.skippedSymlinkCount;
-      continue;
-    }
-    if (!entry.isFile() || !entryStat.isFile()) continue;
-    await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
-    stats.fileCount += 1;
-    stats.byteCount += entryStat.size;
-  }
-  return stats;
-}
-
-async function resolveSafeLegacyRoot(
-  legacyRoot: string,
-  canonicalSourceRoot: string
-): Promise<string | null> {
-  const legacyStat = await fs.lstat(legacyRoot).catch(() => null);
-  if (!legacyStat?.isDirectory() || legacyStat.isSymbolicLink()) return null;
-  const canonicalLegacyRoot = await fs.realpath(legacyRoot);
-  const expectedLegacyRoot = path.join(canonicalSourceRoot, '.room');
-  return path.resolve(canonicalLegacyRoot) === path.resolve(expectedLegacyRoot)
-    ? canonicalLegacyRoot
-    : null;
-}
-
-async function stripImportedMachineSkillSelections(roomRoot: string): Promise<void> {
-  for (const directoryName of ['members', 'agents']) {
-    const directoryPath = path.join(roomRoot, directoryName);
-    const entries = await fs.readdir(directoryPath, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-      const filePath = path.join(directoryPath, entry.name);
-      try {
-        const parsed = JSON.parse(await fs.readFile(filePath, 'utf-8')) as unknown;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
-        const agent = parsed as Record<string, unknown>;
-        if (!Array.isArray(agent.skills)) continue;
-        const safeSkills = agent.skills.filter(skill => (
-          typeof skill !== 'string'
-          || !skill.trim().toLowerCase().startsWith('machine://')
-        ));
-        if (safeSkills.length === agent.skills.length) continue;
-        await fs.writeFile(
-          filePath,
-          `${JSON.stringify({ ...agent, skills: safeSkills }, null, 2)}\n`,
-          'utf-8'
-        );
-      } catch {
-        // Invalid legacy agent files remain inert and are ignored by the registry loader.
-      }
-    }
-  }
+async function writeRoomManifest(roomRoot: string, manifest: RoomManifest): Promise<void> {
+  const temporaryPath = path.join(roomRoot, `.room.${randomUUID()}.tmp`);
+  await fs.writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600
+  });
+  await fs.rename(temporaryPath, path.join(roomRoot, 'room.json'));
 }
 
 async function writeFileIfMissing(filePath: string, content: string): Promise<void> {
@@ -333,32 +250,66 @@ async function writeFileIfMissing(filePath: string, content: string): Promise<vo
   }
 }
 
-function isRoomWorkspaceManifest(value: unknown): value is RoomWorkspaceManifest {
+function isRoomManifest(value: unknown): value is RoomManifest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const manifest = value as Record<string, unknown>;
   if (
-    manifest.schemaVersion !== WORKSPACE_SCHEMA_VERSION
-    || typeof manifest.id !== 'string'
-    || !/^ws_[a-f0-9]{32}$/.test(manifest.id)
+    manifest.schemaVersion !== ROOM_SCHEMA_VERSION
+    || !isRoomId(manifest.id)
     || typeof manifest.name !== 'string'
     || typeof manifest.createdAt !== 'string'
     || typeof manifest.updatedAt !== 'string'
     || typeof manifest.lastOpenedAt !== 'string'
     || !Array.isArray(manifest.sources)
-  ) {
-    return false;
-  }
-  return manifest.sources.every(source => {
+    || (manifest.activeSourceId !== undefined && typeof manifest.activeSourceId !== 'string')
+  ) return false;
+  const sourcesValid = manifest.sources.every(source => {
     if (!source || typeof source !== 'object' || Array.isArray(source)) return false;
     const item = source as Record<string, unknown>;
     return typeof item.id === 'string'
       && item.type === 'directory'
+      && typeof item.name === 'string'
       && typeof item.path === 'string'
-      && typeof item.canonicalPath === 'string';
+      && typeof item.canonicalPath === 'string'
+      && typeof item.attachedAt === 'string';
   });
+  return sourcesValid && (
+    manifest.activeSourceId === undefined
+    || manifest.sources.some(source => (
+      source
+      && typeof source === 'object'
+      && !Array.isArray(source)
+      && (source as Record<string, unknown>).id === manifest.activeSourceId
+    ))
+  );
+}
+
+function isRoomId(value: unknown): value is string {
+  return typeof value === 'string' && /^room_[a-z0-9_-]{1,64}$/.test(value);
 }
 
 function isSameOrNestedPath(parentPath: string, candidatePath: string): boolean {
   const relative = path.relative(path.resolve(parentPath), path.resolve(candidatePath));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function ensureManagedDirectory(directoryPath: string): Promise<void> {
+  try {
+    await assertManagedDirectory(directoryPath);
+  } catch (error: unknown) {
+    if (!hasErrorCode(error, 'ENOENT')) throw error;
+    await fs.mkdir(directoryPath, { mode: 0o700 });
+    await assertManagedDirectory(directoryPath);
+  }
+}
+
+async function assertManagedDirectory(directoryPath: string): Promise<void> {
+  const stat = await fs.lstat(directoryPath);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`ROOM managed path must be a real directory: ${directoryPath}`);
+  }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }

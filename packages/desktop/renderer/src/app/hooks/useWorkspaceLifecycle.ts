@@ -1,24 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { RoomSummary } from '../../types/domain.js';
 import { api } from '../../shared/ipc/client.js';
 
 interface UseWorkspaceLifecycleOptions {
   clearWorkspaceDerivedState: () => void;
-  restoreWorkspaceRoute: (path: string) => void;
-  loadProjectData: (path: string) => Promise<boolean>;
+  restoreWorkspaceRoute: (roomId: string) => void;
+  loadProjectData: (roomId: string) => Promise<boolean>;
   setLoading: (value: boolean) => void;
   setErrorMsg: (value: string | null) => void;
-}
-
-function loadRecentProjects(): string[] {
-  try {
-    const saved = localStorage.getItem('recentProjects');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-    return [];
-  } catch {
-    return [];
-  }
 }
 
 export function useWorkspaceLifecycle({
@@ -28,23 +17,32 @@ export function useWorkspaceLifecycle({
   setLoading,
   setErrorMsg
 }: UseWorkspaceLifecycleOptions) {
-  const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [isRoomProject, setIsRoomProject] = useState<boolean>(false);
-  const [hasLegacyRoom, setHasLegacyRoom] = useState<boolean>(false);
-  const [newWorkspaceName, setNewWorkspaceName] = useState<string>('');
-  const [recentProjects, setRecentProjects] = useState<string[]>(loadRecentProjects);
+  const [room, setRoom] = useState<RoomSummary | null>(null);
+  const [initializingRoom, setInitializingRoom] = useState(true);
 
   useEffect(() => {
     let active = true;
     void (async () => {
+      setLoading(true);
       try {
-        const result = await api.listRoomWorkspaces();
-        if (!active || !result.success || !result.workspaces) return;
-        const sourcePaths = result.workspaces.map(workspace => workspace.sourcePath);
-        setRecentProjects(sourcePaths);
-        localStorage.setItem('recentProjects', JSON.stringify(sourcePaths));
-      } catch {
-        // The local cache remains a compatibility fallback for older preload builds.
+        const result = await api.initializePersonalRoom();
+        if (!active) return;
+        if (!result.success || !result.room) {
+          setErrorMsg(result.error || 'Failed to initialize Personal Room.');
+          return;
+        }
+        setRoom(result.room);
+        restoreWorkspaceRoute(result.room.id);
+        await loadProjectData(result.room.id);
+      } catch (error) {
+        if (active) {
+          setErrorMsg(error instanceof Error ? error.message : 'Failed to initialize Personal Room.');
+        }
+      } finally {
+        if (active) {
+          setInitializingRoom(false);
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -52,146 +50,80 @@ export function useWorkspaceLifecycle({
     };
   }, []);
 
-  const addRecentProject = (pathStr: string) => {
-    setRecentProjects(prev => {
-      const filtered = prev.filter(p => p !== pathStr);
-      const updated = [pathStr, ...filtered].slice(0, 5);
-      localStorage.setItem('recentProjects', JSON.stringify(updated));
-      return updated;
-    });
-  };
+  const activeSource = useMemo(
+    () => room?.sources.find(source => source.id === room.activeSourceId) || null,
+    [room]
+  );
 
-  const handleOpenProject = async () => {
-    setErrorMsg(null);
-    try {
-      const result = await api.selectProjectDir();
-      if (!result) return;
-
-      clearWorkspaceDerivedState();
-      if (result.isRoomProject) restoreWorkspaceRoute(result.path);
-      setProjectPath(result.path);
-      setIsRoomProject(result.isRoomProject);
-      setHasLegacyRoom(!!result.hasLegacyRoom);
-
-      addRecentProject(result.path);
-
-      if (result.isRoomProject) {
-        await loadProjectData(result.path);
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to open project.');
-    }
-  };
-
-  const handleCreateWorkspace = async () => {
-    const workspaceName = newWorkspaceName.trim();
-    if (!workspaceName) {
-      setErrorMsg('Workspace name is required.');
-      return;
-    }
-
+  const attachSource = async () => {
+    if (!room) return false;
     setLoading(true);
     setErrorMsg(null);
     try {
-      const result = await api.createWorkspace(workspaceName);
-      if (!result) return;
-      if (!result.success || !result.path) {
-        setErrorMsg(result.error || 'Failed to create workspace.');
-        return;
+      const result = await api.attachRoomSource(room.id);
+      if (!result.success) {
+        setErrorMsg(result.error || 'Failed to attach Source.');
+        return false;
       }
-
-      clearWorkspaceDerivedState();
-      restoreWorkspaceRoute(result.path);
-      setProjectPath(result.path);
-      setIsRoomProject(true);
-      setHasLegacyRoom(false);
-      setNewWorkspaceName('');
-      addRecentProject(result.path);
-      await loadProjectData(result.path);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to create workspace.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectRecentProject = async (pathStr: string) => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const result = await api.openProjectDir(pathStr);
-      if (!result) {
-        throw new Error('Project directory could not be accessed.');
+      if (result.room) {
+        setRoom(result.room);
+        await loadProjectData(room.id);
       }
-
-      clearWorkspaceDerivedState();
-      if (result.isRoomProject) restoreWorkspaceRoute(result.path);
-      setProjectPath(result.path);
-      setIsRoomProject(result.isRoomProject);
-      setHasLegacyRoom(!!result.hasLegacyRoom);
-
-      addRecentProject(result.path);
-
-      if (!result.isRoomProject) {
-        return true;
-      }
-
-      return await loadProjectData(result.path);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to open recent project. It might have been deleted or moved.');
-      setRecentProjects(prev => {
-        const filtered = prev.filter(p => p !== pathStr);
-        localStorage.setItem('recentProjects', JSON.stringify(filtered));
-        return filtered;
-      });
+      return !result.canceled;
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Failed to attach Source.');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInitProject = async () => {
-    if (!projectPath) return;
+  const detachSource = async () => {
+    if (!room || !activeSource) return;
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.roomInit(projectPath);
-      if (res.success) {
-        clearWorkspaceDerivedState();
-        restoreWorkspaceRoute(projectPath);
-        setIsRoomProject(true);
-        setHasLegacyRoom(false);
-        addRecentProject(projectPath);
-        setProjectPath(projectPath);
-        await loadProjectData(projectPath);
-      } else {
-        setErrorMsg(res.error || 'Failed to create ROOM Home workspace.');
+      const result = await api.detachRoomSource(room.id, activeSource.id);
+      if (!result.success || !result.room) {
+        setErrorMsg(result.error || 'Failed to detach Source.');
+        return;
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to initialize project.');
+      setRoom(result.room);
+      await loadProjectData(room.id);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Failed to detach Source.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCloseProjectWorkspace = () => {
-    setProjectPath(null);
-    setIsRoomProject(false);
-    setHasLegacyRoom(false);
-    clearWorkspaceDerivedState();
+  const clearActiveSource = async () => {
+    if (!room) return;
+    const result = await api.setActiveRoomSource(room.id);
+    if (result.success && result.room) {
+      setRoom(result.room);
+      clearWorkspaceDerivedState();
+      await loadProjectData(room.id);
+    }
   };
 
   return {
-    projectPath,
-    isRoomProject,
-    hasLegacyRoom,
-    newWorkspaceName,
-    setNewWorkspaceName,
-    recentProjects,
-    handleOpenProject,
-    handleCreateWorkspace,
-    handleSelectRecentProject,
-    handleInitProject,
-    handleCloseProjectWorkspace
+    room,
+    roomId: room?.id || null,
+    activeSource,
+    activeSourceId: room?.activeSourceId,
+    initializingRoom,
+    projectPath: room?.id || null,
+    isRoomProject: !!room,
+    hasLegacyRoom: false,
+    newWorkspaceName: '',
+    setNewWorkspaceName: () => {},
+    recentProjects: [],
+    handleOpenProject: attachSource,
+    handleCreateWorkspace: attachSource,
+    handleSelectRecentProject: async () => false,
+    handleInitProject: attachSource,
+    handleCloseProjectWorkspace: clearActiveSource,
+    handleDetachSource: detachSource
   };
 }

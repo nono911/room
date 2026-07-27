@@ -13,6 +13,7 @@ import { useDiscussionSelection } from './useDiscussionSelection.js';
 
 interface UseDiscussionDeps {
   projectPath: string | null;
+  activeSourceId?: string;
   projectData: ProjectData | null;
   loadProjectData: (pathStr: string) => Promise<void>;
   setActiveTab: (tab: string) => void;
@@ -24,6 +25,7 @@ interface UseDiscussionDeps {
 
 export function useDiscussion({
   projectPath,
+  activeSourceId,
   projectData,
   loadProjectData,
   setActiveTab,
@@ -237,6 +239,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setErrorMsg(null);
     try {
       const res = await api.summarizeDiscussion(projectPath, activeDiscussionId, {
+        sourceId: activeSourceId,
         agentNames: selectedDiscussionAgents,
         summaryAgentName: discussionSummaryAgentName !== '__project__' ? discussionSummaryAgentName : undefined,
         useProjectSummaryAgent: discussionSummaryAgentName === '__project__'
@@ -268,6 +271,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setErrorMsg(null);
     try {
       const res = await api.generateTasksFromDiscussion(projectPath, activeDiscussionId, {
+        sourceId: activeSourceId,
         moderatorName: discussionModeratorName || undefined
       });
       if (!res.success) {
@@ -311,7 +315,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       return;
     }
     if (validSelectedAgents.length === 0) {
-      setErrorMsg('Selected agents are not available in this workspace.');
+      setErrorMsg('Selected agents are not available in this Room.');
       return;
     }
     const persistedAgentNames = new Set((projectData?.agents || [])
@@ -500,6 +504,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
 
     try {
       const res = await api.runDiscussion(projectPath, userTopic, validSelectedAgents, {
+        sourceId: activeSourceId,
         reviewMode: discussionReviewMode,
         allowReadOnlyTools: discussionAllowReadOnlyTools,
         maxRounds: discussionReviewMode ? discussionMaxRounds : 1,

@@ -26,6 +26,8 @@ import type { DiscussionParticipantKey } from '../../features/discussions/lib/di
 interface WorkspaceRoutesProps {
   activeTab: string;
   projectPath: string | null;
+  activeSourceId?: string;
+  onAttachSource: () => void;
   projectData: any;
   loading: boolean;
   agentOperationLoading: boolean;
@@ -193,6 +195,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
   const {
     activeTab,
     projectPath,
+    activeSourceId,
+    onAttachSource,
     projectData,
     loading,
     agentOperationLoading,
@@ -413,8 +417,9 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
   if (activeTab === 'Home') {
     return (
       <HomeScreen
-        projectPath={projectPath}
         projectData={projectData}
+        activeSourceName={projectData?.room?.sources?.find((source: { id: string }) => source.id === activeSourceId)?.name}
+        onAttachSource={onAttachSource}
         activeDiscussionRunId={activeDiscussionRunId}
         activeTaskRunId={activeTaskRunId}
         setActiveTab={setActiveTab}
@@ -744,6 +749,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     return (
       <FilesScreen
         projectPath={projectPath}
+        activeSourceId={activeSourceId}
+        onAttachSource={onAttachSource}
         projectData={projectData}
         initialSelectedFile={initialSelectedFile}
         setInitialSelectedFile={setInitialSelectedFile}
@@ -800,8 +807,10 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
 
   return (
     <div style={{ padding: '40px', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
-      <h3>{activeTab} Workspace Module</h3>
-      <p style={{ marginTop: '12px', fontSize: '0.9rem' }}>This component is scheduled to be wired in a subsequent sprint.</p>
+      <h3>Room view unavailable</h3>
+      <p style={{ marginTop: '12px', fontSize: '0.9rem' }}>
+        Choose an available section from the Room sidebar.
+      </p>
     </div>
   );
 }

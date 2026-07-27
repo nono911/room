@@ -1,187 +1,169 @@
 import type {
-  WorkspaceFileEntry,
   ContextPickerItem,
-  SkillPreviewResult,
+  ContextSet,
   DetectedAgent,
-  MaskedProvider,
-  TaskBoardCard,
   DiscussionIpcEvent,
-  MemberTeam,
-  RoomWorkspaceSummary,
   MachineSkillSummary,
-  WorkspaceFilePreview,
-  ContextSet
+  MaskedProvider,
+  MemberTeam,
+  RoomSummary,
+  SkillPreviewResult,
+  TaskBoardCard,
+  WorkspaceFileEntry,
+  WorkspaceFilePreview
 } from '../types/domain.js';
 
+type Result = { success: boolean; error?: string };
+type TemporaryAgentPayload = {
+  name: string;
+  role: string;
+  provider: string;
+  modelName?: string;
+  systemPrompt: string;
+  skills?: string[];
+  command?: string;
+  cliPreset?: string;
+  stdinFormat?: string;
+  permissionMode?: string;
+  strategy?: string;
+};
+type RunOptions = {
+  sourceId?: string;
+  contextRefs?: string[];
+  temporaryAgents?: TemporaryAgentPayload[];
+};
+
 export interface ElectronAPI {
-  selectProjectDir: () => Promise<{ path: string; isRoomProject: boolean; hasLegacyRoom?: boolean; workspaceId?: string; workspaceName?: string } | null>;
-  openProjectDir: (dirPath: string) => Promise<{ path: string; isRoomProject: boolean; hasLegacyRoom?: boolean; workspaceId?: string; workspaceName?: string } | null>;
-  listRoomWorkspaces: () => Promise<{ success: boolean; workspaces?: RoomWorkspaceSummary[]; error?: string }>;
-  createWorkspace: (workspaceName: string) => Promise<{ success: boolean; path?: string; isRoomProject?: boolean; workspaceId?: string; workspaceName?: string; importedLegacy?: boolean; error?: string } | null>;
-  roomInit: (dirPath: string) => Promise<{ success: boolean; workspaceId?: string; workspaceName?: string; importedLegacy?: boolean; error?: string }>;
-  getProjectData: (dirPath: string) => Promise<{
-    success: boolean;
-    projectMd: string;
-    archMd: string;
+  initializePersonalRoom: () => Promise<Result & { room?: RoomSummary }>;
+  attachRoomSource: (roomId: string) => Promise<Result & { room?: RoomSummary; canceled?: boolean }>;
+  detachRoomSource: (roomId: string, sourceId: string) => Promise<Result & { room?: RoomSummary }>;
+  setActiveRoomSource: (roomId: string, sourceId?: string) => Promise<Result & { room?: RoomSummary }>;
+  getProjectData: (roomId: string) => Promise<Result & {
+    room?: RoomSummary;
+    projectMd?: string;
+    archMd?: string;
     hasScanData?: boolean;
     workspaceDiagnostics?: Array<{ source: string; message: string }>;
-    tasks: string[];
-    taskRuns?: string[];
-    decisions: string[];
-    reviews: string[];
+    tasks?: string[];
+    taskRuns?: unknown[];
+    decisions?: string[];
+    reviews?: string[];
     documents?: string[];
-    discussions: string[];
-    skills: string[];
+    discussions?: string[];
+    skills?: string[];
     machineSkills?: MachineSkillSummary[];
-    agents: any[];
+    agents?: unknown[];
     teams?: MemberTeam[];
     unassignedMemberIds?: string[];
-    error?: string;
   }>;
-  readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) => Promise<{ success: boolean; content?: string; sourceSection?: string; error?: string }>;
-  listWorkspaceFiles: (dirPath: string) => Promise<{ success: boolean; files?: WorkspaceFileEntry[]; truncated?: boolean; error?: string }>;
-  browseWorkspaceFiles: (dirPath: string, directory?: string, query?: string) => Promise<{ success: boolean; files?: WorkspaceFileEntry[]; truncated?: boolean; error?: string }>;
-  searchContextItems: (dirPath: string, query?: string) => Promise<{ success: boolean; items?: ContextPickerItem[]; error?: string }>;
-  readWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; content?: string; preview?: WorkspaceFilePreview; error?: string }>;
-  revealWorkspaceFile: (dirPath: string, filePath: string) => Promise<{ success: boolean; error?: string }>;
-  loadContextSets: (dirPath: string) => Promise<{ success: boolean; contextSets?: ContextSet[]; error?: string }>;
-  saveContextSets: (dirPath: string, contextSets: ContextSet[]) => Promise<{ success: boolean; error?: string }>;
-  runScan: (dirPath: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) => Promise<{ success: boolean; message?: string; error?: string }>;
+  readRoomFile: (
+    roomId: string,
+    section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills',
+    filename: string
+  ) => Promise<Result & { content?: string; sourceSection?: string }>;
+  listWorkspaceFiles: (
+    roomId: string,
+    sourceId: string
+  ) => Promise<Result & { files?: WorkspaceFileEntry[]; truncated?: boolean }>;
+  browseWorkspaceFiles: (
+    roomId: string,
+    sourceId: string,
+    directory?: string,
+    query?: string
+  ) => Promise<Result & { files?: WorkspaceFileEntry[]; truncated?: boolean }>;
+  searchContextItems: (
+    roomId: string,
+    sourceId?: string,
+    query?: string
+  ) => Promise<Result & { items?: ContextPickerItem[] }>;
+  readWorkspaceFile: (
+    roomId: string,
+    sourceId: string,
+    filePath: string
+  ) => Promise<Result & { content?: string; preview?: WorkspaceFilePreview }>;
+  revealWorkspaceFile: (roomId: string, sourceId: string, filePath: string) => Promise<Result>;
+  loadContextSets: (roomId: string) => Promise<Result & { contextSets?: ContextSet[] }>;
+  saveContextSets: (roomId: string, contextSets: ContextSet[]) => Promise<Result>;
+  runScan: (
+    roomId: string,
+    sourceId: string,
+    mainAgent?: string,
+    modelName?: string,
+    allowDangerousCli?: boolean
+  ) => Promise<Result & { message?: string }>;
   runDiscussion: (
-    dirPath: string,
+    roomId: string,
     topic: string,
     agentNames?: string[],
-    options?: { maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
-  ) => Promise<{
-    success: boolean;
-    summary?: { filename: string; content: string };
-    moderatorActions?: { type: 'task' | 'adr'; id?: string; title?: string; filename?: string }[];
-    log?: {
-      id: string;
-      title: string;
-      topic?: string;
-      status: string;
-      messages: {
-        type?: 'user' | 'agent';
-        agentName: string;
-        providerName: string;
-        modelName?: string;
-        content: string;
-        timestamp: string;
-        contextMessages?: {
-          type?: 'user' | 'agent';
-          agentName: string;
-          providerName: string;
-          timestamp: string;
-        }[];
-        contextMetrics?: {
-          estimatedHistoryTokens?: number;
-          estimatedProjectContextTokens?: number;
-          maxProjectContextTokens?: number;
-          maxHistoryTokens?: number;
-          maxMessageTokens?: number;
-          projectContextTrimmed?: boolean;
-          summaryUsed?: boolean;
-          omittedMessageCount?: number;
-          includedMessageCount?: number;
-          totalLogMessages?: number;
-        };
-        references?: { author: string; reason?: string }[];
-      }[];
-    };
-    error?: string;
-  }>;
+    options?: RunOptions & {
+      maxRounds?: number;
+      reviewMode?: boolean;
+      allowReadOnlyTools?: boolean;
+      discussionId?: string;
+      qualityGate?: boolean;
+      moderatorName?: string;
+      autoSummary?: boolean;
+      summaryAgentName?: string;
+      useProjectSummaryAgent?: boolean;
+    }
+  ) => Promise<Result & { log?: any; summary?: { filename: string; content: string }; moderatorActions?: any[] }>;
   runTask: (
-    dirPath: string,
+    roomId: string,
     task: string,
-    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string }
-  ) => Promise<{
-    success: boolean;
-    result?: {
-      id: string;
-      title: string;
-      task: string;
+    options?: RunOptions & {
       taskType?: string;
-      status: string;
-      cycles: number;
-      messages: {
-        type?: 'user' | 'agent';
-        agentName: string;
-        providerName: string;
-        modelName?: string;
-        content: string;
-        timestamp: string;
-        contextMessages?: {
-          type?: 'user' | 'agent';
-          agentName: string;
-          providerName: string;
-          timestamp: string;
-        }[];
-        contextMetrics?: {
-          estimatedHistoryTokens?: number;
-          estimatedProjectContextTokens?: number;
-          maxProjectContextTokens?: number;
-          maxHistoryTokens?: number;
-          maxMessageTokens?: number;
-          projectContextTrimmed?: boolean;
-          summaryUsed?: boolean;
-          omittedMessageCount?: number;
-          includedMessageCount?: number;
-          totalLogMessages?: number;
-        };
-      }[];
-      markdownFilename: string;
-      jsonFilename: string;
-      artifactFilename?: string;
-      approvedBy?: string[];
-      statusSummary?: string;
-    };
-    error?: string;
-  }>;
-  interruptRun: (runId: string, message: string) => Promise<{ success: boolean; error?: string }>;
-  summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => Promise<{ success: boolean; filename?: string; content?: string; error?: string }>;
-  generateTasksFromDiscussion: (dirPath: string, discussionId: string, options?: { moderatorName?: string }) => Promise<{ success: boolean; createdTaskCards?: TaskBoardCard[]; errors?: string[]; error?: string }>;
-  loadTaskBoard: (dirPath: string) => Promise<{ success: boolean; cards?: TaskBoardCard[]; error?: string }>;
+      doerName?: string;
+      reviewerNames?: string[];
+      maxCycles?: number;
+      associatedCardId?: string;
+      continuedFromTaskId?: string;
+      taskId?: string;
+    }
+  ) => Promise<Result & { result?: any }>;
+  interruptRun: (runId: string, message: string) => Promise<Result>;
+  summarizeDiscussion: (
+    roomId: string,
+    discussionId: string,
+    options?: { sourceId?: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
+  ) => Promise<Result & { filename?: string; content?: string }>;
+  generateTasksFromDiscussion: (
+    roomId: string,
+    discussionId: string,
+    options?: { sourceId?: string; moderatorName?: string }
+  ) => Promise<Result & { createdTaskCards?: TaskBoardCard[]; errors?: string[] }>;
+  loadTaskBoard: (roomId: string) => Promise<Result & { cards?: TaskBoardCard[] }>;
   onDiscussionEvent: (callback: (event: DiscussionIpcEvent) => void) => () => void;
-  saveRoomFile: (dirPath: string, section: 'documents' | 'tasks', filename: string, content: string) => Promise<{ success: boolean; filename?: string; error?: string }>;
-  saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<{ success: boolean; error?: string }>;
-  saveAgent: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string }>;
-  deleteAgent: (dirPath: string, agentName: string, memberId?: string) => Promise<{ success: boolean; error?: string }>;
-  loadTeams: (
-    dirPath: string
-  ) => Promise<{
-    success: boolean;
-    teams?: MemberTeam[];
-    diagnostics?: Array<{ filePath: string; error: string }>;
-    error?: string;
-    rollbackWarnings?: string[];
-  }>;
-  saveTeam: (dirPath: string, team: any) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;
-  deleteTeam: (dirPath: string, teamId: string) => Promise<{ success: boolean; error?: string; rollbackWarnings?: string[] }>;
-  updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) => Promise<{ success: boolean; team?: MemberTeam; error?: string; rollbackWarnings?: string[] }>;
+  saveRoomFile: (roomId: string, section: 'documents' | 'tasks', filename: string, content: string) => Promise<Result & { filename?: string }>;
+  saveContextFile: (roomId: string, filename: 'overview.md' | 'structure.md', content: string) => Promise<Result>;
+  saveAgent: (roomId: string, agent: any) => Promise<Result>;
+  deleteAgent: (roomId: string, agentName: string, memberId?: string) => Promise<Result>;
+  loadTeams: (roomId: string) => Promise<Result & { teams?: MemberTeam[]; diagnostics?: Array<{ filePath: string; error: string }> }>;
+  saveTeam: (roomId: string, team: any) => Promise<Result & { team?: MemberTeam }>;
+  deleteTeam: (roomId: string, teamId: string) => Promise<Result>;
+  updateTeamMembers: (roomId: string, teamId: string, memberIds: string[]) => Promise<Result & { team?: MemberTeam }>;
   createTeamWithMembers: (
-    dirPath: string,
+    roomId: string,
     team: unknown,
     members: unknown[],
     skillDrafts?: Array<{ name: string; content: string }>
-  ) => Promise<{ success: boolean; team?: MemberTeam; members?: any[]; rollbackWarnings?: string[]; error?: string }>;
+  ) => Promise<Result & { team?: MemberTeam; members?: any[]; rollbackWarnings?: string[] }>;
   addMembersToTeam: (
-    dirPath: string,
+    roomId: string,
     teamId: string,
     members: unknown[],
     skillDrafts?: Array<{ name: string; content: string }>
-  ) => Promise<{ success: boolean; team?: MemberTeam; members?: any[]; rollbackWarnings?: string[]; error?: string }>;
-  saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<{ success: boolean; error?: string }>;
-  previewAgentSkills: (dirPath: string, agent: any) => Promise<{ success: boolean; error?: string } & Partial<SkillPreviewResult>>;
-  detectLocalAgents: () => Promise<{ success: boolean; agents?: DetectedAgent[]; error?: string }>;
-  loadProviders: () => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
-  saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
-  deleteProvider: (providerId: string) => Promise<{ success: boolean; providers?: MaskedProvider[]; error?: string }>;
-  testProvider: (providerId: string) => Promise<{ success: boolean; message?: string; error?: string }>;
-  detectCliModels: (cliId: string) => Promise<{ success: boolean; models?: { value: string; label: string }[]; error?: string }>;
-  detectApiModels: (providerId: string) => Promise<{ success: boolean; models?: { value: string; label: string }[]; error?: string }>;
-  loadMcpConfig: (dirPath: string) => Promise<{ success: boolean; config?: any; error?: string }>;
-  saveMcpConfig: (dirPath: string, config: any) => Promise<{ success: boolean; error?: string }>;
-  loadProjectConfig: (dirPath: string) => Promise<{ success: boolean; config?: any; error?: string }>;
-  saveProjectConfig: (dirPath: string, config: any) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<Result & { team?: MemberTeam; members?: any[]; rollbackWarnings?: string[] }>;
+  saveSkill: (roomId: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<Result>;
+  previewAgentSkills: (roomId: string, agent: any) => Promise<Result & Partial<SkillPreviewResult>>;
+  detectLocalAgents: () => Promise<Result & { agents?: DetectedAgent[] }>;
+  loadProviders: () => Promise<Result & { providers?: MaskedProvider[] }>;
+  saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => Promise<Result & { providers?: MaskedProvider[] }>;
+  deleteProvider: (providerId: string) => Promise<Result & { providers?: MaskedProvider[] }>;
+  testProvider: (providerId: string) => Promise<Result & { message?: string }>;
+  detectCliModels: (cliId: string) => Promise<Result & { models?: Array<{ value: string; label: string }> }>;
+  detectApiModels: (providerId: string) => Promise<Result & { models?: Array<{ value: string; label: string }> }>;
+  loadMcpConfig: (roomId: string) => Promise<Result & { config?: any }>;
+  saveMcpConfig: (roomId: string, config: any) => Promise<Result>;
+  loadProjectConfig: (roomId: string) => Promise<Result & { config?: any }>;
+  saveProjectConfig: (roomId: string, config: any) => Promise<Result>;
 }

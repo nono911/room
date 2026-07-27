@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
   ALLOWED_ROOM_FILE_SECTIONS,
-  requireBoundProjectRoot, resolveWithinProject, resolveWithinRoomData,
+  requireBoundRoom, resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, isAllowed, isPlainObject
 } from './shared.js';
 import { readProjectConfigFromDisk, validateProjectConfig } from './config-store.js';
@@ -52,10 +52,10 @@ async function removeSupersededDiscussionSummaries(documentsDir: string, keepFil
 }
 
 export function registerFilesIpc(): void {
-  ipcMain.handle('load-context-sets', async (event, { dirPath }: { dirPath: string }) => {
+  ipcMain.handle('load-context-sets', async (event, { roomId }: { roomId: string }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const filePath = resolveWithinRoomData(projectRoot, 'context', 'sets.json');
+      requireBoundRoom(roomId);
+      const filePath = resolveWithinRoomData(roomId, 'context', 'sets.json');
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         return { success: true, contextSets: validateContextSets(JSON.parse(content)) };
@@ -72,12 +72,12 @@ export function registerFilesIpc(): void {
 
   ipcMain.handle('save-context-sets', async (
     event,
-    { dirPath, contextSets }: { dirPath: string; contextSets: unknown }
+    { roomId, contextSets }: { roomId: string; contextSets: unknown }
   ) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const validated = validateContextSets(contextSets);
-      const contextDir = resolveWithinRoomData(projectRoot, 'context');
+      const contextDir = resolveWithinRoomData(roomId, 'context');
       await fs.mkdir(contextDir, { recursive: true });
       await fs.writeFile(
         resolveWithinProject(contextDir, 'sets.json'),
@@ -90,13 +90,13 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('read-room-file', async (event, { dirPath, section, filename }: { dirPath: string; section: string; filename: string }) => {
+  ipcMain.handle('read-room-file', async (event, { roomId, section, filename }: { roomId: string; section: string; filename: string }) => {
     try {
       if (!isAllowed(section, ALLOWED_ROOM_FILE_SECTIONS)) {
         return { success: false, error: 'Invalid ROOM file section.' };
       }
 
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const safeFilename = sanitizeFileName(filename);
       const sectionsToTry = section === 'documents'
         ? ['documents', 'reviews', 'decisions']
@@ -107,7 +107,7 @@ export function registerFilesIpc(): void {
       let filePath = '';
       let sourceSection = '';
       for (const sectionToTry of sectionsToTry) {
-        const candidate = resolveWithinRoomData(projectRoot, sectionToTry, safeFilename);
+        const candidate = resolveWithinRoomData(roomId, sectionToTry, safeFilename);
         try {
           const stat = await fs.stat(candidate);
           if (stat.isFile()) {
@@ -129,7 +129,7 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('save-room-file', async (event, { dirPath, section, filename, content }: { dirPath: string; section: string; filename: string; content: string }) => {
+  ipcMain.handle('save-room-file', async (event, { roomId, section, filename, content }: { roomId: string; section: string; filename: string; content: string }) => {
     try {
       if (!isAllowed(section, ['documents', 'tasks'] as const)) {
         return { success: false, error: 'Invalid ROOM file section.' };
@@ -138,10 +138,10 @@ export function registerFilesIpc(): void {
         return { success: false, error: 'Invalid file content.' };
       }
 
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const safeFilename = sanitizeFileName(filename || 'untitled', 'untitled');
       const fileNameWithExt = safeFilename.endsWith('.md') ? safeFilename : `${safeFilename}.md`;
-      const sectionDir = resolveWithinRoomData(projectRoot, section);
+      const sectionDir = resolveWithinRoomData(roomId, section);
       await fs.mkdir(sectionDir, { recursive: true });
       if (section === 'documents') {
         await removeSupersededDiscussionSummaries(sectionDir, fileNameWithExt);
@@ -154,7 +154,7 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('save-context-file', async (event, { dirPath, filename, content }: { dirPath: string; filename: string; content: string }) => {
+  ipcMain.handle('save-context-file', async (event, { roomId, filename, content }: { roomId: string; filename: string; content: string }) => {
     try {
       if (filename !== 'overview.md' && filename !== 'structure.md') {
         return { success: false, error: 'Invalid context file.' };
@@ -163,8 +163,8 @@ export function registerFilesIpc(): void {
         return { success: false, error: 'Invalid file content.' };
       }
 
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const contextDir = resolveWithinRoomData(projectRoot, 'context');
+      requireBoundRoom(roomId);
+      const contextDir = resolveWithinRoomData(roomId, 'context');
       await fs.mkdir(contextDir, { recursive: true });
       const filePath = resolveWithinProject(contextDir, filename);
       await fs.writeFile(filePath, content, 'utf-8');
@@ -174,11 +174,11 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('save-skill', async (event, { dirPath, name, content, source }: { dirPath: string; name: string; content: string; source?: 'skills' | 'roles' }) => {
+  ipcMain.handle('save-skill', async (event, { roomId, name, content, source }: { roomId: string; name: string; content: string; source?: 'skills' | 'roles' }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
+      requireBoundRoom(roomId);
       const subfolder = source === 'roles' ? 'roles' : 'skills';
-      const skillsDir = resolveWithinRoomData(projectRoot, subfolder);
+      const skillsDir = resolveWithinRoomData(roomId, subfolder);
       await fs.mkdir(skillsDir, { recursive: true });
       const filename = sanitizeFileName(name || 'untitled', 'untitled');
       const fileNameWithExt = filename.endsWith('.md') ? filename : `${filename}.md`;
@@ -190,10 +190,10 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('load-project-config', async (event, dirPath: string) => {
+  ipcMain.handle('load-project-config', async (event, roomId: string) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const config = await readProjectConfigFromDisk(projectRoot);
+      requireBoundRoom(roomId);
+      const config = await readProjectConfigFromDisk(roomId);
       return { success: true, config };
     } catch (error: any) {
       if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -203,10 +203,10 @@ export function registerFilesIpc(): void {
     }
   });
 
-  ipcMain.handle('save-project-config', async (event, { dirPath, config }: { dirPath: string; config: any }) => {
+  ipcMain.handle('save-project-config', async (event, { roomId, config }: { roomId: string; config: any }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const configPath = resolveWithinRoomData(projectRoot, 'config.json');
+      requireBoundRoom(roomId);
+      const configPath = resolveWithinRoomData(roomId, 'config.json');
       const validated = validateProjectConfig(config);
       if (!validated.success) {
         return { success: false, error: validated.error };

@@ -4,7 +4,7 @@ import { DiscussionEngine, loadAgents, loadTaskBoard, type AgentConfig } from '@
 import {
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
   normalizeTemporaryAgents,
-  requireBoundProjectRoot, requireBoundWorkspace, resolveCanonicalWithinProject,
+  createSourceProvenance, requireBoundRoom, requireBoundWorkspace, resolveCanonicalWithinProject,
   resolveWithinProject, resolveWithinRoomData,
   sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile
 } from './shared.js';
@@ -34,7 +34,11 @@ async function readTextFileWithLimitLocal(filePath: string, maxBytes: number): P
   return buffer.toString('utf-8');
 }
 
-async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Promise<string> {
+async function buildDiscussionContext(
+  roomId: string,
+  sourceRoot: string | undefined,
+  rawRefs: unknown
+): Promise<string> {
   if (!Array.isArray(rawRefs)) return '';
 
   const sections: string[] = [];
@@ -53,10 +57,12 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         continue;
       } else if (ref.startsWith('file:')) {
         const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
-        label = `Workspace File: ${relPath}`;
+        label = `Source File: ${relPath}`;
         const selectedPath = relPath.startsWith('.room/')
-          ? resolveWithinRoomData(projectRoot, relPath.slice('.room/'.length))
-          : await resolveCanonicalWithinProject(projectRoot, relPath);
+          ? resolveWithinRoomData(roomId, relPath.slice('.room/'.length))
+          : sourceRoot
+            ? await resolveCanonicalWithinProject(sourceRoot, relPath)
+            : (() => { throw new Error('Attach a Source to include source files.'); })();
         content = await readTextFileWithLimitLocal(
           selectedPath,
           DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
@@ -65,15 +71,15 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         const filename = sanitizeFileName(ref.slice('document:'.length));
         label = `Document: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'documents', filename),
-          resolveWithinRoomData(projectRoot, 'reviews', filename),
-          resolveWithinRoomData(projectRoot, 'decisions', filename)
+          resolveWithinRoomData(roomId, 'documents', filename),
+          resolveWithinRoomData(roomId, 'reviews', filename),
+          resolveWithinRoomData(roomId, 'decisions', filename)
         ]);
       } else if (ref.startsWith('task:')) {
         const filename = sanitizeFileName(ref.slice('task:'.length));
         label = `Task: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'tasks', filename)
+          resolveWithinRoomData(roomId, 'tasks', filename)
         ]);
       } else if (ref.startsWith('discussion:')) {
         const filename = sanitizeFileName(ref.slice('discussion:'.length));
@@ -82,7 +88,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
         }
         label = `Previous Discussion: ${filename}`;
         content = await readFirstExistingFile([
-          resolveWithinRoomData(projectRoot, 'discussions', filename)
+          resolveWithinRoomData(roomId, 'discussions', filename)
         ]);
       }
     } catch (error: any) {
@@ -104,7 +110,7 @@ async function buildDiscussionContext(projectRoot: string, rawRefs: unknown): Pr
 }
 
 export function registerTasksIpc(): void {
-  ipcMain.handle('run-task', async (event, { dirPath, task, taskType, doerName, reviewerNames, maxCycles, contextRefs, associatedCardId, continuedFromTaskId, taskId, temporaryAgents }: { dirPath: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: unknown[] }) => {
+  ipcMain.handle('run-task', async (event, { roomId, sourceId, task, taskType, doerName, reviewerNames, maxCycles, contextRefs, associatedCardId, continuedFromTaskId, taskId, temporaryAgents }: { roomId: string; sourceId?: string; task: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: unknown[] }) => {
     const actualTaskId = taskId || (associatedCardId ? `task-${associatedCardId}` : `task-${Date.now()}`);
     const cycleLimit = Number.isFinite(maxCycles) ? Math.max(1, Math.min(5, Math.floor(maxCycles || 1))) : 2;
     const sendDiscussionEvent = (payload: any) => {
@@ -113,8 +119,11 @@ export function registerTasksIpc(): void {
     startControlledRun(actualTaskId);
 
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const workspace = requireBoundWorkspace(dirPath);
+      const workspace = requireBoundWorkspace(roomId, sourceId);
+      if (taskType === 'coding' && !workspace.sourceRoot) {
+        return { success: false, error: 'Attach a Source before running a coding task.' };
+      }
+      const sourceProvenance = createSourceProvenance(requireBoundRoom(roomId), workspace);
       const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
       await applyApiKeysToEnvironment();
       const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
@@ -130,7 +139,7 @@ export function registerTasksIpc(): void {
         return { success: false, error: 'Select a Doer AI member before running the task.' };
       }
 
-      const additionalContext = await buildDiscussionContext(projectRoot, contextRefs);
+      const additionalContext = await buildDiscussionContext(roomId, workspace.sourceRoot, contextRefs);
       const result = await engine.runCodingTask(
         actualTaskId,
         `Task: ${task.slice(0, 40)}...`,
@@ -149,6 +158,12 @@ export function registerTasksIpc(): void {
         }
       );
 
+      result.sourceProvenance = sourceProvenance;
+      await fs.writeFile(
+        resolveWithinRoomData(roomId, 'tasks', result.jsonFilename),
+        JSON.stringify(result, null, 2),
+        'utf-8'
+      );
       return { success: true, result };
     } catch (error: any) {
       sendDiscussionEvent({
@@ -162,10 +177,9 @@ export function registerTasksIpc(): void {
     }
   });
 
-  ipcMain.handle('load-task-board', async (event, { dirPath }: { dirPath: string }) => {
+  ipcMain.handle('load-task-board', async (event, { roomId }: { roomId: string }) => {
     try {
-      const projectRoot = requireBoundProjectRoot(dirPath);
-      const workspace = requireBoundWorkspace(dirPath);
+      const workspace = requireBoundWorkspace(roomId);
       const board = await loadTaskBoard(workspace);
       return { success: true, cards: board.cards };
     } catch (error: any) {

@@ -2,10 +2,13 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
 const mockElectronAPI = {
-  selectProjectDir: vi.fn().mockResolvedValue({ success: true, path: '/mock/path' }),
-  openProjectDir: vi.fn().mockResolvedValue({ success: true }),
-  createWorkspace: vi.fn().mockResolvedValue({ success: true }),
-  roomInit: vi.fn().mockResolvedValue({ success: true }),
+  initializePersonalRoom: vi.fn().mockResolvedValue({
+    success: true,
+    room: { id: 'room_personal', name: 'Personal Room', sources: [] }
+  }),
+  attachRoomSource: vi.fn().mockResolvedValue({ success: true }),
+  detachRoomSource: vi.fn().mockResolvedValue({ success: true }),
+  setActiveRoomSource: vi.fn().mockResolvedValue({ success: true }),
   getProjectData: vi.fn().mockResolvedValue({ success: true, data: {} }),
   readRoomFile: vi.fn().mockResolvedValue({ success: true, content: '' }),
   listWorkspaceFiles: vi.fn().mockResolvedValue({ success: true, files: [] }),
@@ -32,6 +35,12 @@ const mockElectronAPI = {
   previewAgentSkills: vi.fn().mockResolvedValue({ success: true, skills: [] }),
   saveAgent: vi.fn().mockResolvedValue({ success: true }),
   deleteAgent: vi.fn().mockResolvedValue({ success: true }),
+  loadTeams: vi.fn().mockResolvedValue({ success: true, teams: [] }),
+  saveTeam: vi.fn().mockResolvedValue({ success: true }),
+  deleteTeam: vi.fn().mockResolvedValue({ success: true }),
+  updateTeamMembers: vi.fn().mockResolvedValue({ success: true }),
+  createTeamWithMembers: vi.fn().mockResolvedValue({ success: true }),
+  addMembersToTeam: vi.fn().mockResolvedValue({ success: true }),
   detectLocalAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
   loadProviders: vi.fn().mockResolvedValue({ success: true, providers: [] }),
   saveProvider: vi.fn().mockResolvedValue({ success: true }),

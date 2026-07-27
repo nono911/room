@@ -42,9 +42,9 @@ export const SetupChecklist: React.FC<SetupChecklistProps> = ({
       marginBottom: '20px'
     }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'white' }}>Workspace setup</div>
+        <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'white' }}>Room setup</div>
         <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '3px' }}>
-          Use this as a quick path from empty workspace to useful runs with source context and references preserved.
+          Use this as a quick path from an empty Room to useful runs with Source context and references preserved.
         </div>
         {scanStatus && (
           <div style={{

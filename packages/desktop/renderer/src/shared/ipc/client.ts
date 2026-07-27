@@ -15,68 +15,73 @@ type TemporaryAgentPayload = {
 };
 
 export const api = {
-  selectProjectDir: () => window.electronAPI.selectProjectDir(),
-  openProjectDir: (dirPath: string) => window.electronAPI.openProjectDir(dirPath),
-  listRoomWorkspaces: () => window.electronAPI.listRoomWorkspaces(),
-  createWorkspace: (workspaceName: string) => window.electronAPI.createWorkspace(workspaceName),
-  roomInit: (dirPath: string) => window.electronAPI.roomInit(dirPath),
-  getProjectData: (dirPath: string) => window.electronAPI.getProjectData(dirPath),
-  readRoomFile: (dirPath: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) =>
-    window.electronAPI.readRoomFile(dirPath, section, filename),
-  listWorkspaceFiles: (dirPath: string) => window.electronAPI.listWorkspaceFiles(dirPath),
-  browseWorkspaceFiles: (dirPath: string, directory = '', query = '') =>
-    window.electronAPI.browseWorkspaceFiles(dirPath, directory, query),
-  searchContextItems: (dirPath: string, query?: string) => window.electronAPI.searchContextItems(dirPath, query),
-  readWorkspaceFile: (dirPath: string, filePath: string) => window.electronAPI.readWorkspaceFile(dirPath, filePath),
-  revealWorkspaceFile: (dirPath: string, filePath: string) => window.electronAPI.revealWorkspaceFile(dirPath, filePath),
-  loadContextSets: (dirPath: string) => window.electronAPI.loadContextSets(dirPath),
-  saveContextSets: (dirPath: string, contextSets: import('../../types/domain.js').ContextSet[]) =>
-    window.electronAPI.saveContextSets(dirPath, contextSets),
-  runScan: (dirPath: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) =>
-    window.electronAPI.runScan(dirPath, mainAgent, modelName, allowDangerousCli),
+  initializePersonalRoom: () => window.electronAPI.initializePersonalRoom(),
+  attachRoomSource: (roomId: string) => window.electronAPI.attachRoomSource(roomId),
+  detachRoomSource: (roomId: string, sourceId: string) =>
+    window.electronAPI.detachRoomSource(roomId, sourceId),
+  setActiveRoomSource: (roomId: string, sourceId?: string) =>
+    window.electronAPI.setActiveRoomSource(roomId, sourceId),
+  getProjectData: (roomId: string) => window.electronAPI.getProjectData(roomId),
+  readRoomFile: (roomId: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) =>
+    window.electronAPI.readRoomFile(roomId, section, filename),
+  listWorkspaceFiles: (roomId: string, sourceId: string) =>
+    window.electronAPI.listWorkspaceFiles(roomId, sourceId),
+  browseWorkspaceFiles: (roomId: string, sourceId: string, directory = '', query = '') =>
+    window.electronAPI.browseWorkspaceFiles(roomId, sourceId, directory, query),
+  searchContextItems: (roomId: string, sourceId?: string, query?: string) =>
+    window.electronAPI.searchContextItems(roomId, sourceId, query),
+  readWorkspaceFile: (roomId: string, sourceId: string, filePath: string) =>
+    window.electronAPI.readWorkspaceFile(roomId, sourceId, filePath),
+  revealWorkspaceFile: (roomId: string, sourceId: string, filePath: string) =>
+    window.electronAPI.revealWorkspaceFile(roomId, sourceId, filePath),
+  loadContextSets: (roomId: string) => window.electronAPI.loadContextSets(roomId),
+  saveContextSets: (roomId: string, contextSets: import('../../types/domain.js').ContextSet[]) =>
+    window.electronAPI.saveContextSets(roomId, contextSets),
+  runScan: (roomId: string, sourceId: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) =>
+    window.electronAPI.runScan(roomId, sourceId, mainAgent, modelName, allowDangerousCli),
   runDiscussion: (
-    dirPath: string,
+    roomId: string,
     topic: string,
     agentNames?: string[],
-    options?: { maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
-  ) => window.electronAPI.runDiscussion(dirPath, topic, agentNames, options),
+    options?: { sourceId?: string; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
+  ) => window.electronAPI.runDiscussion(roomId, topic, agentNames, options),
   runTask: (
-    dirPath: string,
+    roomId: string,
     task: string,
-    options?: { taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: TemporaryAgentPayload[] }
-  ) => window.electronAPI.runTask(dirPath, task, options),
+    options?: { sourceId?: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: TemporaryAgentPayload[] }
+  ) => window.electronAPI.runTask(roomId, task, options),
   interruptRun: (runId: string, message: string) => window.electronAPI.interruptRun(runId, message),
-  summarizeDiscussion: (dirPath: string, discussionId: string, options?: { agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>
-    window.electronAPI.summarizeDiscussion(dirPath, discussionId, options),
-  generateTasksFromDiscussion: (dirPath: string, discussionId: string, options?: { moderatorName?: string }) =>
-    window.electronAPI.generateTasksFromDiscussion(dirPath, discussionId, options),
-  loadTaskBoard: (dirPath: string) => window.electronAPI.loadTaskBoard(dirPath),
+  summarizeDiscussion: (roomId: string, discussionId: string, options?: { sourceId?: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>
+    window.electronAPI.summarizeDiscussion(roomId, discussionId, options),
+  generateTasksFromDiscussion: (roomId: string, discussionId: string, options?: { sourceId?: string; moderatorName?: string }) =>
+    window.electronAPI.generateTasksFromDiscussion(roomId, discussionId, options),
+  loadTaskBoard: (roomId: string) => window.electronAPI.loadTaskBoard(roomId),
   onDiscussionEvent: (callback: (event: DiscussionIpcEvent) => void) => window.electronAPI.onDiscussionEvent(callback),
-  saveRoomFile: (dirPath: string, section: 'documents' | 'tasks', filename: string, content: string) =>
-    window.electronAPI.saveRoomFile(dirPath, section, filename, content),
-  saveContextFile: (dirPath: string, filename: 'overview.md' | 'structure.md', content: string) =>
-    window.electronAPI.saveContextFile(dirPath, filename, content),
-  saveAgent: (dirPath: string, agent: any) => window.electronAPI.saveAgent(dirPath, agent),
-  deleteAgent: (dirPath: string, agentName: string, memberId?: string) => window.electronAPI.deleteAgent(dirPath, agentName, memberId),
-  loadTeams: (dirPath: string) => window.electronAPI.loadTeams(dirPath),
-  saveTeam: (dirPath: string, team: any) => window.electronAPI.saveTeam(dirPath, team),
-  deleteTeam: (dirPath: string, teamId: string) => window.electronAPI.deleteTeam(dirPath, teamId),
-  updateTeamMembers: (dirPath: string, teamId: string, memberIds: string[]) =>
-    window.electronAPI.updateTeamMembers(dirPath, teamId, memberIds),
+  saveRoomFile: (roomId: string, section: 'documents' | 'tasks', filename: string, content: string) =>
+    window.electronAPI.saveRoomFile(roomId, section, filename, content),
+  saveContextFile: (roomId: string, filename: 'overview.md' | 'structure.md', content: string) =>
+    window.electronAPI.saveContextFile(roomId, filename, content),
+  saveAgent: (roomId: string, agent: any) => window.electronAPI.saveAgent(roomId, agent),
+  deleteAgent: (roomId: string, agentName: string, memberId?: string) => window.electronAPI.deleteAgent(roomId, agentName, memberId),
+  loadTeams: (roomId: string) => window.electronAPI.loadTeams(roomId),
+  saveTeam: (roomId: string, team: any) => window.electronAPI.saveTeam(roomId, team),
+  deleteTeam: (roomId: string, teamId: string) => window.electronAPI.deleteTeam(roomId, teamId),
+  updateTeamMembers: (roomId: string, teamId: string, memberIds: string[]) =>
+    window.electronAPI.updateTeamMembers(roomId, teamId, memberIds),
   createTeamWithMembers: (
-    dirPath: string,
+    roomId: string,
     team: unknown,
     members: unknown[],
     skillDrafts: Array<{ name: string; content: string }> = []
-  ) => window.electronAPI.createTeamWithMembers(dirPath, team, members, skillDrafts),
+  ) => window.electronAPI.createTeamWithMembers(roomId, team, members, skillDrafts),
   addMembersToTeam: (
-    dirPath: string,
+    roomId: string,
     teamId: string,
     members: unknown[],
     skillDrafts: Array<{ name: string; content: string }> = []
-  ) => window.electronAPI.addMembersToTeam(dirPath, teamId, members, skillDrafts),
-  saveSkill: (dirPath: string, name: string, content: string, source?: 'skills' | 'roles') => window.electronAPI.saveSkill(dirPath, name, content, source),
-  previewAgentSkills: (dirPath: string, agent: any) => window.electronAPI.previewAgentSkills(dirPath, agent),
+  ) => window.electronAPI.addMembersToTeam(roomId, teamId, members, skillDrafts),
+  saveSkill: (roomId: string, name: string, content: string, source?: 'skills' | 'roles') => window.electronAPI.saveSkill(roomId, name, content, source),
+  previewAgentSkills: (roomId: string, agent: any) => window.electronAPI.previewAgentSkills(roomId, agent),
   detectLocalAgents: () => window.electronAPI.detectLocalAgents(),
   loadProviders: () => window.electronAPI.loadProviders(),
   saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => window.electronAPI.saveProvider(provider),
@@ -84,8 +89,8 @@ export const api = {
   testProvider: (providerId: string) => window.electronAPI.testProvider(providerId),
   detectCliModels: (cliId: string) => window.electronAPI.detectCliModels(cliId),
   detectApiModels: (providerId: string) => window.electronAPI.detectApiModels(providerId),
-  loadMcpConfig: (dirPath: string) => window.electronAPI.loadMcpConfig(dirPath),
-  saveMcpConfig: (dirPath: string, config: any) => window.electronAPI.saveMcpConfig(dirPath, config),
-  loadProjectConfig: (dirPath: string) => window.electronAPI.loadProjectConfig(dirPath),
-  saveProjectConfig: (dirPath: string, config: any) => window.electronAPI.saveProjectConfig(dirPath, config)
+  loadMcpConfig: (roomId: string) => window.electronAPI.loadMcpConfig(roomId),
+  saveMcpConfig: (roomId: string, config: any) => window.electronAPI.saveMcpConfig(roomId, config),
+  loadProjectConfig: (roomId: string) => window.electronAPI.loadProjectConfig(roomId),
+  saveProjectConfig: (roomId: string, config: any) => window.electronAPI.saveProjectConfig(roomId, config)
 };

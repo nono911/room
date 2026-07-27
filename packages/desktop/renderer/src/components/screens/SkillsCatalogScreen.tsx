@@ -15,8 +15,8 @@ export function SkillsCatalogScreen({ projectData, setActiveTab, resetAgentForm 
   const workspaceSkills = (projectData?.skills || []).map(filename => ({
     key: filename,
     name: filename.replace(/\.md$/i, ''),
-    source: 'Workspace',
-    detail: 'Stored with this ROOM workspace'
+    source: 'Room',
+    detail: 'Stored with this Room'
   }));
   const machineSkills = (projectData?.machineSkills || []).map(skill => ({
     key: skill.reference,
@@ -53,14 +53,14 @@ export function SkillsCatalogScreen({ projectData, setActiveTab, resetAgentForm 
           type="search"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Search skills on this workspace and Mac…"
+          placeholder="Search skills in this Room and on this Mac…"
         />
-        <span>{workspaceSkills.length} workspace · {machineSkills.length} on this Mac</span>
+        <span>{workspaceSkills.length} Room · {machineSkills.length} on this Mac</span>
       </div>
       {skills.length === 0 ? (
         <div className="activity-empty">
           <strong>No matching skills</strong>
-          <p>Try another search or create a workspace skill from an AI member.</p>
+          <p>Try another search or create a Room skill from an AI member.</p>
         </div>
       ) : (
         <div className="skills-catalog-grid">

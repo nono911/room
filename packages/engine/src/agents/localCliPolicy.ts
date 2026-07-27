@@ -23,7 +23,7 @@ export function getLocalCliExecutionPolicy(agent: Pick<AgentConfig, 'provider' |
     return {
       isLocalCli: true,
       requiresDangerousWorkspace: true,
-      reason: 'Custom Local CLI commands require workspace dangerous mode because they execute arbitrary commands.'
+      reason: 'Custom Local CLI commands require dangerous mode because they execute arbitrary commands.'
     };
   }
 
@@ -31,7 +31,7 @@ export function getLocalCliExecutionPolicy(agent: Pick<AgentConfig, 'provider' |
     return {
       isLocalCli: true,
       requiresDangerousWorkspace: true,
-      reason: 'Dangerous Local CLI permission mode requires workspace dangerous mode.'
+      reason: 'Dangerous Local CLI permission mode requires Room dangerous mode.'
     };
   }
 
@@ -47,6 +47,6 @@ export function assertLocalCliExecutionAllowed(
     return;
   }
 
-  const reason = policy.reason || 'Local CLI execution requires workspace dangerous mode.';
-  throw new Error(`${reason} Agent "${agent.name}" is not allowed to run until dangerous CLI access is enabled in the ROOM workspace settings.`);
+  const reason = policy.reason || 'Local CLI execution requires Room dangerous mode.';
+  throw new Error(`${reason} Agent "${agent.name}" is not allowed to run until dangerous CLI access is enabled in Room settings.`);
 }

@@ -329,7 +329,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         {pixelAgentViewMode === 'classic' && discussionMessages.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px', background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '12px', minHeight: '350px' }}>
             <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-              <h3 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>Choose a Workspace Template & Suggest Experts</h3>
+              <h3 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>Choose a Room Template & Suggest Experts</h3>
               <p style={{ color: 'hsl(var(--text-muted))', fontSize: '0.8rem', maxWidth: '580px', margin: '0 auto', lineHeight: 1.45 }}>
                 Select what type of project or analysis you are doing. ROOM will automatically configure the workflow with recommended AI specialists.
               </p>
@@ -524,7 +524,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           Resolve over rounds
         </label>
         <label
-          title="Let safe-mode CLI members read workspace files and search the web this discussion."
+          title="Let safe-mode CLI members read active Source files and search the web for this discussion."
           style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}
         >
           <input
@@ -593,8 +593,8 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           >
             <option value="__project__">
               {projectConfig.mainAgent && projectConfig.mainAgent !== 'none'
-                ? `Project settings: ${projectConfig.mainAgent}`
-                : 'Project settings'}
+                ? `Room settings: ${projectConfig.mainAgent}`
+                : 'Room settings'}
             </option>
             {registeredProjectAgents.map((agent: any) => (
               <option key={agent.name} value={agent.name}>{agent.name}</option>

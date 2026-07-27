@@ -7,12 +7,18 @@ export interface MemberTeam {
   updatedAt: string;
 }
 
-export interface RoomWorkspaceSummary {
+export interface RoomSourceSummary {
   id: string;
   name: string;
-  sourcePath: string;
-  lastOpenedAt: string;
-  importedLegacy: boolean;
+  path: string;
+  attachedAt: string;
+}
+
+export interface RoomSummary {
+  id: string;
+  name: string;
+  sources: RoomSourceSummary[];
+  activeSourceId?: string;
 }
 
 export interface MachineSkillSummary {
@@ -26,6 +32,7 @@ export interface MachineSkillSummary {
 }
 
 export interface ProjectData {
+  room?: RoomSummary;
   projectMd: string;
   archMd: string;
   hasScanData?: boolean;
