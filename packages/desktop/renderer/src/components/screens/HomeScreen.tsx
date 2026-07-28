@@ -1,5 +1,4 @@
 import type { ProjectData } from '../../types/domain.js';
-import { renderMarkdownContent } from '../../shared/lib/markdown/MarkdownContent.js';
 
 interface HomeScreenProps {
   projectData: ProjectData | null;
@@ -35,7 +34,6 @@ export function HomeScreen({
   setActiveTab
 }: HomeScreenProps) {
   const members = (projectData?.agents || []).filter(agent => !agent.isVirtual);
-  const hasContext = !!projectData?.projectMd?.trim() || !!projectData?.archMd?.trim();
   const activeRun = activeTaskRunId
     ? { label: 'Execution in progress', route: 'Run:Execute' }
     : activeDiscussionRunId
@@ -92,11 +90,6 @@ export function HomeScreen({
       )}
 
       <section className="home-metrics" aria-label="Room health">
-        <button type="button" onClick={() => setActiveTab('Context')}>
-          <span className={hasContext ? 'healthy' : 'attention'}>{hasContext ? 'Ready' : 'Needs context'}</span>
-          <strong>Shared memory</strong>
-          <small>Overview and structure</small>
-        </button>
         <button type="button" onClick={() => setActiveTab('AI Members')}>
           <span>{members.length}</span>
           <strong>AI members</strong>
@@ -135,23 +128,6 @@ export function HomeScreen({
                 <small>{description}</small>
               </button>
             ))}
-          </div>
-        </section>
-
-        <section className="home-overview-card">
-          <div className="home-section-heading">
-            <div>
-              <span className="workspace-page-eyebrow">Room brief</span>
-              <h2>Shared context</h2>
-            </div>
-            <button type="button" onClick={() => setActiveTab('Context')}>Edit</button>
-          </div>
-          <div className="home-overview-markdown">
-            {renderMarkdownContent(
-              projectData?.projectMd?.trim() || 'No Room overview yet. Add the goals, constraints, and source material every run should know.',
-              false,
-              'message-markdown'
-            )}
           </div>
         </section>
       </div>

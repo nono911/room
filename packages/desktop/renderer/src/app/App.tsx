@@ -34,7 +34,6 @@ const RESTORABLE_WORKSPACE_TABS = new Set([
   'Run:Execute',
   'Run:Review',
   'AI Members',
-  'Context',
   'Tasks',
   'Files',
   'Artifacts',
@@ -86,7 +85,7 @@ export default function App() {
     setErrorMsg
   });
 
-  const [hasCompletedScan, setHasCompletedScan] = useState<boolean>(false);
+  const [, setHasCompletedScan] = useState<boolean>(false);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
 
@@ -240,7 +239,6 @@ export default function App() {
   const [aiMembersSidebarExpanded, setAiMembersSidebarExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_members_sidebar_expanded') === 'true');
   const [aiMemberDetailsExpanded, setAiMemberDetailsExpanded] = useState<boolean>(() => localStorage.getItem('room_ai_member_details_expanded') !== 'false');
   const {
-    loadWorkspaceCoreData,
     loadProjectData
   } = useWorkspaceData({
     setProjectData,
@@ -300,6 +298,8 @@ export default function App() {
     setNewAgentRole,
     newAgentProvider,
     setNewAgentProvider,
+    newAgentPreset,
+    setNewAgentPreset,
     newAgentPrompt,
     setNewAgentPrompt,
     newAgentSkills,
@@ -393,7 +393,6 @@ export default function App() {
   const { onboardingSteps, setupItems } = useSetupGuidance({
     activeTab,
     projectData,
-    hasCompletedScan,
     selectedDiscussionContextRefs,
     selectedCodingTaskContextRefs,
     discussionMessages,
@@ -509,7 +508,6 @@ export default function App() {
                 loadProjectData={async (pathStr: string) => {
                   await loadProjectData(pathStr);
                 }}
-                loadWorkspaceCoreData={loadWorkspaceCoreData}
                 loadRoomFilePreview={loadRoomFilePreview}
                 openContextPicker={openContextPicker}
                 estimateContextTokens={estimateContextTokens}
@@ -526,6 +524,7 @@ export default function App() {
                 startEditAgent={startEditAgent}
                 handleDeleteAgent={handleDeleteAgent}
                 newAgentProvider={newAgentProvider}
+                newAgentPreset={newAgentPreset}
                 newAgentModel={newAgentModel}
                 newAgentName={newAgentName}
                 setNewAgentName={setNewAgentName}
@@ -538,6 +537,7 @@ export default function App() {
                 newAgentRole={newAgentRole}
                 handleRoleChange={handleRoleChange}
                 setNewAgentProvider={setNewAgentProvider}
+                setNewAgentPreset={setNewAgentPreset}
                 setNewAgentModelCustom={setNewAgentModelCustom}
                 setNewAgentModel={setNewAgentModel}
                 setSkillPreview={setSkillPreview}

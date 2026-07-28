@@ -22,10 +22,43 @@ describe('validateAgentConfig provider handling', () => {
     if (result.success) expect(result.agent.provider).toBe('groq');
   });
 
-  it('rejects Local CLI agents at the domain boundary', () => {
-    const result = validateAgentConfig({ ...base, provider: 'Local CLI', cliPreset: 'claude' });
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toContain('Local CLI agents are disabled');
+  it('accepts verified safe Local CLI agents at the domain boundary', () => {
+    const result = validateAgentConfig({
+      ...base,
+      provider: 'Local CLI',
+      cliPreset: 'claude',
+      permissionMode: 'safe'
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.agent).toMatchObject({
+        provider: 'Local CLI',
+        cliPreset: 'claude',
+        permissionMode: 'safe'
+      });
+    }
+  });
+
+  it('accepts restored safe Local CLI presets and rejects unsupported or dangerous ones', () => {
+    for (const cliPreset of ['gemini', 'codewhale', 'agy', 'kiro']) {
+      expect(validateAgentConfig({
+        ...base,
+        provider: 'Local CLI',
+        cliPreset,
+        permissionMode: 'safe'
+      }).success).toBe(true);
+    }
+    for (const input of [
+      { cliPreset: 'copilot', permissionMode: 'safe' },
+      { cliPreset: 'codex', permissionMode: 'dangerous' },
+      { cliPreset: 'none', permissionMode: 'safe', command: 'echo unsafe' }
+    ]) {
+      expect(validateAgentConfig({
+        ...base,
+        provider: 'Local CLI',
+        ...input
+      }).success).toBe(false);
+    }
   });
 
   it('rejects invalid provider strings', () => {

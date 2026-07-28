@@ -26,15 +26,14 @@ export const AGY_FALLBACK_MODELS: ModelOption[] = [
 
 export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
   claude: [
-    { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+    { value: 'fable', label: 'Fable (latest · Claude Code alias)' },
     { value: 'opus', label: 'Alias: Opus (Claude Code)' },
     { value: 'sonnet', label: 'Alias: Sonnet (Claude Code)' },
     { value: 'haiku', label: 'Alias: Haiku (Claude Code)' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
-    { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet (Latest)' },
-    { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Latest)' }
+    { value: 'claude-fable-5', label: 'Claude Fable 5' },
+    { value: 'claude-opus-5', label: 'Claude Opus 5' },
+    { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }
   ],
   gemini: [
     { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
@@ -43,17 +42,14 @@ export const LOCAL_CLI_FALLBACK_MODELS: Record<CliPresetId, ModelOption[]> = {
   ],
   codex: [
     { value: 'default', label: 'Default (CLI config)' },
-    { value: 'gpt-5.5', label: 'gpt-5.5' },
-    { value: 'gpt-5.4', label: 'gpt-5.4' },
-    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-    { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
-    { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-    { value: 'gpt-5.1', label: 'gpt-5.1' },
-    { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
-    { value: 'gpt-5-codex', label: 'gpt-5-codex' },
-    { value: 'gpt-5', label: 'gpt-5' },
-    { value: 'o3', label: 'o3' },
-    { value: 'o4-mini', label: 'o4-mini' }
+    { value: 'gpt-5.6', label: 'GPT-5.6 (Sol alias)' },
+    { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+    { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+    { value: 'gpt-5.5', label: 'GPT-5.5' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' }
   ],
   copilot: [
     { value: 'gpt-4o', label: 'GPT-4o' },
@@ -80,25 +76,20 @@ export const CLOUD_API_FALLBACK_MODELS: Record<CloudProvider, ModelOption[]> = {
     { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' }
   ],
   Claude: [
-    { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
-    { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet (Latest)' },
-    { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Latest)' }
+    { value: 'claude-fable-5', label: 'Claude Fable 5' },
+    { value: 'claude-opus-5', label: 'Claude Opus 5' },
+    { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }
   ],
   Codex: [
-    { value: 'gpt-5.5', label: 'gpt-5.5' },
-    { value: 'gpt-5.4', label: 'gpt-5.4' },
-    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-    { value: 'gpt-5.3-codex-spark', label: 'gpt-5.3-codex-spark' },
-    { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-    { value: 'gpt-5.1', label: 'gpt-5.1' },
-    { value: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
-    { value: 'gpt-5-codex', label: 'gpt-5-codex' },
-    { value: 'gpt-5', label: 'gpt-5' },
-    { value: 'o3', label: 'o3' },
-    { value: 'o4-mini', label: 'o4-mini' }
+    { value: 'gpt-5.6', label: 'GPT-5.6 (Sol alias)' },
+    { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+    { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+    { value: 'gpt-5.5', label: 'GPT-5.5' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' }
   ]
 };
 

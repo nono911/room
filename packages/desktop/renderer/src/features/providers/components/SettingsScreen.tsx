@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useProviders } from '../context/ProvidersContext.js';
 import { PROVIDER_PRESETS } from '../../../shared/data/staticData.js';
+import { isSafeLocalCliPreset } from '../../ai-members/lib/localCliPresets.js';
 
 interface SettingsScreenProps {
   loading: boolean;
@@ -29,6 +30,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 }) => {
   const {
     providers,
+    detectedClis,
+    scanClis,
+    getModelOptions,
+    fetchModelsForProvider,
     providerKeyDrafts,
     setProviderKeyDrafts,
     providerTestResults,
@@ -42,9 +47,125 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     handleDeleteProvider,
     handleTestProvider
   } = useProviders();
+  const installedClis = useMemo(
+    () => detectedClis.filter(cli => cli.available && isSafeLocalCliPreset(cli.id)),
+    [detectedClis]
+  );
+  const [localAiPreset, setLocalAiPreset] = useState(
+    () => localStorage.getItem('room_local_ai_preset') || ''
+  );
+  const [localAiModel, setLocalAiModel] = useState(
+    () => localStorage.getItem('room_local_ai_model') || ''
+  );
+  const localModelOptions = getModelOptions('Local CLI', localAiPreset);
+
+  useEffect(() => {
+    if (!installedClis.length) return;
+    if (!installedClis.some(cli => cli.id === localAiPreset)) {
+      const preset = installedClis[0].id;
+      setLocalAiPreset(preset);
+      localStorage.setItem('room_local_ai_preset', preset);
+    }
+  }, [installedClis, localAiPreset]);
+
+  useEffect(() => {
+    if (!localAiPreset) return;
+    void fetchModelsForProvider('Local CLI', localAiPreset);
+  }, [localAiPreset]);
+
+  useEffect(() => {
+    if (!localModelOptions.length || localModelOptions.some(model => model.value === localAiModel)) return;
+    setLocalAiModel('');
+    localStorage.removeItem('room_local_ai_model');
+  }, [localAiModel, localModelOptions]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
+      <div className="focus-editor-card" style={{
+        padding: '24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '18px',
+        background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.08), rgba(139, 92, 246, 0.07))',
+        backdropFilter: 'blur(16px)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 650, color: 'hsl(var(--accent-blue))' }}>
+              Local AI
+            </h4>
+            <p style={{ margin: '6px 0 0', fontSize: '0.78rem', lineHeight: 1.5, color: 'hsl(var(--text-muted))' }}>
+              ROOM uses the selected installed CLI before API providers for new AI members.
+            </p>
+          </div>
+          <button type="button" className="btn-secondary" onClick={() => void scanClis()} disabled={loading}>
+            Rescan CLIs
+          </button>
+        </div>
+
+        {installedClis.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 1fr)', gap: '14px' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '7px', fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>
+              LOCAL AI AGENT
+              <select
+                className="form-select"
+                value={localAiPreset}
+                onChange={(event) => {
+                  const preset = event.target.value;
+                  setLocalAiPreset(preset);
+                  setLocalAiModel('');
+                  localStorage.setItem('room_local_ai_preset', preset);
+                  localStorage.removeItem('room_local_ai_model');
+                }}
+              >
+                {installedClis.map(cli => (
+                  <option key={cli.id} value={cli.id}>
+                    {cli.name}{cli.version ? ` · ${cli.version}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '7px', fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>
+              MODEL
+              <select
+                className="form-select"
+                value={localAiModel}
+                onChange={(event) => {
+                  const model = event.target.value;
+                  setLocalAiModel(model);
+                  if (model) localStorage.setItem('room_local_ai_model', model);
+                  else localStorage.removeItem('room_local_ai_model');
+                }}
+              >
+                <option value="">CLI default model</option>
+                {localModelOptions.map(model => (
+                  <option key={model.value} value={model.value}>{model.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : (
+          <div style={{ padding: '14px', borderRadius: '10px', border: '1px solid hsl(var(--border-dim))', color: 'hsl(var(--text-muted))', fontSize: '0.8rem' }}>
+            No supported local CLI was found on the app PATH. Install or link a CLI, then rescan.
+          </div>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          {detectedClis.map(cli => (
+            <span key={cli.id} style={{
+              padding: '5px 9px',
+              borderRadius: '999px',
+              border: `1px solid ${cli.available ? 'rgba(16, 185, 129, 0.3)' : 'hsl(var(--border-dim))'}`,
+              background: cli.available ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.025)',
+              color: cli.available ? '#34d399' : 'hsl(var(--text-muted))',
+              fontSize: '0.7rem',
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}>
+              {cli.available ? '●' : '○'} {cli.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* Section 0: AI Providers */}
       <div className="focus-editor-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

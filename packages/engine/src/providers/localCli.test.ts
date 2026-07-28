@@ -1,19 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { LocalCliProvider } from './localCli.js';
 
-describe('LocalCliProvider hard cut', () => {
-  it('rejects every Local CLI configuration before process execution is possible', () => {
-    for (const cliPreset of ['none', 'gemini', 'codex', 'claude', 'kiro'] as const) {
+describe('LocalCliProvider safe presets', () => {
+  it('accepts verified presets in safe mode', () => {
+    for (const cliPreset of ['claude', 'gemini', 'codex', 'codewhale', 'agy', 'kiro'] as const) {
       expect(() => new LocalCliProvider({
         name: 'Local CLI',
         cliPreset,
+        permissionMode: 'safe',
         roomRoot: '/tmp/room-test'
-      })).toThrow('OS-level Source confinement');
+      })).not.toThrow();
     }
   });
 
-  it('keeps execute blocked even when construction is bypassed', async () => {
-    const provider = Object.create(LocalCliProvider.prototype) as LocalCliProvider;
-    await expect(provider.execute('prompt')).rejects.toThrow('OS-level Source confinement');
+  it('rejects unsupported presets and dangerous mode', () => {
+    expect(() => new LocalCliProvider({
+      name: 'Local CLI',
+      cliPreset: 'copilot',
+      roomRoot: '/tmp/room-test'
+    })).toThrow('verified preset in safe mode');
+    expect(() => new LocalCliProvider({
+      name: 'Local CLI',
+      cliPreset: 'codex',
+      permissionMode: 'dangerous',
+      roomRoot: '/tmp/room-test'
+    })).toThrow('verified preset in safe mode');
   });
 });

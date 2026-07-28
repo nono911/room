@@ -39,6 +39,7 @@ import { listRoomArtifactPage } from './room-artifact-pages.js';
 import { listRoomTaskRunPage } from './task-run-pages.js';
 import { reconcilePendingMemberDeletions } from './member-deletion.js';
 import { reconcileTeamTransactions } from './team-store-transaction.js';
+import { importLegacyRoomSkills } from './legacy-room-skills.js';
 
 function summarizeRoom(record: RoomRecord) {
   return {
@@ -71,6 +72,7 @@ function dedupeDiscussionSummaryFiles(files: string[]): string[] {
 async function loadRoomData(roomId: string) {
   await reconcilePendingMemberDeletions(roomId);
   await reconcileTeamTransactions(roomId);
+  const legacySkillImport = await importLegacyRoomSkills(roomId);
   const record = requireBoundRoom(roomId);
   const workspace = toWorkspaceLocation(record);
   const readOptionalContext = (filename: string) => readRoomTextFile(
@@ -139,10 +141,16 @@ async function loadRoomData(roomId: string) {
     projectMd,
     archMd,
     hasScanData,
-    workspaceDiagnostics: teamLoadResult.diagnostics.map(item => ({
+    workspaceDiagnostics: [
+      ...teamLoadResult.diagnostics.map(item => ({
       source: path.basename(item.filePath),
       message: 'Team configuration could not be loaded.'
-    })),
+      })),
+      ...(legacySkillImport.truncated ? [{
+        source: '.room/skills',
+        message: 'Legacy Room skill import reached its safety limit.'
+      }] : [])
+    ],
     tasks: taskPage.files,
     taskRuns: taskRunPage.taskRuns,
     decisions: decisions.files,

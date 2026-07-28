@@ -15,11 +15,10 @@ const projectData = (projectMd: string, archMd = ''): ProjectData => ({
   agents: []
 });
 
-function roomContextDone(data: ProjectData): boolean {
+function setupGuidance(data: ProjectData) {
   const result = useSetupGuidance({
     activeTab: 'Home',
     projectData: data,
-    hasCompletedScan: false,
     selectedDiscussionContextRefs: [],
     selectedCodingTaskContextRefs: [],
     discussionMessages: [],
@@ -28,25 +27,13 @@ function roomContextDone(data: ProjectData): boolean {
     setActiveTab: vi.fn(),
     openContextPicker: vi.fn()
   });
-  return result.setupItems.find(item => item.label === 'Review Room context')!.done;
+  return result;
 }
 
 describe('source-less setup guidance', () => {
-  it('completes Room context review from useful Room memory without a Source scan', () => {
-    expect(roomContextDone(projectData(
-      '# Personal Room\n\nWe are designing the source-independent support workflow.'
-    ))).toBe(true);
-  });
-
-  it('keeps legacy placeholder Room context incomplete without a Source scan', () => {
-    expect(roomContextDone(projectData(
-      '# Overview\n\nDescribe what this workspace is for.'
-    ))).toBe(false);
-  });
-
-  it('keeps the first-launch Personal Room placeholder incomplete', () => {
-    expect(roomContextDone(projectData(
-      '# Personal Room\n\n## Overview\nYour source-independent ROOM memory.'
-    ))).toBe(false);
+  it('does not link onboarding or setup guidance to the removed Context screen', () => {
+    const result = setupGuidance(projectData('# Personal Room'));
+    expect(result.onboardingSteps.some(step => step.action === 'Open Context')).toBe(false);
+    expect(result.setupItems.some(item => item.label === 'Review Room context')).toBe(false);
   });
 });

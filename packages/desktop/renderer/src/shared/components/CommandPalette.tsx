@@ -14,7 +14,6 @@ const COMMANDS = [
   ['Activity', 'Open Activity'],
   ['Files', 'Browse Files'],
   ['Artifacts', 'Browse ROOM Artifacts'],
-  ['Context', 'Edit Context'],
   ['AI Members', 'Manage AI Members'],
   ['Skills', 'Browse Skills'],
   ['Settings', 'Configure Providers'],

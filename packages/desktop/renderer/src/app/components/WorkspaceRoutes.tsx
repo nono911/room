@@ -10,7 +10,6 @@ import { DiscussionsScreen } from '../../features/discussions/components/Discuss
 import { TaskRunScreen } from '../../features/task-run/components/TaskRunScreen.js';
 import { RunComposerFrame, type RunMode } from '../../features/task-run/components/RunComposerFrame.js';
 import { TaskArchiveScreen } from '../../features/workspace-files/components/TaskArchiveScreen.js';
-import { ContextScreen } from '../../features/workspace-files/components/ContextScreen.js';
 import { McpServersScreen } from '../../features/mcp/components/McpServersScreen.js';
 import { SettingsScreen } from '../../features/providers/components/SettingsScreen.js';
 import {
@@ -36,7 +35,6 @@ interface WorkspaceRoutesProps {
   setErrorMsg: (value: string | null) => void;
   setActiveTab: (tab: string) => void;
   loadProjectData: (path: string) => Promise<void>;
-  loadWorkspaceCoreData: (path: string) => Promise<any>;
   loadRoomFilePreview: (section: any, filename: string) => void;
   openContextPicker: (target: 'discussion' | 'task') => void;
   estimateContextTokens: any;
@@ -53,6 +51,7 @@ interface WorkspaceRoutesProps {
   startEditAgent: (agent: any) => void;
   handleDeleteAgent: (agentName: string) => void;
   newAgentProvider: string;
+  newAgentPreset: string;
   newAgentModel: string;
   newAgentName: string;
   setNewAgentName: (value: string) => void;
@@ -65,6 +64,7 @@ interface WorkspaceRoutesProps {
   newAgentRole: string;
   handleRoleChange: (value: string) => void;
   setNewAgentProvider: (value: string) => void;
+  setNewAgentPreset: (value: string) => void;
   setNewAgentModelCustom: (value: boolean) => void;
   setNewAgentModel: (value: string) => void;
   setSkillPreview: (value: any) => void;
@@ -193,7 +193,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setErrorMsg,
     setActiveTab,
     loadProjectData,
-    loadWorkspaceCoreData,
     loadRoomFilePreview,
     openContextPicker,
     estimateContextTokens,
@@ -210,6 +209,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     startEditAgent,
     handleDeleteAgent,
     newAgentProvider,
+    newAgentPreset,
     newAgentModel,
     newAgentName,
     setNewAgentName,
@@ -222,6 +222,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     newAgentRole,
     handleRoleChange,
     setNewAgentProvider,
+    setNewAgentPreset,
     setNewAgentModelCustom,
     setNewAgentModel,
     setSkillPreview,
@@ -621,6 +622,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         activeTab={activeTab}
         projectData={projectData}
         newAgentProvider={newAgentProvider}
+        newAgentPreset={newAgentPreset}
         newAgentModel={newAgentModel}
         newAgentName={newAgentName}
         setNewAgentName={setNewAgentName}
@@ -641,6 +643,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         newAgentRole={newAgentRole}
         handleRoleChange={handleRoleChange}
         setNewAgentProvider={setNewAgentProvider}
+        setNewAgentPreset={setNewAgentPreset}
         setNewAgentModelCustom={setNewAgentModelCustom}
         setNewAgentModel={setNewAgentModel}
         setSkillPreview={setSkillPreview}
@@ -663,17 +666,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         handleAddCustomSkill={handleAddCustomSkill}
         newAgentPrompt={newAgentPrompt}
         loading={agentOperationLoading}
-      />
-    );
-  }
-
-  if (activeTab === 'Context' || activeTab === 'Architecture') {
-    return (
-      <ContextScreen
-        projectPath={projectPath}
-        projectData={projectData}
-        loadWorkspaceCoreData={loadWorkspaceCoreData}
-        setErrorMsg={setErrorMsg}
       />
     );
   }

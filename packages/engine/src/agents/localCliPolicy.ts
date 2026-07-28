@@ -8,7 +8,14 @@ export interface LocalCliExecutionPolicy {
 }
 
 const DEFAULT_MODEL_SENTINELS = new Set(['', 'default']);
-export const VERIFIED_SAFE_LOCAL_CLI_PRESETS = new Set<string>();
+export const VERIFIED_SAFE_LOCAL_CLI_PRESETS = new Set<string>([
+  'claude',
+  'gemini',
+  'codex',
+  'codewhale',
+  'agy',
+  'kiro'
+]);
 
 export function normalizeLocalCliModelName(modelName?: string): string | undefined {
   const normalized = (modelName || '').trim();
@@ -20,11 +27,18 @@ export function getLocalCliExecutionPolicy(agent: Pick<AgentConfig, 'provider' |
     return { isLocalCli: false, requiresDangerousWorkspace: false };
   }
 
-  return {
-    isLocalCli: true,
-    requiresDangerousWorkspace: false,
-    blockedReason: 'Local CLI execution is disabled until ROOM can enforce an OS-level Source boundary for both reads and writes.'
-  };
+  const preset = agent.cliPreset || 'none';
+  if (
+    agent.permissionMode === 'dangerous'
+    || !VERIFIED_SAFE_LOCAL_CLI_PRESETS.has(preset)
+  ) {
+    return {
+      isLocalCli: true,
+      requiresDangerousWorkspace: false,
+      blockedReason: 'Local CLI execution requires a verified preset in safe mode.'
+    };
+  }
+  return { isLocalCli: true, requiresDangerousWorkspace: false };
 }
 
 export function assertLocalCliExecutionAllowed(

@@ -839,6 +839,26 @@ body {
   color: hsl(var(--accent-blue));
 }
 
+.message-markdown a {
+  color: hsl(188 92% 72%);
+  font-weight: 650;
+  text-decoration-color: hsl(188 92% 72% / 0.5);
+  text-underline-offset: 0.18em;
+  transition: color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    text-decoration-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.message-markdown a:hover {
+  color: hsl(166 84% 76%);
+  text-decoration-color: currentColor;
+}
+
+.message-markdown a:focus-visible {
+  border-radius: 3px;
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(188 92% 72% / 0.35);
+}
+
 /* Right Panel Context Area */
 .context-panel {
   background: hsl(var(--bg-panel));

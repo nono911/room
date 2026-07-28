@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type {
+  LocalCliPermissionMode,
   ProjectData,
   SkillPreviewResult,
   TemplateSkill
@@ -11,6 +12,7 @@ import {
 } from '../../shared/lib/roomSkillReference.js';
 import { useProviders } from '../providers/context/ProvidersContext.js';
 import { buildAgentEditorSeed, findAgentForEditorRoute } from './lib/agentEditorState.js';
+import { isSafeLocalCliPreset } from './lib/localCliPresets.js';
 
 interface UseAgentManagementOptions {
   projectPath: string | null;
@@ -23,15 +25,30 @@ interface UseAgentManagementOptions {
 
 export interface AgentDefaultSelection {
   provider: string;
+  cliPreset?: string;
   modelName?: string;
 }
+
+const LOCAL_AI_PRESET_KEY = 'room_local_ai_preset';
+const LOCAL_AI_MODEL_KEY = 'room_local_ai_model';
 
 export const resolveAgentDefaultSelection = (
   providers: Array<{ id: string; hasKey?: boolean }> | undefined,
   detectedClis: Array<{ id: string; available: boolean }> | undefined,
   getModelOptions: (provider: string, preset?: string) => Array<{ value: string }>
 ): AgentDefaultSelection => {
-  void detectedClis;
+  const preferredPreset = localStorage.getItem(LOCAL_AI_PRESET_KEY)?.trim();
+  const installedCli = detectedClis?.find(
+    cli => cli.available && isSafeLocalCliPreset(cli.id)
+      && (!preferredPreset || cli.id === preferredPreset)
+  ) || detectedClis?.find(cli => cli.available && isSafeLocalCliPreset(cli.id));
+  if (installedCli) {
+    return {
+      provider: 'Local CLI',
+      cliPreset: installedCli.id,
+      modelName: localStorage.getItem(LOCAL_AI_MODEL_KEY)?.trim() || ''
+    };
+  }
 
   const activeOllama = providers?.find(p => p.id === 'ollama');
   if (activeOllama) {
@@ -97,6 +114,10 @@ export function useAgentManagement({
   const [newAgentName, setNewAgentName] = useState<string>('');
   const [newAgentRole, setNewAgentRole] = useState<string>('Assistant');
   const [newAgentProvider, setNewAgentProvider] = useState<string>('gemini');
+  const [newAgentPreset, setNewAgentPreset] = useState<string>('none');
+  const [newAgentCommand, setNewAgentCommand] = useState<string>('');
+  const [newAgentStdinFormat, setNewAgentStdinFormat] = useState<'text' | 'json'>('text');
+  const [newAgentPermissionMode, setNewAgentPermissionMode] = useState<LocalCliPermissionMode>('safe');
   const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
   const [editingAgent, setEditingAgent] = useState<any | null>(null);
@@ -120,6 +141,10 @@ export function useAgentManagement({
     setNewAgentModelCustom(false);
     setNewAgentPrompt(seed.newAgentPrompt);
     setNewAgentSkills(seed.newAgentSkills);
+    setNewAgentPreset(seed.newAgentPreset);
+    setNewAgentCommand(seed.newAgentCommand);
+    setNewAgentStdinFormat(seed.newAgentStdinFormat);
+    setNewAgentPermissionMode(seed.newAgentPermissionMode);
     setSkillPreview(null);
     setEditingSkillSource('skills');
 
@@ -133,6 +158,7 @@ export function useAgentManagement({
 
     const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
     setNewAgentProvider(defaults.provider);
+    setNewAgentPreset(defaults.cliPreset || 'none');
     setNewAgentModel(defaults.modelName || '');
     setNewAgentModelCustom(false);
 
@@ -140,6 +166,9 @@ export function useAgentManagement({
     setNewAgentPrompt('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
 
     setNewAgentSkills([]);
+    setNewAgentCommand('');
+    setNewAgentStdinFormat('text');
+    setNewAgentPermissionMode('safe');
     setCustomSkillName('');
     setCustomSkillDesc('');
     setEditingSkillFile('');
@@ -157,19 +186,20 @@ export function useAgentManagement({
     if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
       const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
       setNewAgentProvider(defaults.provider);
+      setNewAgentPreset(defaults.cliPreset || 'none');
       setNewAgentModel(defaults.modelName || '');
     }
   }, [providers, detectedClis, getModelOptions, newAgentName, newAgentRole, editingAgent]);
 
   useEffect(() => {
     if (newAgentProvider) {
-      fetchModelsForProvider(newAgentProvider);
+      fetchModelsForProvider(newAgentProvider, newAgentPreset);
     }
-  }, [newAgentProvider]);
+  }, [newAgentProvider, newAgentPreset]);
 
   useEffect(() => {
     if (newAgentProvider) {
-      const models = getModelOptions(newAgentProvider);
+      const models = getModelOptions(newAgentProvider, newAgentPreset);
       if (models && models.length > 0) {
         setNewAgentModel(current => {
           const currentTrimmed = current.trim();
@@ -179,7 +209,7 @@ export function useAgentManagement({
         });
       }
     }
-  }, [newAgentProvider, dynamicCliModels]);
+  }, [newAgentProvider, newAgentPreset, dynamicCliModels]);
 
   useEffect(() => {
     if (!activeTab.startsWith('Agent:') || activeTab === 'Agent:New') {
@@ -250,8 +280,10 @@ export function useAgentManagement({
     setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
-      const defaultModel = getModelOptions(newAgentProvider)[0]?.value;
-      const modelToSave = newAgentModel.trim() || defaultModel;
+      const defaultModel = getModelOptions(newAgentProvider, newAgentPreset)[0]?.value;
+      const modelToSave = newAgentProvider === 'Local CLI'
+        ? newAgentModel.trim() || undefined
+        : newAgentModel.trim() || defaultModel;
 
       const res = await api.saveAgent(projectPath, {
         id: editingAgent?.id,
@@ -261,7 +293,15 @@ export function useAgentManagement({
         provider: newAgentProvider,
         modelName: modelToSave,
         systemPrompt: newAgentPrompt,
-        skills: newAgentSkills
+        skills: newAgentSkills,
+        command: newAgentProvider === 'Local CLI'
+          ? (newAgentPreset === 'none' ? newAgentCommand : undefined)
+          : undefined,
+        cliPreset: newAgentProvider === 'Local CLI' ? newAgentPreset : undefined,
+        stdinFormat: newAgentProvider === 'Local CLI' ? newAgentStdinFormat : undefined,
+        permissionMode: newAgentProvider === 'Local CLI'
+          ? (newAgentPreset === 'none' ? 'dangerous' : newAgentPermissionMode)
+          : undefined
       });
       if (res.success) {
         resetAgentForm();
@@ -365,6 +405,8 @@ export function useAgentManagement({
     try {
       const res = await api.previewAgentSkills(projectPath, {
         provider: newAgentProvider,
+        cliPreset: newAgentProvider === 'Local CLI' ? newAgentPreset : undefined,
+        stdinFormat: newAgentProvider === 'Local CLI' ? newAgentStdinFormat : undefined,
         skills: newAgentSkills
       });
       if (!res.success) {
@@ -391,6 +433,11 @@ export function useAgentManagement({
     setNewAgentRole,
     newAgentProvider,
     setNewAgentProvider,
+    newAgentPreset,
+    setNewAgentPreset,
+    newAgentCommand,
+    newAgentStdinFormat,
+    newAgentPermissionMode,
     newAgentPrompt,
     setNewAgentPrompt,
     newAgentSkills,

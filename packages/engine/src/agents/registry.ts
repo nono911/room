@@ -12,6 +12,10 @@ import { parseRoomSkillReference } from '../skills/roomSkillReference.js';
 import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
 import { listDirectoryNamesBounded } from '../boundedFs.js';
 import { withRoomDataLock } from '../roomDataLock.js';
+import {
+  normalizeLocalCliModelName,
+  VERIFIED_SAFE_LOCAL_CLI_PRESETS
+} from './localCliPolicy.js';
 
 export interface AgentConfig {
   id?: string;
@@ -125,13 +129,37 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   }
 
   const normalizedProvider = provider === 'Local CLI' ? provider : normalizeProviderId(provider);
+  let cliPreset: AgentConfig['cliPreset'];
+  let stdinFormat: AgentConfig['stdinFormat'];
+  let permissionMode: AgentConfig['permissionMode'];
   if (normalizedProvider === 'Local CLI') {
-    return {
-      success: false,
-      error: 'Local CLI agents are disabled until ROOM can enforce OS-level Source confinement.'
-    };
+    const rawPreset = typeof rawAgent.cliPreset === 'string'
+      ? rawAgent.cliPreset.trim()
+      : '';
+    if (!VERIFIED_SAFE_LOCAL_CLI_PRESETS.has(rawPreset)) {
+      return { success: false, error: 'Local CLI requires a verified preset.' };
+    }
+    if (
+      rawAgent.permissionMode !== undefined
+      && rawAgent.permissionMode !== 'safe'
+    ) {
+      return { success: false, error: 'Local CLI agents must use safe mode.' };
+    }
+    if (rawAgent.command !== undefined) {
+      return { success: false, error: 'Custom Local CLI commands are not allowed.' };
+    }
+    if (
+      rawAgent.stdinFormat !== undefined
+      && rawAgent.stdinFormat !== 'text'
+      && rawAgent.stdinFormat !== 'json'
+    ) {
+      return { success: false, error: 'Invalid Local CLI stdin format.' };
+    }
+    cliPreset = rawPreset as AgentConfig['cliPreset'];
+    stdinFormat = rawAgent.stdinFormat === 'json' ? 'json' : 'text';
+    permissionMode = 'safe';
   }
-  if (!isValidProviderId(normalizedProvider)) {
+  if (normalizedProvider !== 'Local CLI' && !isValidProviderId(normalizedProvider)) {
     return { success: false, error: 'Invalid provider.' };
   }
 
@@ -155,10 +183,15 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
       name,
       role,
       provider: normalizedProvider,
-      modelName: modelName || undefined,
+      modelName: normalizedProvider === 'Local CLI'
+        ? normalizeLocalCliModelName(modelName)
+        : modelName || undefined,
       systemPrompt,
       skills,
-      strategy: strategy || undefined
+      strategy: strategy || undefined,
+      cliPreset,
+      stdinFormat,
+      permissionMode
     }
   };
 }

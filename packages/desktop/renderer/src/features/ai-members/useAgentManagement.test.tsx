@@ -35,10 +35,52 @@ vi.mock('../providers/context/ProvidersContext.js', () => ({
   })
 }));
 
-import { useAgentManagement } from './useAgentManagement.js';
+import {
+  resolveAgentDefaultSelection,
+  useAgentManagement
+} from './useAgentManagement.js';
+
+describe('resolveAgentDefaultSelection', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test('prefers the configured installed local CLI over API providers', () => {
+    localStorage.setItem('room_local_ai_preset', 'codex');
+    localStorage.setItem('room_local_ai_model', 'gpt-5');
+
+    expect(resolveAgentDefaultSelection(
+      [{ id: 'gemini', hasKey: true }],
+      [
+        { id: 'gemini', available: true },
+        { id: 'codex', available: true }
+      ],
+      () => [{ value: 'gemini-1.5-flash' }]
+    )).toEqual({
+      provider: 'Local CLI',
+      cliPreset: 'codex',
+      modelName: 'gpt-5'
+    });
+  });
+
+  test('uses the first installed CLI when the configured CLI is unavailable', () => {
+    localStorage.setItem('room_local_ai_preset', 'claude');
+
+    expect(resolveAgentDefaultSelection(
+      [{ id: 'gemini', hasKey: true }],
+      [{ id: 'codex', available: true }],
+      () => [{ value: 'gemini-1.5-flash' }]
+    )).toEqual({
+      provider: 'Local CLI',
+      cliPreset: 'codex',
+      modelName: ''
+    });
+  });
+});
 
 describe('useAgentManagement save flow', () => {
   beforeEach(() => {
+    localStorage.clear();
     saveAgent.mockReset();
     deleteAgent.mockReset();
     previewAgentSkills.mockReset();

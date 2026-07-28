@@ -3,11 +3,13 @@ import type { ProjectData, SkillPreviewResult, TemplateSkill } from '../../../ty
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
 import { AgentEditorHeader, AgentTemplatePicker, type AgentTemplateOption } from './AgentEditorTop.js';
 import { AgentSkillsPanel } from './AgentSkillsPanel.js';
+import { isSafeLocalCliPreset } from '../lib/localCliPresets.js';
 
 interface AgentEditorScreenProps {
   activeTab: string;
   projectData: ProjectData | null;
   newAgentProvider: string;
+  newAgentPreset: string;
   newAgentModel: string;
   newAgentName: string;
   setNewAgentName: (value: string) => void;
@@ -28,6 +30,7 @@ interface AgentEditorScreenProps {
   newAgentRole: string;
   handleRoleChange: (value: string) => void;
   setNewAgentProvider: (value: string) => void;
+  setNewAgentPreset: (value: string) => void;
   setNewAgentModelCustom: (value: boolean) => void;
   setNewAgentModel: (value: string) => void;
   setSkillPreview: (value: SkillPreviewResult | null) => void;
@@ -55,6 +58,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   activeTab,
   projectData,
   newAgentProvider,
+  newAgentPreset,
   newAgentModel,
   newAgentName,
   setNewAgentName,
@@ -75,6 +79,7 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   newAgentRole,
   handleRoleChange,
   setNewAgentProvider,
+  setNewAgentPreset,
   setNewAgentModelCustom,
   setNewAgentModel,
   setSkillPreview,
@@ -98,9 +103,10 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   newAgentPrompt,
   loading
 }) => {
-  const { providers, getModelOptions } = useProviders();
+  const { providers, detectedClis, getModelOptions } = useProviders();
   const isNew = activeTab === 'Agent:New';
-  const modelOptions = getModelOptions(newAgentProvider);
+  const isLocalCli = newAgentProvider === 'Local CLI';
+  const modelOptions = getModelOptions(newAgentProvider, newAgentPreset);
   const isCustomModel = newAgentModel && !modelOptions.some(opt => opt.value === newAgentModel);
   return (
     <div className="focus-editor-container">
@@ -184,13 +190,17 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Provider (AI Agent/Model Type)</label>
               <select 
-                value={newAgentProvider}
+                value={isLocalCli ? `Local CLI:${newAgentPreset}` : newAgentProvider}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setNewAgentProvider(val as any);
-                  const defaults = getModelOptions(val);
+                  const nextIsLocal = val.startsWith('Local CLI:');
+                  const preset = nextIsLocal ? val.slice('Local CLI:'.length) : 'none';
+                  const provider = nextIsLocal ? 'Local CLI' : val;
+                  setNewAgentProvider(provider);
+                  setNewAgentPreset(preset);
+                  const defaults = getModelOptions(provider, preset);
                   setNewAgentModelCustom(false);
-                  setNewAgentModel(defaults[0]?.value || '');
+                  setNewAgentModel(nextIsLocal ? '' : defaults[0]?.value || '');
                   setSkillPreview(null);
                 }}
                 style={{
@@ -209,14 +219,24 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     <option key={provider.id} value={provider.id}>{provider.label}</option>
                   ))}
                 </optgroup>
-                
+                <optgroup label="Installed Local AI">
+                  {detectedClis
+                    .filter(cli => cli.available && isSafeLocalCliPreset(cli.id))
+                    .map(cli => (
+                    <option key={cli.id} value={`Local CLI:${cli.id}`}>
+                      {cli.name}{cli.version ? ` · ${cli.version}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Model Name</label>
                 <select 
-                  value={newAgentModelCustom || isCustomModel ? 'custom' : newAgentModel || modelOptions[0]?.value || ''}
+                  value={newAgentModelCustom || isCustomModel
+                    ? 'custom'
+                    : newAgentModel || (isLocalCli ? '' : modelOptions[0]?.value || '')}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (val === 'custom') {
@@ -238,15 +258,16 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     outline: 'none'
                   }}
                 >
+                  {isLocalCli && <option value="">CLI default model</option>}
                   {modelOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                   <option value="custom">Custom Model...</option>
                 </select>
-                {(newAgentModelCustom || isCustomModel || !newAgentModel || modelOptions.length === 0) && (
+                {(newAgentModelCustom || isCustomModel || (!isLocalCli && (!newAgentModel || modelOptions.length === 0))) && (
                   <input 
                     type="text"
-                    required
+                    required={!isLocalCli}
                     value={newAgentModel}
                     onChange={(e) => setNewAgentModel(e.target.value)}
                     placeholder="Enter model identifier (e.g., deepseek-coder)"

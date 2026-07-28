@@ -18,7 +18,16 @@ export function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
       const candidate = { ...rawAgent };
       delete candidate.id;
       const result = validateAgentConfig(candidate);
-      if (!result.success || result.agent.provider === 'Local CLI') return null;
+      if (!result.success) return null;
+      if (
+        result.agent.provider === 'Local CLI'
+        && (
+          result.agent.permissionMode !== 'safe'
+          || result.agent.command
+          || !['claude', 'gemini', 'codex', 'codewhale', 'agy', 'kiro']
+            .includes(result.agent.cliPreset || '')
+        )
+      ) return null;
       seenIds.add(id);
       return {
         ...result.agent,

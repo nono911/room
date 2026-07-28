@@ -83,6 +83,56 @@ afterEach(async () => {
 });
 
 describe('Room and Source workspace IPC', () => {
+  it('imports legacy Source skills and roles into Room Home without overwriting collisions', async () => {
+    const initialize = mocks.handlers.get('initialize-personal-room');
+    const attach = mocks.handlers.get('attach-room-source');
+    const getRoomData = mocks.handlers.get('get-room-data');
+    const sourceRoot = path.join(temporaryRoots[0], 'legacy-skill-source');
+    await fs.mkdir(path.join(sourceRoot, '.room', 'skills'), { recursive: true });
+    await fs.mkdir(path.join(sourceRoot, '.room', 'roles'), { recursive: true });
+    await fs.writeFile(
+      path.join(sourceRoot, '.room', 'skills', 'equity-analysis.md'),
+      '# Legacy equity analysis\n',
+      'utf-8'
+    );
+    await fs.writeFile(
+      path.join(sourceRoot, '.room', 'roles', 'macro-strategy.md'),
+      '# Legacy macro strategy\n',
+      'utf-8'
+    );
+
+    await initialize?.({});
+    const roomRoot = path.join(process.env.ROOM_HOME!, 'rooms', 'room_personal');
+    await fs.writeFile(
+      path.join(roomRoot, 'skills', 'equity-analysis.md'),
+      '# Room Home version\n',
+      'utf-8'
+    );
+    mocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [sourceRoot]
+    });
+    await attach?.({}, { roomId: 'room_personal' });
+
+    const result = await getRoomData?.({}, 'room_personal') as {
+      success: boolean;
+      skills: string[];
+    };
+    expect(result.success).toBe(true);
+    expect(result.skills).toEqual(expect.arrayContaining([
+      'room://skills/equity-analysis.md',
+      'room://roles/macro-strategy.md'
+    ]));
+    expect(await fs.readFile(
+      path.join(roomRoot, 'skills', 'equity-analysis.md'),
+      'utf-8'
+    )).toBe('# Room Home version\n');
+    expect(await fs.readFile(
+      path.join(roomRoot, 'roles', 'macro-strategy.md'),
+      'utf-8'
+    )).toBe('# Legacy macro strategy\n');
+  });
+
   it('rejects symlinked Room files instead of returning outside data', async () => {
     const initialize = mocks.handlers.get('initialize-personal-room');
     const getRoomData = mocks.handlers.get('get-room-data');

@@ -44,8 +44,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { route: 'Files', label: 'Files', icon: '⌘' },
       { route: 'Artifacts', label: 'Artifacts', icon: '◇' },
-      { route: 'Decisions', label: 'Decisions', icon: '◆' },
-      { route: 'Context', label: 'Context', icon: '◎' }
+      { route: 'Decisions', label: 'Decisions', icon: '◆' }
     ]
   },
   {

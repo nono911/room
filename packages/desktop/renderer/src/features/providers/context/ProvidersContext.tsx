@@ -157,8 +157,8 @@ export const ProvidersProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const fetchModelsForProvider = async (provider: string, preset?: string) => {
-    void preset;
     if (provider === 'Local CLI') {
+      void preset;
       return;
     } else {
       if (!provider || dynamicCliModels[provider]) return;
@@ -175,8 +175,13 @@ export const ProvidersProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const getModelOptions = (provider: string, preset?: string) => {
-    void preset;
     if (provider === 'Local CLI') {
+      if (preset && dynamicCliModels[preset]?.length > 0) {
+        return dynamicCliModels[preset];
+      }
+      if (preset && preset !== 'none') {
+        return getFallbackModels(preset as Parameters<typeof getFallbackModels>[0]) as ModelOption[];
+      }
       return [];
     }
 

@@ -7,6 +7,9 @@ export interface AgentInstanceConfig {
   role: string;
   provider: string;
   modelName?: string;
+  cliPreset?: string;
+  stdinFormat?: 'text' | 'json';
+  permissionMode?: 'safe' | 'dangerous';
   systemPrompt: string;
   skills: string[];
 }
@@ -64,6 +67,9 @@ export function createAgentInstancesFromTemplate({
       role: template.role,
       provider: defaults.provider,
       modelName: defaults.modelName || undefined,
+      cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
+      stdinFormat: defaults.provider === 'Local CLI' ? 'text' : undefined,
+      permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined,
       systemPrompt: buildClonePrompt(template, name),
       skills: skillFiles
     };

@@ -3,7 +3,6 @@ import type { ProjectData } from '../../types/domain.js';
 interface UseSetupGuidanceOptions {
   activeTab: string;
   projectData: ProjectData | null;
-  hasCompletedScan: boolean;
   selectedDiscussionContextRefs: string[];
   selectedCodingTaskContextRefs: string[];
   discussionMessages: unknown[];
@@ -11,15 +10,6 @@ interface UseSetupGuidanceOptions {
   resetAgentForm: () => void;
   setActiveTab: (tab: string) => void;
   openContextPicker: (target: 'discussion' | 'task') => void;
-}
-
-function isPlaceholderContext(content?: string): boolean {
-  const normalized = (content || '').trim();
-  if (!normalized) return true;
-  return normalized.includes('Describe what this workspace is for.') ||
-    normalized.includes('Describe the important parts of this workspace and how they relate to each other.') ||
-    normalized.includes('Your source-independent ROOM memory.') ||
-    normalized.includes('Attach a Source when you want ROOM to inspect Source files or run coding tools.');
 }
 
 export function useSetupGuidance({
@@ -34,12 +24,6 @@ export function useSetupGuidance({
   openContextPicker
 }: UseSetupGuidanceOptions) {
   const onboardingSteps = [
-    {
-      title: 'ROOM starts with shared Room memory',
-      body: 'Keep a short Room overview and attach the files, notes, or documents that should guide discussions, tasks, and decisions.',
-      action: 'Open Context',
-      run: () => setActiveTab('Context')
-    },
     {
       title: 'AI Members are reusable teammates',
       body: 'Create role-based agents from templates, choose a provider, assign skills, and check that the selected skills can be delivered.',
@@ -69,18 +53,7 @@ export function useSetupGuidance({
     }
   ];
 
-  const hasUsefulContext = !!projectData && (
-    !isPlaceholderContext(projectData.projectMd) ||
-    !isPlaceholderContext(projectData.archMd)
-  );
-
   const setupItems = [
-    {
-      label: 'Review Room context',
-      done: hasUsefulContext,
-      action: 'Open',
-      run: () => setActiveTab('Context')
-    },
     {
       label: 'Create AI member',
       done: (projectData?.agents || []).some(agent => !agent.isVirtual),

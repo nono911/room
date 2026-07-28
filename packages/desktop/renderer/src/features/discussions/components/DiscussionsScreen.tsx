@@ -366,6 +366,15 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                                   role: tmpl.role,
                                   provider: defaults.provider,
                                   modelName: defaults.modelName || undefined,
+                                  cliPreset: defaults.provider === 'Local CLI'
+                                    ? defaults.cliPreset
+                                    : undefined,
+                                  stdinFormat: defaults.provider === 'Local CLI'
+                                    ? 'text'
+                                    : undefined,
+                                  permissionMode: defaults.provider === 'Local CLI'
+                                    ? 'safe'
+                                    : undefined,
                                   systemPrompt: tmpl.prompt,
                                   skills: skillFiles
                                 });
