@@ -114,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>{workspaceName}</span>
           </div>
           {activeSource ? (
-            <div className="workspace-source-path" title={activeSource.path}>
+            <div className="workspace-source-path" title={activeSource.name}>
               Source · {activeSource.name}
             </div>
           ) : (

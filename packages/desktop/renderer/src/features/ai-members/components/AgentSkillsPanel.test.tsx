@@ -28,7 +28,7 @@ function TestPanel({ initialSkills = [] }: { initialSkills?: string[] }) {
   const [selectedSkills, setSelectedSkills] = useState(initialSkills);
   return (
     <AgentSkillsPanel
-      workspaceSkills={['api-design.md']}
+      workspaceSkills={['room://skills/api-design.md']}
       machineSkills={machineSkills}
       selectedSkills={selectedSkills}
       setSelectedSkills={setSelectedSkills}

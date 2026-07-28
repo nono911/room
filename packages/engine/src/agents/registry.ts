@@ -1,10 +1,17 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { normalizeLocalCliModelName } from './localCliPolicy.js';
 import { PERSONA_TEMPLATES, DEFAULT_MEMBER_NAMES } from './personaTemplates.js';
 import { normalizeProviderId, isValidProviderId } from '../providers/registry.js';
-import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
+import {
+  resolveRoomPath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
 import { normalizeMachineSkillReference } from '../skills/machineCatalog.js';
+import { parseRoomSkillReference } from '../skills/roomSkillReference.js';
+import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
+import { listDirectoryNamesBounded } from '../boundedFs.js';
+import { withRoomDataLock } from '../roomDataLock.js';
 
 export interface AgentConfig {
   id?: string;
@@ -22,30 +29,30 @@ export interface AgentConfig {
   isVirtual?: boolean;
 }
 
-const ALLOWED_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'kiro', 'none'] as const;
-const ALLOWED_PERMISSION_MODES = ['safe', 'dangerous'] as const;
-const ALLOWED_STDIN_FORMATS = ['text', 'json'] as const;
 const MEMBER_ID_PATTERN = /^mem_[a-z0-9][a-z0-9_-]{2,80}$/;
+export const MAX_AGENT_SKILLS = 64;
+export const MAX_ROOM_MEMBERS = 128;
+const MAX_MEMBER_DIRECTORY_ENTRIES = 1_000;
+const MAX_MEMBER_FILE_BYTES = 128 * 1024;
+const MAX_MEMBER_AGGREGATE_BYTES = 8 * 1024 * 1024;
+const memberMutationQueues = new Map<string, Promise<void>>();
+
+function exceedsUtf8Bytes(value: string, maxBytes: number): boolean {
+  return Buffer.byteLength(value, 'utf-8') > maxBytes;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isAllowed<T extends string>(value: string, allowed: readonly T[]): value is T {
-  return (allowed as readonly string[]).includes(value);
-}
-
 function sanitizeSkillReference(skill: unknown): string | null {
   if (typeof skill !== 'string') return null;
   const trimmed = skill.trim();
+  if (exceedsUtf8Bytes(trimmed, 512)) return null;
   if (trimmed.startsWith('machine://')) {
     return normalizeMachineSkillReference(trimmed);
   }
-  if (!trimmed || /[\\/]/.test(trimmed)) return null;
-  const safeName = path.basename(trimmed);
-  if (!safeName || safeName === '.' || safeName === '..') return null;
-  if (!safeName.toLowerCase().endsWith('.md')) return null;
-  return safeName;
+  return parseRoomSkillReference(trimmed)?.reference || null;
 }
 
 function normalizeMemberId(value: unknown): string | undefined {
@@ -63,7 +70,8 @@ function normalizeMemberId(value: unknown): string | undefined {
 }
 
 function encodeAgentFileBase(value: string): string {
-  return encodeURIComponent(value.trim().toLowerCase());
+  const encoded = encodeURIComponent(value.trim().toLowerCase());
+  return encoded.startsWith('.') ? `member-${encoded}` : encoded;
 }
 
 async function resolveAgentFilePath(agentsDir: string, agent: AgentConfig): Promise<string> {
@@ -93,10 +101,21 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   const provider = typeof rawAgent.provider === 'string' ? rawAgent.provider.trim() : '';
   const systemPrompt = typeof rawAgent.systemPrompt === 'string' ? rawAgent.systemPrompt.trim() : '';
   const modelName = typeof rawAgent.modelName === 'string' ? rawAgent.modelName.trim() : '';
+  const strategy = typeof rawAgent.strategy === 'string' ? rawAgent.strategy.trim() : '';
   let id: string | undefined;
 
   if (!name || !role || !systemPrompt) {
     return { success: false, error: 'Agent name, role and system prompt are required.' };
+  }
+  if (
+    exceedsUtf8Bytes(name, 256)
+    || exceedsUtf8Bytes(role, 512)
+    || exceedsUtf8Bytes(provider, 256)
+    || exceedsUtf8Bytes(modelName, 512)
+    || exceedsUtf8Bytes(systemPrompt, 64 * 1024)
+    || exceedsUtf8Bytes(strategy, 32 * 1024)
+  ) {
+    return { success: false, error: 'Agent field exceeds its size limit.' };
   }
 
   try {
@@ -106,51 +125,28 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
   }
 
   const normalizedProvider = provider === 'Local CLI' ? provider : normalizeProviderId(provider);
-  if (normalizedProvider !== 'Local CLI' && !isValidProviderId(normalizedProvider)) {
+  if (normalizedProvider === 'Local CLI') {
+    return {
+      success: false,
+      error: 'Local CLI agents are disabled until ROOM can enforce OS-level Source confinement.'
+    };
+  }
+  if (!isValidProviderId(normalizedProvider)) {
     return { success: false, error: 'Invalid provider.' };
   }
 
-  let cliPreset: AgentConfig['cliPreset'];
-  let stdinFormat: AgentConfig['stdinFormat'];
-  let permissionMode: AgentConfig['permissionMode'];
-  let command: string | undefined;
-
-  if (normalizedProvider === 'Local CLI') {
-    const rawPreset = typeof rawAgent.cliPreset === 'string' ? rawAgent.cliPreset.trim() : 'none';
-    if (!isAllowed(rawPreset, ALLOWED_CLI_PRESETS)) {
-      return { success: false, error: 'Invalid Local CLI preset.' };
-    }
-    cliPreset = rawPreset;
-
-    const rawPermission = typeof rawAgent.permissionMode === 'string' ? rawAgent.permissionMode.trim() : 'safe';
-    if (!isAllowed(rawPermission, ALLOWED_PERMISSION_MODES)) {
-      return { success: false, error: 'Invalid Local CLI permission mode.' };
-    }
-    permissionMode = rawPermission;
-
-    if (cliPreset === 'none') {
-      const rawCommand = typeof rawAgent.command === 'string' ? rawAgent.command.trim() : '';
-      if (!rawCommand) {
-        return { success: false, error: 'Local CLI custom command is required when preset is none.' };
-      }
-      command = rawCommand;
-      permissionMode = 'dangerous';
-    }
-
-    if (rawAgent.stdinFormat === undefined) {
-      stdinFormat = 'text';
-    } else if (typeof rawAgent.stdinFormat === 'string' && isAllowed(rawAgent.stdinFormat, ALLOWED_STDIN_FORMATS)) {
-      stdinFormat = rawAgent.stdinFormat;
-    } else {
-      return { success: false, error: 'Invalid stdin format.' };
-    }
+  if (Array.isArray(rawAgent.skills) && rawAgent.skills.length > MAX_AGENT_SKILLS) {
+    return { success: false, error: `An AI member can use at most ${MAX_AGENT_SKILLS} skills.` };
   }
-
-  const skills = Array.isArray(rawAgent.skills)
-    ? rawAgent.skills
-        .map(sanitizeSkillReference)
-        .filter((skill): skill is string => typeof skill === 'string')
-    : [];
+  const rawSkills = Array.isArray(rawAgent.skills) ? rawAgent.skills : [];
+  const normalizedSkills = rawSkills.map(sanitizeSkillReference);
+  if (normalizedSkills.some(skill => skill === null)) {
+    return {
+      success: false,
+      error: 'Agent skills must use a qualified Room or machine skill reference.'
+    };
+  }
+  const skills = Array.from(new Set(normalizedSkills as string[]));
 
   return {
     success: true,
@@ -159,51 +155,47 @@ export function validateAgentConfig(rawAgent: unknown): { success: true; agent: 
       name,
       role,
       provider: normalizedProvider,
-      modelName: normalizedProvider === 'Local CLI' ? normalizeLocalCliModelName(modelName) : modelName || undefined,
+      modelName: modelName || undefined,
       systemPrompt,
       skills,
-      command,
-      cliPreset,
-      stdinFormat,
-      permissionMode,
-      strategy: typeof rawAgent.strategy === 'string' ? rawAgent.strategy.trim() : undefined
+      strategy: strategy || undefined
     }
   };
 }
 
 export async function loadAgents(workspace: WorkspaceInput): Promise<AgentConfig[]> {
-  const agentsDir = resolveRoomPath(workspace, 'members');
-  const legacyAgentsDir = resolveRoomPath(workspace, 'agents');
+  const membersDir = resolveRoomPath(workspace, 'members');
   const agents: AgentConfig[] = [];
-
-  const loadFromDir = async (dir: string) => {
-    const files = await fs.readdir(dir);
+  try {
+    const listing = await listDirectoryNamesBounded(
+      membersDir,
+      MAX_MEMBER_DIRECTORY_ENTRIES
+    );
+    if (listing.truncated) throw new Error('ROOM member directory exceeds its entry limit.');
+    const files = listing.names.filter(file => file.endsWith('.json'));
+    if (files.length > MAX_ROOM_MEMBERS) {
+      throw new Error(`A Room can contain at most ${MAX_ROOM_MEMBERS} AI members.`);
+    }
+    let aggregateBytes = 0;
     for (const file of files) {
-      if (file.endsWith('.json')) {
-        try {
-          const content = await fs.readFile(path.join(dir, file), 'utf-8');
-          const config = JSON.parse(content);
-          const validated = validateAgentConfig(config);
-          if (validated.success) {
-            agents.push(validated.agent);
-          } else {
-            console.warn(`Ignored invalid agent config file ${file}: ${validated.error}`);
-          }
-        } catch (err) {
-          console.error(`Error parsing agent config file ${file}:`, err);
-        }
+      const content = await readRoomTextFile(
+        workspace,
+        ['members', file],
+        MAX_MEMBER_FILE_BYTES
+      );
+      aggregateBytes += Buffer.byteLength(content, 'utf-8');
+      if (aggregateBytes > MAX_MEMBER_AGGREGATE_BYTES) {
+        throw new Error('ROOM member data exceeds its aggregate read limit.');
+      }
+      const validated = validateAgentConfig(JSON.parse(content));
+      if (validated.success) {
+        agents.push(validated.agent);
+      } else {
+        console.warn(`Ignored invalid agent config file ${file}: ${validated.error}`);
       }
     }
-  };
-
-  try {
-    await loadFromDir(agentsDir);
-  } catch {}
-
-  if (agents.length === 0) {
-    try {
-      await loadFromDir(legacyAgentsDir);
-    } catch {}
+  } catch (error: unknown) {
+    if (!hasErrorCode(error, 'ENOENT')) throw error;
   }
 
   // Populate built-in agents as virtual fallbacks if not overridden
@@ -230,11 +222,17 @@ export async function saveAgent(workspace: WorkspaceInput, agent: AgentConfig): 
     throw new Error(validated.error);
   }
 
-  const agentsDir = resolveRoomPath(workspace, 'members');
-  await fs.mkdir(agentsDir, { recursive: true });
-
-  const filePath = await resolveAgentFilePath(agentsDir, validated.agent);
-  await fs.writeFile(filePath, JSON.stringify(validated.agent, null, 2), 'utf-8');
+  const membersDir = resolveRoomPath(workspace, 'members');
+  await fs.mkdir(membersDir, { recursive: true });
+  const filePath = await resolveAgentFilePath(membersDir, validated.agent);
+  const filename = path.basename(filePath);
+  await withRoomMemberMutation(workspace, [filename], () =>
+    writeRoomTextFile(
+      workspace,
+      ['members', filename],
+      JSON.stringify(validated.agent, null, 2)
+    )
+  );
 }
 
 export async function createDefaultAgents(workspace: WorkspaceInput) {
@@ -250,8 +248,73 @@ export async function createDefaultAgents(workspace: WorkspaceInput) {
       systemPrompt: template.prompt
     }));
 
-  for (const agent of defaults) {
-    const filePath = path.join(agentsDir, `${agent.name.toLowerCase()}.json`);
-    await fs.writeFile(filePath, JSON.stringify(agent, null, 2), 'utf-8');
+  const filenames = defaults.map(agent => `${agent.name.toLowerCase()}.json`);
+  await withRoomMemberMutation(workspace, filenames, async () => {
+    for (const [index, agent] of defaults.entries()) {
+      await writeRoomTextFile(
+        workspace,
+        ['members', filenames[index]],
+        JSON.stringify(agent, null, 2)
+      );
+    }
+  });
+}
+
+export async function withRoomMemberMutation<T>(
+  workspace: WorkspaceInput,
+  memberFilenames: string[],
+  operation: () => Promise<T>
+): Promise<T> {
+  if (
+    memberFilenames.length > MAX_ROOM_MEMBERS
+    || memberFilenames.some(filename => (
+      !filename.endsWith('.json')
+      || path.basename(filename) !== filename
+      || filename.startsWith('.')
+    ))
+  ) {
+    throw new Error('Invalid ROOM member mutation.');
+  }
+  const location = resolveWorkspaceLocation(workspace);
+  return withMemberMutationQueue(location.roomRoot, () =>
+    withRoomDataLock(location.roomRoot, 'members', async () => {
+      const membersDir = resolveRoomPath(workspace, 'members');
+      await fs.mkdir(membersDir, { recursive: true });
+      const listing = await listDirectoryNamesBounded(
+        membersDir,
+        MAX_MEMBER_DIRECTORY_ENTRIES
+      );
+      if (listing.truncated) throw new Error('ROOM member directory exceeds its entry limit.');
+      const existing = new Set(listing.names.filter(filename => filename.endsWith('.json')));
+      const additions = new Set(memberFilenames.filter(filename => !existing.has(filename)));
+      if (existing.size + additions.size > MAX_ROOM_MEMBERS) {
+        throw new Error(`A Room can contain at most ${MAX_ROOM_MEMBERS} AI members.`);
+      }
+      return operation();
+    })
+  );
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+}
+
+async function withMemberMutationQueue<T>(
+  roomRoot: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = memberMutationQueues.get(roomRoot) || Promise.resolve();
+  let release = (): void => {};
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  memberMutationQueues.set(roomRoot, queued);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (memberMutationQueues.get(roomRoot) === queued) memberMutationQueues.delete(roomRoot);
   }
 }

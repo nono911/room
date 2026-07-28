@@ -1,10 +1,10 @@
 import * as path from 'path';
-import * as fs from 'fs/promises';
+import type { RoomSource } from '@room/engine';
 import {
   WORKSPACE_FILE_READ_LIMIT_BYTES,
-  resolveCanonicalWithinProject,
   sanitizeWorkspaceRelativePath
 } from './shared.js';
+import { readPinnedSourceFile } from './pinned-source.js';
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   avif: 'image/avif',
@@ -55,27 +55,26 @@ function getTextMimeType(extension: string): string {
   return 'text/plain';
 }
 
-export async function readWorkspaceFilePreview(projectRoot: string, filePath: string) {
+export async function readWorkspaceFilePreview(source: RoomSource, filePath: string) {
   const safeFilePath = sanitizeWorkspaceRelativePath(filePath);
-  const resolvedPath = await resolveCanonicalWithinProject(projectRoot, safeFilePath);
-  const stat = await fs.stat(resolvedPath);
-  if (!stat.isFile()) {
-    return { success: false, error: 'Select a file to preview it.' };
-  }
-  if (stat.size > WORKSPACE_FILE_READ_LIMIT_BYTES) {
+  const { buffer, size } = await readPinnedSourceFile(
+    source,
+    safeFilePath,
+    WORKSPACE_FILE_READ_LIMIT_BYTES
+  );
+  if (size > WORKSPACE_FILE_READ_LIMIT_BYTES) {
     return {
       success: true,
       preview: {
         kind: 'binary' as const,
         mimeType: 'application/octet-stream',
-        size: stat.size,
+        size,
         message: 'This file is too large for an inline preview.'
       }
     };
   }
 
   const extension = getExtension(safeFilePath);
-  const buffer = await fs.readFile(resolvedPath);
   const richMimeType = MIME_BY_EXTENSION[extension];
   if (richMimeType) {
     return {
@@ -94,7 +93,7 @@ export async function readWorkspaceFilePreview(projectRoot: string, filePath: st
       preview: {
         kind: 'binary' as const,
         mimeType: 'application/octet-stream',
-        size: stat.size,
+        size,
         message: 'Binary files can be revealed in Finder but are not rendered inside ROOM.'
       }
     };

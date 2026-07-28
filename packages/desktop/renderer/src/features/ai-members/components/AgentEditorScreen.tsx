@@ -3,11 +3,11 @@ import type { ProjectData, SkillPreviewResult, TemplateSkill } from '../../../ty
 import { useProviders } from '../../../features/providers/context/ProvidersContext.js';
 import { AgentEditorHeader, AgentTemplatePicker, type AgentTemplateOption } from './AgentEditorTop.js';
 import { AgentSkillsPanel } from './AgentSkillsPanel.js';
+
 interface AgentEditorScreenProps {
   activeTab: string;
   projectData: ProjectData | null;
   newAgentProvider: string;
-  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
   newAgentModel: string;
   newAgentName: string;
   setNewAgentName: (value: string) => void;
@@ -28,17 +28,10 @@ interface AgentEditorScreenProps {
   newAgentRole: string;
   handleRoleChange: (value: string) => void;
   setNewAgentProvider: (value: string) => void;
-  setNewAgentPreset: (value: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none') => void;
-  setNewAgentPermissionMode: (value: 'safe' | 'dangerous') => void;
   setNewAgentModelCustom: (value: boolean) => void;
   setNewAgentModel: (value: string) => void;
   setSkillPreview: (value: SkillPreviewResult | null) => void;
   newAgentModelCustom: boolean;
-  newAgentCommand: string;
-  setNewAgentCommand: (value: string) => void;
-  newAgentStdinFormat: 'text' | 'json';
-  setNewAgentStdinFormat: (value: 'text' | 'json') => void;
-  newAgentPermissionMode: 'safe' | 'dangerous';
   newAgentSkills: string[];
   editingSkillFile: string;
   setEditingSkillFile: (value: string) => void;
@@ -62,7 +55,6 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   activeTab,
   projectData,
   newAgentProvider,
-  newAgentPreset,
   newAgentModel,
   newAgentName,
   setNewAgentName,
@@ -83,17 +75,10 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   newAgentRole,
   handleRoleChange,
   setNewAgentProvider,
-  setNewAgentPreset,
-  setNewAgentPermissionMode,
   setNewAgentModelCustom,
   setNewAgentModel,
   setSkillPreview,
   newAgentModelCustom,
-  newAgentCommand,
-  setNewAgentCommand,
-  newAgentStdinFormat,
-  setNewAgentStdinFormat,
-  newAgentPermissionMode,
   newAgentSkills,
   editingSkillFile,
   setEditingSkillFile,
@@ -113,12 +98,10 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
   newAgentPrompt,
   loading
 }) => {
-  const { providers, detectedClis, getModelOptions } = useProviders();
+  const { providers, getModelOptions } = useProviders();
   const isNew = activeTab === 'Agent:New';
-  const modelOptions = getModelOptions(newAgentProvider, newAgentPreset);
+  const modelOptions = getModelOptions(newAgentProvider);
   const isCustomModel = newAgentModel && !modelOptions.some(opt => opt.value === newAgentModel);
-  const isLocalCliAgent = newAgentProvider === 'Local CLI';
-  const shouldShowModel = isLocalCliAgent || modelOptions.length > 0 || newAgentProvider !== 'Local CLI';
   return (
     <div className="focus-editor-container">
       <AgentEditorHeader
@@ -201,30 +184,14 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Provider (AI Agent/Model Type)</label>
               <select 
-                value={
-                  newAgentProvider === 'Local CLI' 
-                    ? `Local CLI:${newAgentPreset}` 
-                    : newAgentProvider
-                }
+                value={newAgentProvider}
                 onChange={(e) => {
                   const val = e.target.value;
-                  if (val.startsWith('Local CLI:')) {
-                    const presetKey = val.replace('Local CLI:', '');
-                    setNewAgentProvider('Local CLI');
-                    setNewAgentPreset(presetKey as any);
-                    setNewAgentPermissionMode('safe');
-                    setNewAgentModelCustom(false);
-                    setNewAgentModel('');
-                    setSkillPreview(null);
-                  } else {
-                    setNewAgentProvider(val as any);
-                    setNewAgentPreset('none');
-                    setNewAgentPermissionMode('safe');
-                    const defaults = getModelOptions(val);
-                    setNewAgentModelCustom(false);
-                    setNewAgentModel(defaults[0]?.value || '');
-                    setSkillPreview(null);
-                  }
+                  setNewAgentProvider(val as any);
+                  const defaults = getModelOptions(val);
+                  setNewAgentModelCustom(false);
+                  setNewAgentModel(defaults[0]?.value || '');
+                  setSkillPreview(null);
                 }}
                 style={{
                   backgroundColor: 'hsl(var(--bg-input))',
@@ -243,30 +210,13 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                   ))}
                 </optgroup>
                 
-                <optgroup label="Detected Local CLI Agents">
-                  {detectedClis.filter(c => c.available).map(cli => (
-                    <option key={cli.id} value={`Local CLI:${cli.id}`}>
-                      Local CLI: {cli.name} (Installed)
-                    </option>
-                  ))}
-                </optgroup>
-                
-                <optgroup label="Other Local CLI Presets">
-                  {detectedClis.filter(c => !c.available).map(cli => (
-                    <option key={cli.id} value={`Local CLI:${cli.id}`}>
-                      Local CLI: {cli.name} (Not Installed)
-                    </option>
-                  ))}
-                  <option value="Local CLI:none">Local CLI: Custom Command...</option>
-                </optgroup>
               </select>
             </div>
 
-            {shouldShowModel && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Model Name</label>
                 <select 
-                  value={newAgentModelCustom || isCustomModel ? 'custom' : newAgentModel || (isLocalCliAgent ? '' : modelOptions[0]?.value || '')}
+                  value={newAgentModelCustom || isCustomModel ? 'custom' : newAgentModel || modelOptions[0]?.value || ''}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (val === 'custom') {
@@ -288,24 +238,15 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     outline: 'none'
                   }}
                 >
-                  {isLocalCliAgent && (
-                    <option value="">Default CLI Model</option>
-                  )}
                   {modelOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                   <option value="custom">Custom Model...</option>
                 </select>
-                {isLocalCliAgent && (
-                  <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>
-                    Leave this on Default CLI Model to let the selected local CLI use its own configured default.
-                  </span>
-                )}
-                
-                {(newAgentModelCustom || isCustomModel || (!isLocalCliAgent && (!newAgentModel || modelOptions.length === 0))) && (
+                {(newAgentModelCustom || isCustomModel || !newAgentModel || modelOptions.length === 0) && (
                   <input 
                     type="text"
-                    required={!isLocalCliAgent}
+                    required
                     value={newAgentModel}
                     onChange={(e) => setNewAgentModel(e.target.value)}
                     placeholder="Enter model identifier (e.g., deepseek-coder)"
@@ -322,115 +263,8 @@ export const AgentEditorScreen: React.FC<AgentEditorScreenProps> = ({
                     }}
                   />
                 )}
-              </div>
-            )}
+            </div>
 
-            {newAgentProvider === 'Local CLI' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px', borderLeft: '2px solid hsl(var(--border-dim))', paddingLeft: '12px' }}>
-                {newAgentPreset === 'none' ? (
-                  <>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>CLI Command</label>
-                      <input 
-                        type="text"
-                        required
-                        value={newAgentCommand}
-                        onChange={(e) => setNewAgentCommand(e.target.value)}
-                        placeholder="e.g., node agent.js or python3 script.py"
-                        style={{
-                          backgroundColor: 'hsl(var(--bg-input))',
-                          border: '1px solid hsl(var(--border-dim))',
-                          borderRadius: '8px',
-                          padding: '10px 12px',
-                          color: 'white',
-                          fontFamily: 'inherit',
-                          fontSize: '0.9rem',
-                          outline: 'none'
-                        }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', textTransform: 'uppercase' }}>Stdin Format</label>
-                      <select 
-                        value={newAgentStdinFormat}
-                        onChange={(e) => {
-                          setNewAgentStdinFormat(e.target.value as any);
-                          setSkillPreview(null);
-                        }}
-                        style={{
-                          backgroundColor: 'hsl(var(--bg-input))',
-                          border: '1px solid hsl(var(--border-dim))',
-                          borderRadius: '8px',
-                          padding: '10px 12px',
-                          color: 'white',
-                          fontFamily: 'inherit',
-                          fontSize: '0.9rem',
-                          outline: 'none'
-                        }}
-                      >
-                        <option value="text">Plain text prompt</option>
-                        <option value="json">JSON payload {"{ prompt, systemInstruction }"}</option>
-                      </select>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{
-                    fontSize: '0.75rem',
-                    border: '1px solid hsl(var(--border-dim))',
-                    color: 'hsl(var(--text-secondary))',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    padding: '12px',
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    borderRadius: '8px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 600 }}>Preset Status:</span>
-                      {(() => {
-                        const cli = detectedClis.find(c => c.id === newAgentPreset);
-                        if (cli?.available) {
-                          return <span style={{ color: '#10b981', fontWeight: 600 }}>✓ Installed</span>;
-                        }
-                        return <span style={{ color: '#ef4444', fontWeight: 600 }}>⚠ Not on PATH</span>;
-                      })()}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))', lineHeight: '1.4' }}>
-                      {newAgentPreset === 'claude' && "Safe mode by default; dangerous mode must be explicitly enabled."}
-                      {newAgentPreset === 'gemini' && "Safe mode by default; Source trust and yolo execution are disabled until dangerous mode."}
-                      {newAgentPreset === 'codex' && "Safe sandboxed mode by default; network access override is disabled until dangerous mode."}
-                      {newAgentPreset === 'copilot' && "Safe mode by default; auto-approve tooling requires dangerous mode."}
-                      {newAgentPreset === 'codewhale' && "Safe mode by default; auto-exec and prompt mode disabled until dangerous mode."}
-                      {newAgentPreset === 'agy' && "Safe mode by default; skip-permissions behavior disabled until dangerous mode."}
-                      {newAgentPreset === 'kiro' && "ACP mode by default; tool permission requests are rejected unless dangerous mode is explicitly enabled."}
-                    </div>
-                    <label style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '0.75rem',
-                      color: 'hsl(var(--text-secondary))'
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={newAgentPermissionMode === 'dangerous'}
-                        onChange={(e) => setNewAgentPermissionMode(e.target.checked ? 'dangerous' : 'safe')}
-                      />
-                      <span>
-                        <span style={{ fontWeight: 600 }}>Enable dangerous permissions</span>
-                        <span style={{ color: 'hsl(var(--text-muted))' }}> (requires explicit opt-in; grants filesystem/network and tool privileges)</span>
-                      </span>
-                    </label>
-                    {newAgentPermissionMode === 'dangerous' && (
-                      <div style={{ fontSize: '0.7rem', color: '#ef4444', lineHeight: '1.4' }}>
-                        Warning: dangerous mode may allow destructive actions in the active Source.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <AgentSkillsPanel

@@ -7,6 +7,7 @@ import type { Provider } from '../providers/provider.js';
 import {
   buildBudgetedTranscript,
   buildSkillsContext,
+  autoMatchSkills,
   compileContextWithOptionalSummary,
   composeProjectContext,
   loadWorkspaceMemoryContext,
@@ -15,6 +16,9 @@ import {
 import { compileDiscussionContext } from './contextCompiler.js';
 import { estimateTokenCount } from './tokenBudget.js';
 import type { DiscussionLog } from './types.js';
+import { testWorkspace } from '../testWorkspace.js';
+import { machineSkillContentDigest } from '../skills/machineCatalog.js';
+import { snapshotRoomSkills } from './roomSkillSnapshot.js';
 
 function bigLog(messageCount: number, charsPerMessage: number): DiscussionLog {
   return {
@@ -22,6 +26,11 @@ function bigLog(messageCount: number, charsPerMessage: number): DiscussionLog {
     title: 'Big discussion',
     topic: 'Budget test',
     status: 'active',
+    sourceProvenance: {
+      mode: 'room-only',
+      roomId: 'room_test',
+      startedAt: '2026-01-01T00:00:00.000Z'
+    },
     messages: Array.from({ length: messageCount }, (_, index) => ({
       id: `discussion-1:message-${String(index + 1).padStart(4, '0')}`,
       type: index === 0 ? 'user' as const : 'agent' as const,
@@ -83,6 +92,7 @@ describe('compileContextWithOptionalSummary', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-ctx-'));
+    await fs.mkdir(path.join(tmpDir, '.room'));
   });
 
   afterEach(async () => {
@@ -93,7 +103,7 @@ describe('compileContextWithOptionalSummary', () => {
     const events: ContextSummaryEvent[] = [];
     const failingProvider = { execute: async () => { throw new Error('provider down'); } } as unknown as Provider;
     const compiled = await compileContextWithOptionalSummary(
-      tmpDir, 'discussion', 'discussion-123', longMessages(14), '', [summaryAgent],
+      testWorkspace(tmpDir), 'discussion', 'discussion-123', longMessages(14), '', [summaryAgent],
       () => failingProvider, async () => {}, event => events.push(event)
     );
     expect(compiled.summaryUsed).toBe(false);
@@ -108,7 +118,7 @@ describe('compileContextWithOptionalSummary', () => {
     const provider = { execute: async () => { calls++; return 'compact summary of older messages'; } } as unknown as Provider;
     const messages = longMessages(14);
     const run = () => compileContextWithOptionalSummary(
-      tmpDir, 'discussion', 'discussion-123', messages, '', [summaryAgent],
+      testWorkspace(tmpDir), 'discussion', 'discussion-123', messages, '', [summaryAgent],
       () => provider, async () => {}, event => events.push(event)
     );
 
@@ -127,7 +137,7 @@ describe('compileContextWithOptionalSummary', () => {
     const events: ContextSummaryEvent[] = [];
     const localAgent: AgentConfig = { ...summaryAgent, provider: 'Local CLI' };
     const compiled = await compileContextWithOptionalSummary(
-      tmpDir, 'discussion', 'discussion-123', longMessages(14), '', [localAgent],
+      testWorkspace(tmpDir), 'discussion', 'discussion-123', longMessages(14), '', [localAgent],
       () => ({ execute: async () => 'unused' } as unknown as Provider), async () => {}, event => events.push(event)
     );
     expect(compiled.summaryUsed).toBe(false);
@@ -139,7 +149,7 @@ describe('compileContextWithOptionalSummary', () => {
     const provider = { execute: async () => { calls++; return 'base summary'; } } as unknown as Provider;
     const messages = longMessages(14);
     const run = (msgs: ReturnType<typeof longMessages>) => compileContextWithOptionalSummary(
-      tmpDir, 'discussion', 'discussion-123', msgs, '', [summaryAgent], () => provider, async () => {}
+      testWorkspace(tmpDir), 'discussion', 'discussion-123', msgs, '', [summaryAgent], () => provider, async () => {}
     );
     await run(messages);
     expect(calls).toBe(1);
@@ -160,7 +170,7 @@ describe('compileContextWithOptionalSummary', () => {
     const provider = { execute: async (prompt: string) => { prompts.push(prompt); return 'rolled summary'; } } as unknown as Provider;
     const messages = longMessages(14);
     const run = (msgs: ReturnType<typeof longMessages>) => compileContextWithOptionalSummary(
-      tmpDir, 'discussion', 'discussion-123', msgs, '', [summaryAgent], () => provider, async () => {}
+      testWorkspace(tmpDir), 'discussion', 'discussion-123', msgs, '', [summaryAgent], () => provider, async () => {}
     );
     await run(messages);
 
@@ -218,13 +228,13 @@ describe('loadWorkspaceMemoryContext', () => {
   });
 
   it('returns empty when no memory files exist', async () => {
-    expect(await loadWorkspaceMemoryContext(tmpDir)).toBe('');
+    expect(await loadWorkspaceMemoryContext(testWorkspace(tmpDir))).toBe('');
   });
 
   it('includes recent ADRs and discussion summaries', async () => {
     await fs.writeFile(path.join(tmpDir, '.room', 'decisions', 'ADR-001-db.md'), 'Use SQLite.');
     await fs.writeFile(path.join(tmpDir, '.room', 'documents', 'topic-discussion-1-summary.md'), 'Past summary body.');
-    const memory = await loadWorkspaceMemoryContext(tmpDir);
+    const memory = await loadWorkspaceMemoryContext(testWorkspace(tmpDir));
     expect(memory).toContain('Room Memory');
     expect(memory).toContain('[Decision: ADR-001-db.md]');
     expect(memory).toContain('Use SQLite.');
@@ -234,14 +244,14 @@ describe('loadWorkspaceMemoryContext', () => {
   it('excludes the current discussion own summary and non-matching files', async () => {
     await fs.writeFile(path.join(tmpDir, '.room', 'documents', 'topic-discussion-9-summary.md'), 'Own summary.');
     await fs.writeFile(path.join(tmpDir, '.room', 'decisions', 'task-123-artifact.md'), 'Not an ADR.');
-    const memory = await loadWorkspaceMemoryContext(tmpDir, 2500, 'discussion-9');
+    const memory = await loadWorkspaceMemoryContext(testWorkspace(tmpDir), 2500, 'discussion-9');
     expect(memory).not.toContain('Own summary.');
     expect(memory).not.toContain('Not an ADR.');
   });
 
   it('trims to the token budget', async () => {
     await fs.writeFile(path.join(tmpDir, '.room', 'decisions', 'ADR-001-big.md'), 'word '.repeat(10000));
-    const memory = await loadWorkspaceMemoryContext(tmpDir, 200);
+    const memory = await loadWorkspaceMemoryContext(testWorkspace(tmpDir), 200);
     expect(memory).toContain('[Room memory trimmed to fit the prompt budget.]');
   });
 });
@@ -259,8 +269,8 @@ describe('buildSkillsContext', () => {
   });
 
   it('returns empty when no skills are given or loadable', async () => {
-    expect(await buildSkillsContext(tmpDir, [])).toBe('');
-    expect(await buildSkillsContext(tmpDir, ['missing.md'])).toBe('');
+    expect(await buildSkillsContext(testWorkspace(tmpDir), [])).toBe('');
+    expect(await buildSkillsContext(testWorkspace(tmpDir), ['room://skills/missing.md'])).toBe('');
   });
 
   it('injects skill content without frontmatter', async () => {
@@ -268,11 +278,45 @@ describe('buildSkillsContext', () => {
       path.join(tmpDir, '.room', 'skills', 'api.md'),
       '---\nalwaysApply: true\n---\nAlways version the API.'
     );
-    const context = await buildSkillsContext(tmpDir, ['api.md']);
+    const context = await buildSkillsContext(testWorkspace(tmpDir), ['room://skills/api.md']);
     expect(context).toContain('=== Active Skills ===');
-    expect(context).toContain('[Skill: api.md]');
+    expect(context).toContain('[Skill: room://skills/api.md]');
     expect(context).toContain('Always version the API.');
     expect(context).not.toContain('alwaysApply');
+  });
+
+  it('keeps Room skill content and auto-match selection immutable for a run', async () => {
+    const skillPath = path.join(tmpDir, '.room', 'skills', 'stable.md');
+    await fs.writeFile(
+      skillPath,
+      '---\ntriggerKeywords: ["original-trigger"]\n---\nUse the original sentinel.'
+    );
+    const snapshots = await snapshotRoomSkills(testWorkspace(tmpDir), {
+      references: ['room://skills/stable.md'],
+      discussionText: 'original-trigger'
+    });
+    await fs.writeFile(
+      skillPath,
+      '---\ntriggerKeywords: ["changed-trigger"]\n---\nUse the changed sentinel.'
+    );
+
+    await expect(autoMatchSkills(
+      testWorkspace(tmpDir),
+      [],
+      'original-trigger',
+      snapshots
+    )).resolves.toEqual(['room://skills/stable.md']);
+    const context = await buildSkillsContext(
+      testWorkspace(tmpDir),
+      ['room://skills/stable.md'],
+      1500,
+      undefined,
+      [],
+      undefined,
+      snapshots
+    );
+    expect(context).toContain('Use the original sentinel.');
+    expect(context).not.toContain('Use the changed sentinel.');
   });
 
   it('trims oversized skills to the per-skill budget', async () => {
@@ -280,7 +324,11 @@ describe('buildSkillsContext', () => {
       path.join(tmpDir, '.room', 'skills', 'big.md'),
       `guideline ${'word '.repeat(20000)}`
     );
-    const context = await buildSkillsContext(tmpDir, ['big.md'], 200);
+    const context = await buildSkillsContext(
+      testWorkspace(tmpDir),
+      ['room://skills/big.md'],
+      200
+    );
     expect(context).toContain('[Skill content trimmed to fit the prompt budget.]');
     expect(context.length).toBeLessThan(5000);
   });
@@ -298,19 +346,53 @@ describe('buildSkillsContext', () => {
     await fs.writeFile(path.join(unselectedDir, 'SKILL.md'), '# Unselected\nNever inject this.');
 
     const context = await buildSkillsContext(
-      tmpDir,
+      testWorkspace(tmpDir),
       ['machine://codex/selected'],
       1500,
       {
         codexSkillsRoot: machineRoot,
         agentsSkillsRoot: null,
         pluginCacheRoot: null
-      }
+      },
+      [{
+        memberId: 'mem_reviewer',
+        provider: 'gemini',
+        reference: 'machine://codex/selected',
+        contentDigest: machineSkillContentDigest(
+          '---\nname: selected\ndescription: Selected skill\n---\nApply the selected instructions.'
+        ),
+        content: '---\nname: selected\ndescription: Selected skill\n---\nApply the selected instructions.'
+      }],
+      { id: 'mem_reviewer', provider: 'gemini' }
     );
 
-    expect(context).toContain('[Skill: selected · Codex]');
+    expect(context).toContain('[Skill: machine://codex/selected]');
     expect(context).toContain('Apply the selected instructions.');
     expect(context).not.toContain('Never inject this.');
+    await expect(buildSkillsContext(
+      testWorkspace(tmpDir),
+      ['machine://codex/selected'],
+      1500,
+      undefined,
+      [{
+        memberId: 'mem_reviewer',
+        provider: 'gemini',
+        reference: 'machine://codex/selected',
+        contentDigest: machineSkillContentDigest(
+          '---\nname: selected\ndescription: Selected skill\n---\nApply the selected instructions.'
+        ),
+        content: '---\nname: selected\ndescription: Selected skill\n---\nApply the selected instructions.'
+      }],
+      { id: 'mem_reviewer', provider: 'anthropic' }
+    )).rejects.toThrow('member-bound approved snapshot');
+    await expect(buildSkillsContext(
+      testWorkspace(tmpDir),
+      ['machine://codex/selected'],
+      1500,
+      undefined,
+      [],
+      { id: 'mem_reviewer', provider: 'gemini' }
+    )).rejects.toThrow('member-bound approved snapshot');
     await fs.rm(machineRoot, { recursive: true, force: true });
   });
 });

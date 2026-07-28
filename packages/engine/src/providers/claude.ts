@@ -1,4 +1,5 @@
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
+import { fetchProviderJson } from './boundedFetch.js';
 
 export class ClaudeProvider implements Provider {
   name = 'Claude';
@@ -20,7 +21,12 @@ export class ClaudeProvider implements Provider {
 
     const url = 'https://api.anthropic.com/v1/messages';
     
-    const payload: any = {
+    const payload: {
+      model: string;
+      max_tokens: number;
+      messages: Array<{ role: 'user'; content: string }>;
+      system?: string;
+    } = {
       model: this.modelName,
       max_tokens: 4096,
       messages: [
@@ -35,7 +41,7 @@ export class ClaudeProvider implements Provider {
       payload.system = systemInstruction;
     }
 
-    const response = await fetch(url, {
+    const { response, data } = await fetchProviderJson(url, {
       method: 'POST',
       headers: {
         'x-api-key': this.apiKey,
@@ -46,20 +52,15 @@ export class ClaudeProvider implements Provider {
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Claude API call failed with status ${response.status}: ${errText}`);
+      throw new Error(`Claude API call failed with status ${response.status}.`);
     }
 
-    const data = await response.json();
-    try {
-      const text = data.content?.[0]?.text;
-      if (!text) {
-        throw new Error('Empty response from Claude API.');
-      }
-      options?.onChunk?.(text);
-      return text;
-    } catch (err: any) {
-      throw new Error(`Failed to parse Claude API response: ${err.message}. Raw: ${JSON.stringify(data)}`);
+    const parsed = data as { content?: Array<{ text?: string }> };
+    const text = parsed.content?.[0]?.text;
+    if (!text) {
+      throw new Error('Empty response from Claude API.');
     }
+    options?.onChunk?.(text);
+    return text;
   }
 }

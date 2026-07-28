@@ -6,7 +6,8 @@ export function resolveToolAccess(
   requested: ToolAccess | undefined,
   permissionMode: 'safe' | 'dangerous'
 ): ToolAccess {
-  return requested === 'read-only' && permissionMode === 'safe' ? 'read-only' : 'none';
+  if (permissionMode === 'safe') return 'read-only';
+  return requested === 'read-only' ? 'read-only' : 'none';
 }
 
 export function parseMcpServerNames(rawJson: string | null): string[] {
@@ -28,7 +29,13 @@ export function claudeAllowedToolsArg(mcpServerNames: string[]): string {
 
 export function applyReadOnlyToolArgs(preset: string, args: string[], mcpServerNames: string[]): string[] {
   if (preset === 'claude') {
-    return [...args, '--allowedTools', claudeAllowedToolsArg(mcpServerNames)];
+    return [
+      ...args,
+      '--permission-mode',
+      'plan',
+      '--allowedTools',
+      claudeAllowedToolsArg(mcpServerNames)
+    ];
   }
   if (preset === 'codex') {
     return args.map(arg => (arg === 'workspace-write' ? 'read-only' : arg));

@@ -12,6 +12,10 @@ import {
   type TemplateRowDraft,
   type TeamWizardMemberDraft
 } from '../lib/teamWizard.js';
+import {
+  parseRoomSkillReference,
+  roomSkillReference
+} from '../../../shared/lib/roomSkillReference.js';
 
 interface CreateTeamWizardProps {
   existingNames: string[];
@@ -108,13 +112,18 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({
     });
 
     const skillDraftMap = new Map<string, { name: string; content: string }>();
+    const qualify = (skill: string): string => (
+      parseRoomSkillReference(skill) || skill.startsWith('machine://')
+        ? skill
+        : roomSkillReference('roles', skill)
+    );
     const members = memberDrafts.map(member => ({
       name: member.name.trim(),
       role: member.role.trim(),
       provider: member.provider,
       modelName: member.modelName?.trim() || undefined,
       systemPrompt: buildSystemPrompt(member.basePrompt, member.personaAngle),
-      skills: member.skills.map(skill => skill.trim()).filter(Boolean)
+      skills: member.skills.map(skill => skill.trim()).filter(Boolean).map(qualify)
     }));
 
     for (const member of memberDrafts) {
@@ -122,14 +131,18 @@ export const CreateTeamWizard: React.FC<CreateTeamWizardProps> = ({
         const skillName = rawSkillName.trim();
         if (!skillName) continue;
 
-        const normalizedName = skillName.toLowerCase();
+        const reference = qualify(skillName);
+        const normalizedName = reference.toLowerCase();
         if (normalizedSkillFiles.has(normalizedName) || skillDraftMap.has(normalizedName)) {
           continue;
         }
 
         skillDraftMap.set(normalizedName, {
-          name: skillName,
-          content: buildSkillDraftContent(skillName, templateSkillsByName.get(normalizedName))
+          name: parseRoomSkillReference(reference)?.filename || skillName,
+          content: buildSkillDraftContent(
+            parseRoomSkillReference(reference)?.filename || skillName,
+            templateSkillsByName.get(skillName.toLowerCase())
+          )
         });
       }
     }

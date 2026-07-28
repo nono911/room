@@ -15,6 +15,16 @@ interface UseContextPickerDeps {
   setErrorMsg: (value: string | null) => void;
 }
 
+export function filterContextRefsForSource(
+  refs: string[],
+  activeSourceId?: string
+): string[] {
+  const sourcePrefix = activeSourceId ? `source-file:${activeSourceId}:` : '';
+  return refs.filter(ref => !ref.startsWith('source-file:') || (
+    Boolean(sourcePrefix) && ref.startsWith(sourcePrefix)
+  ));
+}
+
 export function useContextPicker({
   projectPath,
   activeSourceId,
@@ -29,6 +39,15 @@ export function useContextPicker({
   const [contextPickerTab, setContextPickerTab] = useState<ContextPickerTab>('Suggested');
   const [contextPickerItems, setContextPickerItems] = useState<ContextPickerItem[]>([]);
   const [contextPickerLoading, setContextPickerLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    setSelectedDiscussionContextRefs(refs => filterContextRefsForSource(refs, activeSourceId));
+    setSelectedCodingTaskContextRefs(refs => filterContextRefsForSource(refs, activeSourceId));
+  }, [
+    activeSourceId,
+    setSelectedCodingTaskContextRefs,
+    setSelectedDiscussionContextRefs
+  ]);
 
   useEffect(() => {
     if (!projectPath || !contextPickerTarget) return;
@@ -82,10 +101,11 @@ export function useContextPicker({
   );
 
   const setContextSelection = (target: ContextPickerTarget, refs: string[]) => {
+    const filteredRefs = filterContextRefsForSource(refs, activeSourceId);
     if (target === 'discussion') {
-      setSelectedDiscussionContextRefs(refs);
+      setSelectedDiscussionContextRefs(filteredRefs);
     } else {
-      setSelectedCodingTaskContextRefs(refs);
+      setSelectedCodingTaskContextRefs(filteredRefs);
     }
   };
 
@@ -107,7 +127,14 @@ export function useContextPicker({
     if (ref.startsWith('task:')) return `Task: ${ref.slice('task:'.length)}`;
     if (ref.startsWith('document:')) return `Doc: ${ref.slice('document:'.length)}`;
     if (ref.startsWith('discussion:')) return `Chat: ${ref.slice('discussion:'.length)}`;
-    if (ref.startsWith('file:')) return `File: ${ref.slice('file:'.length)}`;
+    if (ref.startsWith('source-file:')) {
+      const encodedPath = ref.split(':').slice(2).join(':');
+      try {
+        return `Source File: ${decodeURIComponent(encodedPath)}`;
+      } catch {
+        return 'Source File';
+      }
+    }
     return ref;
   };
 

@@ -1,8 +1,11 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import type { AgentConfig } from '../agents/registry.js';
 import { Provider } from '../providers/provider.js';
-import type { CodingTaskResult, DiscussionMessage } from './types.js';
+import {
+  createExecutionProvenance,
+  type CodingTaskResult,
+  type DiscussionMessage
+} from './types.js';
+import type { CodingTaskEvent, CodingTaskRunOptions } from './taskRunnerTypes.js';
 import type { NewRoomEvent } from '../events/eventLog.js';
 import { loadAgents } from '../agents/registry.js';
 import {
@@ -12,11 +15,9 @@ import {
   nextStableMessageId,
   isOnlyOmissionNotes,
   localCliNoFinalAnswerMessage,
-  renderCodingTaskMarkdown,
   renderTaskArtifact,
   composeAgentSystemPrompt,
   isDeveloperAgent,
-  cleanUpParentTaskFiles,
   REFERENCE_TRACING_PROTOCOL,
   DOER_WORK_INSTRUCTIONS_CODING,
   DOER_WORK_INSTRUCTIONS_GENERAL,
@@ -26,47 +27,26 @@ import {
 } from './utils.js';
 import {
   compileContextWithOptionalSummary,
-  readFirstExistingFile,
   buildSkillsContext,
-  isReviewerAgent,
   buildReviewProtocol
 } from './contextBuilder.js';
+import { loadRunContextFiles } from './runContext.js';
 import type { MessageReference } from './references.js';
 import { parseCodingApproval, extractTaskReviewSummary } from './approvalDetector.js';
-import { updateTaskCardStatus } from './taskBoard.js';
+import { updateTaskCardStatusBestEffort } from './taskBoard.js';
+import { writeRoomTextFile } from '../roomFile.js';
 import {
-  resolveRoomPath,
   resolveExecutionRoot,
+  resolveWorkspaceLocation,
   type WorkspaceInput
 } from '../workspace.js';
+import { validateTaskLineage } from './taskLineage.js';
+import { resolveCodingTaskParticipants } from './taskParticipants.js';
+import { saveCodingTaskResult } from './taskPersistence.js';
+import { autoMatchedRoomSkillReferences } from './roomSkillSnapshot.js';
+import { isTaskRunId } from './runId.js';
 
-export interface CodingTaskEvent {
-  type: string;
-  discussionId: string;
-  message?: DiscussionMessage;
-  agentName?: string;
-  providerName?: string;
-  modelName?: string;
-  round?: number;
-  chunk?: string;
-  error?: string;
-  role?: string;
-  timestamp?: string;
-  log?: { id: string; title: string; topic: string; status: string; messages: DiscussionMessage[] };
-  reason?: string | null;
-  title?: string;
-}
-
-export interface CodingTaskRunOptions {
-  onEvent?: (event: CodingTaskEvent) => void;
-  additionalContext?: string;
-  taskType?: string;
-  getInterruptMessage?: () => string | null;
-  associatedCardId?: string;
-  continuedFromTaskId?: string;
-  temporaryAgents?: AgentConfig[];
-}
-
+export type { CodingTaskEvent, CodingTaskRunOptions } from './taskRunnerTypes.js';
 export async function runCodingTaskLoop(
   workspace: WorkspaceInput,
   taskId: string,
@@ -84,42 +64,48 @@ export async function runCodingTaskLoop(
   appendReferenceEvents: (scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage) => Promise<void>,
   appendInterruptEvent: (scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage) => Promise<void>
 ): Promise<CodingTaskResult> {
-  if (!/^task-[\w-]+$/.test(taskId)) {
+  if (!isTaskRunId(taskId)) {
     throw new Error('Invalid task id.');
+  }
+  if (
+    options.continuedFromTaskId !== undefined
+    && !isTaskRunId(options.continuedFromTaskId)
+  ) {
+    throw new Error('Invalid continued task id.');
+  }
+  if (options.continuedFromTaskId === taskId) {
+    throw new Error('A continued task must use a new task id.');
   }
 
   const sourceRoot = resolveExecutionRoot(workspace);
-  const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
-  const developer = agents.find(agent => agent.name.toLowerCase() === developerName.toLowerCase())
-    || agents.find(agent => isDeveloperAgent(agent));
-  if (!developer) {
-    throw new Error('No Doer AI member is available for this task.');
-  }
-
-  const reviewers = reviewerNames
-    .map(name => agents.find(agent => agent.name.toLowerCase() === name.toLowerCase()))
-    .filter((agent): agent is AgentConfig => !!agent);
-  const fallbackReviewer = agents.find(agent => isReviewerAgent(agent));
-  if (reviewers.length === 0 && fallbackReviewer) {
-    reviewers.push(fallbackReviewer);
-  }
-  if (reviewers.length === 0) {
-    throw new Error('No Reviewer or Lead AI member is available for this task.');
-  }
-
+  const selectedParticipants = options.developer && options.reviewers
+    ? { developer: options.developer, reviewers: [...options.reviewers] }
+    : resolveCodingTaskParticipants(
+        [...(options.temporaryAgents || []), ...await loadAgents(workspace)],
+        developerName,
+        reviewerNames
+      );
+  const { developer, reviewers } = selectedParticipants;
+  const agents = [developer, ...reviewers];
+  const autoMatchedSkills = autoMatchedRoomSkillReferences(options.roomSkillSnapshots || []);
+  const activeSkills = (agent: AgentConfig) => Array.from(new Set([...(agent.skills || []), ...autoMatchedSkills]));
   const taskType = (options.taskType || 'general').trim().toLowerCase();
   await assertCodingTaskWriteAllowed(developer, taskType);
 
-  const tasksDir = resolveRoomPath(workspace, 'tasks');
-  const documentsDir = resolveRoomPath(workspace, 'documents');
-  await fs.mkdir(tasksDir, { recursive: true });
-  await fs.mkdir(documentsDir, { recursive: true });
   const jsonFilename = `${taskId}.json`;
   const markdownFilename = `${taskId}.md`;
   const artifactFilename = `${taskId}-artifact.md`;
-  const jsonPath = path.join(tasksDir, jsonFilename);
-  const markdownPath = path.join(tasksDir, markdownFilename);
-  const artifactPath = path.join(documentsDir, artifactFilename);
+  const executionProvenance = options.sourceProvenance
+    || createExecutionProvenance(resolveWorkspaceLocation(workspace));
+  const executionContextLabel = executionProvenance.mode === 'source'
+    ? `Source "${executionProvenance.sourceName}" (${executionProvenance.sourceId})`
+    : `Room ${executionProvenance.roomId} (no Source attached)`;
+  const existingResult = await validateTaskLineage(
+    workspace,
+    taskId,
+    options.continuedFromTaskId,
+    executionProvenance
+  );
 
   const isCodingTask = taskType === 'coding';
   const doerLabel = isCodingTask ? 'Developer' : 'Doer';
@@ -131,16 +117,8 @@ export async function runCodingTaskLoop(
   const reviewerRules = isCodingTask
     ? REVIEWER_RULES_CODING
     : REVIEWER_RULES_GENERAL;
-
-  let projectContext = await readFirstExistingFile([
-    resolveRoomPath(workspace, 'context', 'overview.md'),
-    resolveRoomPath(workspace, 'workspace.md'),
-    resolveRoomPath(workspace, 'project.md')
-  ]);
-  const structure = await readFirstExistingFile([
-    resolveRoomPath(workspace, 'context', 'structure.md'),
-    resolveRoomPath(workspace, 'architecture', 'current.md')
-  ]);
+  const { overview, structure } = await loadRunContextFiles(workspace);
+  let projectContext = overview;
   if (structure) {
     projectContext += `\n\nRoom Structure:\n${structure}`;
   }
@@ -168,17 +146,19 @@ export async function runCodingTaskLoop(
     artifactFilename,
     statusSummary: 'Task is queued.',
     associatedCardId: options.associatedCardId,
-    continuedFromTaskId: options.continuedFromTaskId
+    continuedFromTaskId: options.continuedFromTaskId,
+    participants: [...(options.executionParticipants || [])],
+    sourceProvenance: existingResult?.sourceProvenance || executionProvenance
   };
 
   if (options.associatedCardId) {
-    await updateTaskCardStatus(workspace, options.associatedCardId, 'in_progress');
+    await updateTaskCardStatusBestEffort(workspace, options.associatedCardId, 'in_progress', 'in_progress');
   }
 
   const saveResult = async () => {
-    await fs.writeFile(jsonPath, JSON.stringify(result, null, 2), 'utf-8');
-    await fs.writeFile(markdownPath, renderCodingTaskMarkdown(result), 'utf-8');
+    await saveCodingTaskResult(workspace, result);
   };
+  await saveResult();
   const applyInterruptIfRequested = async (): Promise<boolean> => {
     const interruptMessage = options.getInterruptMessage?.()?.trim();
     if (!interruptMessage) return false;
@@ -240,7 +220,10 @@ export async function runCodingTaskLoop(
       projectContext,
       agents,
       getProvider,
-      assertAgentExecutionAllowed
+      assertAgentExecutionAllowed,
+      undefined,
+      options.approvedMachineSkills,
+      options.roomSkillSnapshots
     );
     const developerPrompt = `You are the ${doerLabel} assigned to this ROOM task.
 
@@ -250,8 +233,8 @@ ${taskType}
 Task:
 ${task}
 
-Workspace root:
-${sourceRoot}
+Execution context:
+${executionContextLabel}
 
 ${developerContext.projectContextBlock || '=== Room Context ===\n(No Room context provided.)'}
 
@@ -265,7 +248,15 @@ Instructions:
 ${doerWorkInstructions}
 - Use the same natural language as the user's task unless the user explicitly asks otherwise.`;
 
-    const developerSkillsContext = await buildSkillsContext(workspace, developer.skills || []);
+    const developerSkillsContext = await buildSkillsContext(
+      workspace,
+      activeSkills(developer),
+      1500,
+      undefined,
+      options.approvedMachineSkills,
+      developer,
+      options.roomSkillSnapshots
+    );
     const developerSystemPrompt = composeAgentSystemPrompt(
       developer.systemPrompt,
       developer.provider === 'Local CLI',
@@ -318,7 +309,11 @@ ${doerWorkInstructions}
     });
 
     await saveResult();
-    await fs.writeFile(artifactPath, renderTaskArtifact(result, developerMessage), 'utf-8');
+    await writeRoomTextFile(
+      workspace,
+      ['documents', artifactFilename],
+      renderTaskArtifact(result, developerMessage)
+    );
 
     interrupted = await applyInterruptIfRequested();
     if (interrupted) break;
@@ -350,15 +345,18 @@ ${doerWorkInstructions}
         projectContext,
         agents,
         getProvider,
-        assertAgentExecutionAllowed
+        assertAgentExecutionAllowed,
+        undefined,
+        options.approvedMachineSkills,
+        options.roomSkillSnapshots
       );
       const reviewerPrompt = `You are the ${reviewerLabel} assigned to review this task.
 
 Task:
 ${task}
 
-Workspace root:
-${sourceRoot}
+Execution context:
+${executionContextLabel}
 
 ${reviewerContext.projectContextBlock || '=== Room Context ===\n(No Room context provided.)'}
 
@@ -369,7 +367,15 @@ Instructions:
 ${reviewerRules}
 - Use the same natural language as the user's task unless the user explicitly asks otherwise.`;
 
-      const reviewerSkillsContext = await buildSkillsContext(workspace, reviewer.skills || []);
+      const reviewerSkillsContext = await buildSkillsContext(
+        workspace,
+        activeSkills(reviewer),
+        1500,
+        undefined,
+        options.approvedMachineSkills,
+        reviewer,
+        options.roomSkillSnapshots
+      );
       const reviewerSystemPrompt = composeAgentSystemPrompt(
         reviewer.systemPrompt,
         reviewer.provider === 'Local CLI',
@@ -442,9 +448,6 @@ ${reviewerRules}
       result.approvedBy = reviewers.map(reviewer => reviewer.name);
       result.statusSummary = `Approved after ${cycle} cycle(s).\n${extractTaskReviewSummary(reviewerOutputs)}`;
       await saveResult();
-      if (result.continuedFromTaskId) {
-        await cleanUpParentTaskFiles(workspace, result.continuedFromTaskId);
-      }
       break;
     }
 
@@ -470,13 +473,13 @@ ${reviewerRules}
     source: { type: 'coding-task', id: taskId },
     target: { type: 'artifact', id: artifactFilename },
     data: {
-      path: path.join('documents', artifactFilename),
+      path: `documents/${artifactFilename}`,
       sourceMessageId: finalDoerMessage?.id
     }
   });
 
   if (result.associatedCardId && result.status === 'approved') {
-    await updateTaskCardStatus(workspace, result.associatedCardId, 'done');
+    await updateTaskCardStatusBestEffort(workspace, result.associatedCardId, 'done', 'done');
   }
 
   await saveResult();

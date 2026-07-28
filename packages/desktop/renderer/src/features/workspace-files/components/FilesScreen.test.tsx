@@ -94,7 +94,7 @@ describe('FilesScreen', () => {
     fireEvent.click(screen.getByText('README.md'));
     await waitFor(() => expect(screen.getByText('ROOM source')).toBeDefined());
     fireEvent.click(screen.getByText('Add context'));
-    expect(onAddContext).toHaveBeenCalledWith('file:README.md');
+    expect(onAddContext).toHaveBeenCalledWith('source-file:source_test:README.md');
   });
 
   it('opens decisions in the shared ROOM artifact viewer', async () => {
@@ -120,6 +120,47 @@ describe('FilesScreen', () => {
       'decisions',
       '0001-storage.md'
     );
+  });
+
+  it('loads additional ROOM artifact pages without reloading Home', async () => {
+    const mockApi = window.electronAPI as any;
+    mockApi.listRoomArtifacts.mockResolvedValue({
+      success: true,
+      files: ['0002-follow-up.md'],
+      hasMore: false,
+      truncated: false
+    });
+    render(
+      <FilesScreen
+        {...sourceProps}
+        projectPath="room_personal"
+        projectData={{
+          ...projectData,
+          artifactListPagination: {
+            decisions: {
+              hasMore: true,
+              nextCursor: 'cursor-page-1',
+              truncated: false
+            }
+          }
+        }}
+        initialSelectedFile={null}
+        setInitialSelectedFile={vi.fn()}
+        setErrorMsg={vi.fn()}
+        onAddContext={vi.fn()}
+        initialTab="room"
+        roomSection="decisions"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more decisions' }));
+    await waitFor(() => expect(screen.getByText('0002-follow-up.md')).toBeDefined());
+    expect(mockApi.listRoomArtifacts).toHaveBeenCalledWith(
+      'room_personal',
+      'decisions',
+      'cursor-page-1'
+    );
+    expect(screen.queryByRole('button', { name: 'Load more decisions' })).toBeNull();
   });
 
   it('clears stale previews when the ROOM route section changes', async () => {
@@ -151,7 +192,7 @@ describe('FilesScreen', () => {
 
   it('restores the saved source file when returning from a ROOM route', async () => {
     const mockApi = window.electronAPI as any;
-    localStorage.setItem('room:last-file:/mock/project', 'README.md');
+    localStorage.setItem('room:last-file:/mock/project:source_test', 'README.md');
     mockApi.readWorkspaceFile.mockResolvedValue({
       success: true,
       preview: {
@@ -243,5 +284,52 @@ describe('FilesScreen', () => {
 
     expect(screen.getByText('Preview B')).toBeDefined();
     expect(screen.queryByText('Preview A')).toBeNull();
+  });
+
+  it('invalidates a preview and remembered path when the active Source changes', async () => {
+    const mockApi = window.electronAPI as any;
+    mockApi.browseWorkspaceFiles.mockResolvedValue({
+      success: true,
+      files: [{
+        path: 'README.md',
+        name: 'README.md',
+        size: 10,
+        modifiedAt: '',
+        kind: 'file',
+        extension: 'md'
+      }],
+      truncated: false
+    });
+    const pending = deferred<{
+      success: true;
+      preview: { kind: 'text'; content: string; mimeType: string; language: string };
+    }>();
+    mockApi.readWorkspaceFile.mockReturnValue(pending.promise);
+    const props = {
+      projectPath: '/mock/project',
+      projectData,
+      initialSelectedFile: null,
+      setInitialSelectedFile: vi.fn(),
+      setErrorMsg: vi.fn(),
+      onAddContext: vi.fn(),
+      onAttachSource: vi.fn()
+    };
+    const view = render(<FilesScreen {...props} activeSourceId="source_first" />);
+    await waitFor(() => expect(screen.getByText('README.md')).toBeDefined());
+    fireEvent.click(screen.getByText('README.md'));
+    view.rerender(<FilesScreen {...props} activeSourceId="source_second" />);
+    await act(async () => {
+      pending.resolve({
+        success: true,
+        preview: {
+          kind: 'text',
+          content: '# Detached Source',
+          mimeType: 'text/markdown',
+          language: 'markdown'
+        }
+      });
+    });
+    expect(screen.queryByText('Detached Source')).toBeNull();
+    expect(localStorage.getItem('room:last-file:/mock/project:source_second')).toBeNull();
   });
 });

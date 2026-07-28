@@ -1,11 +1,7 @@
 import * as fs from 'fs/promises';
-import { existsSync, readdirSync } from 'fs';
+import { accessSync, constants, existsSync, readdirSync, statSync } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileP = promisify(execFile);
 
 export interface DetectedAgent {
   id: string;
@@ -16,13 +12,13 @@ export interface DetectedAgent {
 }
 
 const AGENT_DEFS = [
-  { id: 'claude', name: 'Claude Code', bin: 'claude', versionArgs: ['--version'] },
-  { id: 'gemini', name: 'Gemini CLI', bin: 'gemini', versionArgs: ['--version'] },
-  { id: 'codex', name: 'Codex CLI', bin: 'codex', versionArgs: ['--version'] },
-  { id: 'copilot', name: 'GitHub Copilot CLI', bin: 'copilot', versionArgs: ['--version'] },
-  { id: 'codewhale', name: 'CodeWhale', bin: 'codewhale', versionArgs: ['--version'] },
-  { id: 'agy', name: 'Antigravity CLI', bin: 'agy', versionArgs: ['--version'] },
-  { id: 'kiro', name: 'Kiro CLI', bin: 'kiro-cli', versionArgs: ['--version'] }
+  { id: 'claude', name: 'Claude Code', bin: 'claude' },
+  { id: 'gemini', name: 'Gemini CLI', bin: 'gemini' },
+  { id: 'codex', name: 'Codex CLI', bin: 'codex' },
+  { id: 'copilot', name: 'GitHub Copilot CLI', bin: 'copilot' },
+  { id: 'codewhale', name: 'CodeWhale', bin: 'codewhale' },
+  { id: 'agy', name: 'Antigravity CLI', bin: 'agy' },
+  { id: 'kiro', name: 'Kiro CLI', bin: 'kiro-cli' }
 ];
 
 export function wellKnownUserToolchainBins(): string[] {
@@ -109,29 +105,14 @@ export function resolveOnPath(bin: string): string | null {
   for (const dir of dirs) {
     for (const ext of exts) {
       const fullPath = path.join(dir, bin + ext);
-      if (existsSync(fullPath)) {
+      try {
+        if (!statSync(fullPath).isFile()) continue;
+        accessSync(fullPath, constants.X_OK);
         return fullPath;
-      }
+      } catch {}
     }
   }
   return null;
-}
-
-async function probeVersion(executablePath: string, args: string[]): Promise<string | null> {
-  try {
-    const { stdout } = await execFileP(executablePath, args, {
-      env: {
-        ...process.env,
-        PATH: resolvePathDirs().join(path.delimiter)
-      },
-      timeout: 2000,
-      maxBuffer: 1024 * 1024
-    });
-    const firstLine = stdout.trim().split('\n')[0];
-    return firstLine ? firstLine.trim() : null;
-  } catch {
-    return null;
-  }
 }
 
 export async function detectLocalAgents(): Promise<DetectedAgent[]> {
@@ -150,13 +131,12 @@ export async function detectLocalAgents(): Promise<DetectedAgent[]> {
       continue;
     }
 
-    const version = await probeVersion(resolvedPath, def.versionArgs);
     results.push({
       id: def.id,
       name: def.name,
       available: true,
       path: resolvedPath,
-      version: version
+      version: null
     });
   }
 

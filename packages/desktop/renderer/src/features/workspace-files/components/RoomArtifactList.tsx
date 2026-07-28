@@ -1,6 +1,5 @@
-import type { ProjectData } from '../../../types/domain.js';
-
-export type RoomArtifactSection = 'documents' | 'reviews' | 'discussions' | 'tasks' | 'decisions';
+import type { ProjectData, RoomArtifactSection } from '../../../types/domain.js';
+export type { RoomArtifactSection } from '../../../types/domain.js';
 
 export interface RoomArtifactSelection {
   section: RoomArtifactSection;
@@ -12,6 +11,10 @@ interface RoomArtifactListProps {
   selected: RoomArtifactSelection | null;
   onSelect: (selection: RoomArtifactSelection) => void;
   onlySection?: RoomArtifactSection;
+  hasMore?: Partial<Record<RoomArtifactSection, boolean>>;
+  truncated?: Partial<Record<RoomArtifactSection, boolean>>;
+  loadingSection?: RoomArtifactSection | null;
+  onLoadMore?: (section: RoomArtifactSection) => void;
 }
 
 const GROUPS: Array<{ section: RoomArtifactSection; label: string }> = [
@@ -31,9 +34,21 @@ function getFiles(projectData: ProjectData | null, section: RoomArtifactSection)
   return projectData[section] || [];
 }
 
-export function RoomArtifactList({ projectData, selected, onSelect, onlySection }: RoomArtifactListProps) {
+export function RoomArtifactList({
+  projectData,
+  selected,
+  onSelect,
+  onlySection,
+  hasMore = {},
+  truncated = {},
+  loadingSection,
+  onLoadMore
+}: RoomArtifactListProps) {
   const visibleGroups = onlySection ? GROUPS.filter(group => group.section === onlySection) : GROUPS;
   const total = visibleGroups.reduce((count, group) => count + getFiles(projectData, group.section).length, 0);
+  const canLoadMore = visibleGroups.some(group => (
+    hasMore[group.section] || truncated[group.section]
+  ));
   return (
     <div className="room-artifact-list">
       <div className="room-artifact-summary">
@@ -41,11 +56,11 @@ export function RoomArtifactList({ projectData, selected, onSelect, onlySection 
         <span>{total} traceable outputs</span>
       </div>
       <div className="room-artifact-scroll">
-        {total === 0 ? (
+        {total === 0 && !canLoadMore ? (
           <div className="file-tree-empty">No artifacts yet. Start a run to create the first one.</div>
         ) : visibleGroups.map(group => {
           const files = getFiles(projectData, group.section);
-          if (files.length === 0) return null;
+          if (files.length === 0 && !hasMore[group.section] && !truncated[group.section]) return null;
           return (
             <section className="room-artifact-group" key={group.section}>
               <h3>{group.label}<span>{files.length}</span></h3>
@@ -63,6 +78,21 @@ export function RoomArtifactList({ projectData, selected, onSelect, onlySection 
                   </button>
                 );
               })}
+              {hasMore[group.section] && onLoadMore && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={loadingSection === group.section}
+                  onClick={() => onLoadMore(group.section)}
+                >
+                  {loadingSection === group.section ? 'Loading…' : `Load more ${group.label.toLowerCase()}`}
+                </button>
+              )}
+              {truncated[group.section] && (
+                <p className="file-tree-empty">
+                  Listing stopped at the Room safety limit. Remove excess entries to browse this section.
+                </p>
+              )}
             </section>
           );
         })}

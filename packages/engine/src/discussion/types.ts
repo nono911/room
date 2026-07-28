@@ -1,5 +1,8 @@
 import type { MessageReference } from './references.js';
 import type { CompiledDiscussionContext } from './contextCompiler.js';
+import * as path from 'path';
+import type { WorkspaceLocation } from '../workspace.js';
+import type { ExecutionParticipantSnapshot } from './executionParticipants.js';
 
 export interface DiscussionMessage {
   id?: string;
@@ -43,7 +46,8 @@ export interface CodingTaskResult {
   statusSummary?: string;
   associatedCardId?: string;
   continuedFromTaskId?: string;
-  sourceProvenance?: SourceProvenance;
+  participants: ExecutionParticipantSnapshot[];
+  sourceProvenance: SourceProvenance;
 }
 
 export interface DiscussionLog {
@@ -52,9 +56,41 @@ export interface DiscussionLog {
   topic: string;
   status: 'active' | 'completed' | 'interrupted' | 'needs_revision' | 'approved' | 'blocked';
   messages: DiscussionMessage[];
-  sourceProvenance?: SourceProvenance;
+  participants: ExecutionParticipantSnapshot[];
+  sourceProvenance: SourceProvenance;
 }
 
 export type SourceProvenance =
-  | { mode: 'room-only' }
-  | { mode: 'source'; sourceId: string; sourceName: string };
+  | { mode: 'room-only'; roomId: string; startedAt: string }
+  | {
+      mode: 'source';
+      roomId: string;
+      sourceId: string;
+      sourceName: string;
+      startedAt: string;
+    };
+
+export function createExecutionProvenance(workspace: WorkspaceLocation): SourceProvenance {
+  const startedAt = new Date().toISOString();
+  return workspace.sourceId && workspace.sourceRoot
+    ? {
+        mode: 'source',
+        roomId: workspace.roomId,
+        sourceId: workspace.sourceId,
+        sourceName: workspace.sourceName || path.basename(workspace.sourceRoot),
+        startedAt
+      }
+    : { mode: 'room-only', roomId: workspace.roomId, startedAt };
+}
+
+export function isSameExecutionSource(
+  first: SourceProvenance,
+  second: SourceProvenance
+): boolean {
+  return first.roomId === second.roomId
+    && first.mode === second.mode
+    && (first.mode === 'room-only' || (
+      second.mode === 'source'
+      && first.sourceId === second.sourceId
+    ));
+}

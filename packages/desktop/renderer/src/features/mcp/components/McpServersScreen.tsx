@@ -7,16 +7,20 @@ interface McpServersScreenProps {
   setErrorMsg: (value: string | null) => void;
 }
 
+interface McpServerConfig {
+  command: string;
+  args?: string[];
+}
+
 export const McpServersScreen: React.FC<McpServersScreenProps> = ({
   projectPath,
   setErrorMsg
 }) => {
-  const [mcpConfig, setMcpConfig] = useState<{ mcpServers: Record<string, any> }>({ mcpServers: {} });
+  const [mcpConfig, setMcpConfig] = useState<{ mcpServers: Record<string, McpServerConfig> }>({ mcpServers: {} });
   const [selectedMcpServer, setSelectedMcpServer] = useState<string | null>(null);
   const [mcpServerName, setMcpServerName] = useState<string>('');
   const [mcpServerCommand, setMcpServerCommand] = useState<string>('');
   const [mcpServerArgs, setMcpServerArgs] = useState<string>('');
-  const [mcpServerEnv, setMcpServerEnv] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
   const loadConfig = async (pathStr: string) => {
@@ -44,7 +48,6 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
     setMcpServerName('');
     setMcpServerCommand('');
     setMcpServerArgs('');
-    setMcpServerEnv('');
   };
 
   const handleSelectMcpServer = (key: string) => {
@@ -57,11 +60,6 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
         setMcpServerName(key);
         setMcpServerCommand(srv.command || '');
         setMcpServerArgs(srv.args ? srv.args.join(' ') : '');
-        let envStr = '';
-        if (srv.env) {
-          envStr = Object.entries(srv.env).map(([k, v]) => `${k}=${v}`).join('\n');
-        }
-        setMcpServerEnv(envStr);
       }
     }
   };
@@ -88,17 +86,6 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
         argsArray = parseShellArgs(mcpServerArgs.trim());
       }
 
-      const envObj: Record<string, string> = {};
-      if (mcpServerEnv.trim()) {
-        const lines = mcpServerEnv.trim().split('\n');
-        for (const line of lines) {
-          const parts = line.split('=');
-          if (parts[0] && parts[0].trim()) {
-            envObj[parts[0].trim()] = parts.slice(1).join('=').trim();
-          }
-        }
-      }
-
       const updatedServers = { ...mcpConfig.mcpServers };
 
       if (selectedMcpServer && selectedMcpServer !== 'New' && selectedMcpServer !== name) {
@@ -107,8 +94,7 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
 
       updatedServers[name] = {
         command: mcpServerCommand.trim(),
-        args: argsArray,
-        ...(Object.keys(envObj).length > 0 ? { env: envObj } : {})
+        args: argsArray
       };
 
       const newConfig = { mcpServers: updatedServers };
@@ -301,16 +287,9 @@ export const McpServersScreen: React.FC<McpServersScreenProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
-              <label style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}>Environment Variables (Optional)</label>
-              <textarea
-                className="form-input"
-                placeholder="KEY=VALUE&#10;ANOTHER_KEY=ANOTHER_VALUE"
-                value={mcpServerEnv}
-                onChange={(e) => setMcpServerEnv(e.target.value)}
-                disabled={loading}
-                style={{ width: '100%', flex: 1, minHeight: '120px', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical' }}
-              />
-              <span style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>One environment variable per line in KEY=VALUE format.</span>
+              <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', lineHeight: 1.5 }}>
+                ROOM does not store or pass inline MCP environment variables. Keep credentials out of this configuration.
+              </span>
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid hsl(var(--border-dim))', paddingTop: '16px' }}>

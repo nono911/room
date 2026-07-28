@@ -3,11 +3,13 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { createNewADR } from './adr.js';
+import { testWorkspace } from '../testWorkspace.js';
 
 let dir: string;
 
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-adr-'));
+  await fs.mkdir(path.join(dir, '.room'));
 });
 
 afterEach(async () => {
@@ -16,8 +18,8 @@ afterEach(async () => {
 
 describe('createNewADR', () => {
   it('numbers ADRs sequentially', async () => {
-    const { id: firstId, filename: first } = await createNewADR(dir, 'Use SQLite');
-    const { id: secondId, filename: second } = await createNewADR(dir, 'Adopt ESM');
+    const { id: firstId, filename: first } = await createNewADR(testWorkspace(dir), 'Use SQLite');
+    const { id: secondId, filename: second } = await createNewADR(testWorkspace(dir), 'Adopt ESM');
     expect(firstId).toBe('adr-001');
     expect(secondId).toBe('adr-002');
     expect(first).toBe('ADR-001-use-sqlite.md');
@@ -25,7 +27,7 @@ describe('createNewADR', () => {
   });
 
   it('fills in provided context and decision text', async () => {
-    const { filename } = await createNewADR(dir, 'Use SQLite', {
+    const { filename } = await createNewADR(testWorkspace(dir), 'Use SQLite', {
       context: 'We need embedded storage.',
       decision: 'Adopt SQLite for the local store.'
     });
@@ -37,25 +39,34 @@ describe('createNewADR', () => {
     expect(content).not.toContain('Define the architectural challenge');
   });
 
+  it('allocates unique ids for concurrent decisions', async () => {
+    const results = await Promise.all([
+      createNewADR(testWorkspace(dir), 'Concurrent A'),
+      createNewADR(testWorkspace(dir), 'Concurrent B')
+    ]);
+    expect(results.map(result => result.id).sort()).toEqual(['adr-001', 'adr-002']);
+    expect(new Set(results.map(result => result.filename)).size).toBe(2);
+  });
+
   it('keeps template placeholders when no options are given', async () => {
-    const { filename } = await createNewADR(dir, 'Use SQLite');
+    const { filename } = await createNewADR(testWorkspace(dir), 'Use SQLite');
     const content = await fs.readFile(path.join(dir, '.room', 'decisions', filename), 'utf-8');
     expect(content).toContain('Define the architectural challenge and context.');
   });
 
   it('supports Thai/Unicode characters in the slug', async () => {
-    const { filename } = await createNewADR(dir, 'การออกแบบระบบ');
+    const { filename } = await createNewADR(testWorkspace(dir), 'การออกแบบระบบ');
     expect(filename).toBe('ADR-001-การออกแบบระบบ.md');
   });
 
   it('falls back to decision when kebab slug is empty', async () => {
-    const { filename } = await createNewADR(dir, '😊!!!');
+    const { filename } = await createNewADR(testWorkspace(dir), '😊!!!');
     expect(filename).toBe('ADR-001-decision.md');
   });
 
   it('deduplicates by returning existing filename when the title already exists', async () => {
-    const { id: firstId, filename: first, created: firstCreated } = await createNewADR(dir, 'Unique Decision');
-    const { id: secondId, filename: second, created: secondCreated } = await createNewADR(dir, 'Unique Decision');
+    const { id: firstId, filename: first, created: firstCreated } = await createNewADR(testWorkspace(dir), 'Unique Decision');
+    const { id: secondId, filename: second, created: secondCreated } = await createNewADR(testWorkspace(dir), 'Unique Decision');
     expect(firstId).toBe('adr-001');
     expect(secondId).toBe('adr-001');
     expect(first).toBe('ADR-001-unique-decision.md');
@@ -68,11 +79,11 @@ describe('createNewADR', () => {
   });
 
   it('keeps the frontmatter id when a deduplicated file was renamed', async () => {
-    const { filename } = await createNewADR(dir, 'Unique Decision');
+    const { filename } = await createNewADR(testWorkspace(dir), 'Unique Decision');
     const decisionsDir = path.join(dir, '.room', 'decisions');
     await fs.rename(path.join(decisionsDir, filename), path.join(decisionsDir, 'ADR-005-unique-decision.md'));
 
-    const { id, created } = await createNewADR(dir, 'Unique Decision');
+    const { id, created } = await createNewADR(testWorkspace(dir), 'Unique Decision');
     expect(created).toBe(false);
     expect(id).toBe('adr-001');
   });

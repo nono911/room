@@ -60,10 +60,9 @@ export function useDiscussion({
   const [discussionReviewMode, setDiscussionReviewMode] = useState<boolean>(true);
   const [discussionMaxRounds, setDiscussionMaxRounds] = useState<number>(6);
   const [discussionQualityGate, setDiscussionQualityGate] = useState<boolean>(false);
-  const [discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools] = useState<boolean>(false);
   const [discussionModeratorName, setDiscussionModeratorName] = useState<string>('');
   const [discussionAutoSummary, setDiscussionAutoSummary] = useState<boolean>(false);
-  const [discussionSummaryAgentName, setDiscussionSummaryAgentName] = useState<string>('__project__');
+  const [discussionSummaryAgentName, setDiscussionSummaryAgentName] = useState<string>('');
   const [selectedDiscussionContextRefs, setSelectedDiscussionContextRefs] = useState<string[]>(['workspace:overview', 'workspace:structure']);
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
   const [lastDiscussionLog, setLastDiscussionLog] = useState<any | null>(null);
@@ -239,10 +238,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setErrorMsg(null);
     try {
       const res = await api.summarizeDiscussion(projectPath, activeDiscussionId, {
-        sourceId: activeSourceId,
-        agentNames: selectedDiscussionAgents,
-        summaryAgentName: discussionSummaryAgentName !== '__project__' ? discussionSummaryAgentName : undefined,
-        useProjectSummaryAgent: discussionSummaryAgentName === '__project__'
+        participantRefs: selectedDiscussionParticipantKeys.filter(
+          key => key.startsWith('member:') || key.startsWith('tmp:')
+        ),
+        summaryAgentRef: discussionSummaryAgentName || undefined,
+        temporaryAgents: temporaryDiscussionAgents
       });
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to summarize chat.');
@@ -271,8 +271,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     setErrorMsg(null);
     try {
       const res = await api.generateTasksFromDiscussion(projectPath, activeDiscussionId, {
-        sourceId: activeSourceId,
-        moderatorName: discussionModeratorName || undefined
+        moderatorRef: discussionModeratorName || undefined
       });
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to generate tasks.');
@@ -318,12 +317,9 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       setErrorMsg('Selected agents are not available in this Room.');
       return;
     }
-    const persistedAgentNames = new Set((projectData?.agents || [])
-      .filter((agent: any) => !agent.isVirtual)
-      .map((agent: any) => agent.name));
-    const safeModeratorName = persistedAgentNames.has(discussionModeratorName) ? discussionModeratorName : undefined;
-    const hasPersistedSummaryAgent = persistedAgentNames.has(discussionSummaryAgentName);
-    const useProjectSummary = discussionSummaryAgentName === '__project__' || (!!discussionSummaryAgentName && !hasPersistedSummaryAgent);
+    const participantRefs = selectedDiscussionParticipantKeys.filter(
+      key => key.startsWith('member:') || key.startsWith('tmp:')
+    );
     setLoading(true);
     setErrorMsg(null);
     const userTopic = userInputTopic;
@@ -503,18 +499,16 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     });
 
     try {
-      const res = await api.runDiscussion(projectPath, userTopic, validSelectedAgents, {
+      const res = await api.runDiscussion(projectPath, userTopic, participantRefs, {
         sourceId: activeSourceId,
         reviewMode: discussionReviewMode,
-        allowReadOnlyTools: discussionAllowReadOnlyTools,
         maxRounds: discussionReviewMode ? discussionMaxRounds : 1,
         contextRefs,
         discussionId: activeDiscussionId || undefined,
         qualityGate: discussionQualityGate,
-        moderatorName: safeModeratorName,
+        moderatorRef: discussionModeratorName || undefined,
         autoSummary: discussionAutoSummary,
-        summaryAgentName: hasPersistedSummaryAgent ? discussionSummaryAgentName : undefined,
-        useProjectSummaryAgent: useProjectSummary,
+        summaryAgentRef: discussionSummaryAgentName || undefined,
         temporaryAgents: temporaryDiscussionAgents
       });
       if (res.success && res.log) {
@@ -562,11 +556,11 @@ This task note was created from a ROOM discussion. Refine it before treating it 
   };
 
   const interruptActiveDiscussion = async () => {
-    if (!activeDiscussionRunId || !discussionInterruptMessage.trim()) return;
+    if (!projectPath || !activeDiscussionRunId || !discussionInterruptMessage.trim()) return;
     setErrorMsg(null);
     setDiscussionInterruptPending(true);
     try {
-      const res = await api.interruptRun(activeDiscussionRunId, discussionInterruptMessage);
+      const res = await api.interruptRun(projectPath, activeDiscussionRunId, discussionInterruptMessage);
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to interrupt the active chat.');
         setDiscussionInterruptPending(false);
@@ -604,7 +598,6 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
-    discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools,
     discussionModeratorName, setDiscussionModeratorName,
     discussionAutoSummary, setDiscussionAutoSummary,
     discussionSummaryAgentName, setDiscussionSummaryAgentName,

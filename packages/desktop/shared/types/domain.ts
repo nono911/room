@@ -10,7 +10,6 @@ export interface MemberTeam {
 export interface RoomSourceSummary {
   id: string;
   name: string;
-  path: string;
   attachedAt: string;
 }
 
@@ -19,6 +18,19 @@ export interface RoomSummary {
   name: string;
   sources: RoomSourceSummary[];
   activeSourceId?: string;
+}
+
+export type RoomArtifactSection =
+  | 'documents'
+  | 'reviews'
+  | 'discussions'
+  | 'tasks'
+  | 'decisions';
+
+export interface RoomListPageState {
+  hasMore: boolean;
+  nextCursor?: string;
+  truncated: boolean;
 }
 
 export interface MachineSkillSummary {
@@ -31,6 +43,83 @@ export interface MachineSkillSummary {
   modifiedAt: string;
 }
 
+export type RendererSourceProvenance =
+  | { mode: 'room-only'; roomId: string; startedAt: string }
+  | {
+      mode: 'source';
+      roomId: string;
+      sourceId: string;
+      sourceName: string;
+      startedAt: string;
+    };
+
+export interface RendererMessage {
+  id?: string;
+  type?: 'user' | 'agent';
+  agentName: string;
+  providerName: string;
+  modelName?: string;
+  content: string;
+  timestamp: string;
+  round?: number;
+  references?: unknown[];
+  contextMessages?: Array<{
+    id?: string;
+    promptNumber?: number;
+    logIndex?: number;
+    type?: 'user' | 'agent';
+    agentName: string;
+    providerName: string;
+    timestamp: string;
+  }>;
+  contextMetrics?: UIMessage['contextMetrics'];
+}
+
+export interface RendererDiscussionLog {
+  id: string;
+  title: string;
+  topic: string;
+  status: 'active' | 'completed' | 'interrupted' | 'needs_revision' | 'approved' | 'blocked';
+  messages: RendererMessage[];
+  sourceProvenance: RendererSourceProvenance;
+}
+
+export interface RendererTaskResult {
+  id: string;
+  title: string;
+  task: string;
+  taskType?: string;
+  status: 'approved' | 'needs_revision' | 'blocked' | 'interrupted';
+  cycles: number;
+  messages: RendererMessage[];
+  markdownFilename: string;
+  jsonFilename: string;
+  artifactFilename?: string;
+  approvedBy?: string[];
+  statusSummary?: string;
+  associatedCardId?: string;
+  continuedFromTaskId?: string;
+  sourceProvenance: RendererSourceProvenance;
+}
+
+export interface TaskRunSummary {
+  filename: string;
+  id: string;
+  title: string;
+  status: string;
+  cycles: number;
+  statusSummary?: string;
+  associatedCardId?: string;
+  sourceProvenance?: RendererSourceProvenance;
+}
+
+export interface ModeratorAction {
+  type: 'task' | 'adr' | 'document';
+  id?: string;
+  title?: string;
+  filename?: string;
+}
+
 export interface ProjectData {
   room?: RoomSummary;
   projectMd: string;
@@ -38,23 +127,25 @@ export interface ProjectData {
   hasScanData?: boolean;
   workspaceDiagnostics?: Array<{ source: string; message: string }>;
   tasks: string[];
-  taskRuns?: any[];
+  taskRuns?: Array<string | TaskRunSummary>;
   decisions: string[];
   reviews: string[];
   documents: string[];
   discussions: string[];
   skills: string[];
   machineSkills?: MachineSkillSummary[];
+  machineSkillsTruncated?: boolean;
   agents: any[];
   teams?: MemberTeam[];
   unassignedMemberIds?: string[];
+  artifactListPagination?: Partial<Record<RoomArtifactSection, RoomListPageState>>;
+  taskRunPagination?: RoomListPageState;
 }
 
 export interface DetectedAgent {
   id: string;
   name: string;
   available: boolean;
-  path: string | null;
   version: string | null;
 }
 
@@ -66,6 +157,13 @@ export interface WorkspaceFileEntry {
   kind: 'file' | 'directory';
   extension?: string;
   childCount?: number;
+}
+
+export interface SourceGitStatus {
+  repository: boolean;
+  branch?: string;
+  commit?: string;
+  unsupportedReason?: string;
 }
 
 export type WorkspaceFilePreview =
@@ -226,7 +324,6 @@ export type DiscussionIpcEvent =
   | {
       type: 'discussion_completed';
       discussionId: string;
-      log: any;
     }
   | {
       type: 'discussion_interrupted';
@@ -263,12 +360,6 @@ export type DiscussionIpcEvent =
     };
 
 export type LocalCliPermissionMode = 'safe' | 'dangerous';
-
-export interface ProjectConfigState {
-  mainAgent: string;
-  modelName?: string;
-  allowDangerousCli?: boolean;
-}
 
 export type TemplateSkill = {
   filename: string;

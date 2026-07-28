@@ -1,140 +1,50 @@
 import * as fs from 'fs/promises';
-import { randomUUID } from 'crypto';
 import {
-  assertLocalCliExecutionAllowed,
-  validateAgentConfig,
+  readRoomTextFile,
+  withRoomMemberMutation,
+  withRoomStorageReconciliation,
+  withRoomStorageTransaction,
   type AgentConfig
 } from '@room/engine';
 import type { MemberTeam } from '../../shared/types/domain.js';
 import {
   requireBoundRoom,
-  resolveWithinProject,
+  requireBoundRoomWorkspace,
   resolveWithinRoomData,
-  sanitizeFileName
+  sanitizeFileName,
+  safeReadDirWithStatus
 } from './shared.js';
-import { isDangerousAgentAllowed } from './config-store.js';
+import { writeRoomDataFileAtomically } from './room-file-write.js';
+import {
+  executeDurableTeamTransaction
+} from './team-store-transaction.js';
+import { assertNoPendingMemberDeletions } from './member-tombstone.js';
+import {
+  MAX_ROOM_TEAMS,
+  MAX_TEAM_AGGREGATE_BYTES,
+  MAX_TEAM_FILE_BYTES,
+  withTeamMutation
+} from './team-store-limits.js';
+import {
+  normalizeTimestamp,
+  parseMemberIds,
+  TEAM_ID_PATTERN,
+  validateMemberPayloads,
+  validateNewTeamDraft,
+  validatePersistedTeamConfig
+} from './team-store-validation.js';
 
-export interface TeamStoreDiagnostic {
-  filePath: string;
-  error: string;
-}
+export { TeamStoreTransactionError } from './team-store-transaction.js';
+export { createStableId } from './team-store-validation.js';
 
+export interface TeamStoreDiagnostic { filePath: string; error: string }
 export interface LoadTeamsResult {
   teams: MemberTeam[];
   diagnostics: TeamStoreDiagnostic[];
 }
-
 export interface SkillDraft {
   name: string;
   content: string;
-}
-
-export class TeamStoreTransactionError extends Error {
-  constructor(message: string, readonly rollbackWarnings: string[]) {
-    super(message);
-    this.name = 'TeamStoreTransactionError';
-  }
-}
-
-const TEAM_ID_PATTERN = /^team_[a-z0-9][a-z0-9_-]{2,80}$/;
-const MEMBER_ID_PATTERN = /^mem_[a-z0-9][a-z0-9_-]{2,80}$/;
-
-function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'team';
-}
-
-export function createStableId(prefix: 'team' | 'mem', label: string): string {
-  const suffix = randomUUID().replace(/-/g, '').slice(0, 10);
-  return `${prefix}_${slugify(label)}_${suffix}`;
-}
-
-function normalizeOptionalText(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
-
-function normalizeTimestamp(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') return fallback;
-  const trimmed = value.trim();
-  return trimmed || fallback;
-}
-
-function parseMemberIds(
-  rawIds: unknown,
-  options: { requireArray: boolean }
-): { success: true; memberIds: string[] } | { success: false; error: string } {
-  if (!Array.isArray(rawIds)) {
-    return options.requireArray
-      ? { success: false, error: 'Persisted team memberIds must be an array.' }
-      : { success: true, memberIds: [] };
-  }
-
-  const seen = new Set<string>();
-  const memberIds: string[] = [];
-
-  for (const rawId of rawIds) {
-    if (typeof rawId !== 'string') {
-      return { success: false, error: 'Team memberIds must contain only strings.' };
-    }
-
-    const memberId = rawId.trim();
-    if (!MEMBER_ID_PATTERN.test(memberId)) {
-      return { success: false, error: `Invalid member id: ${memberId}` };
-    }
-
-    if (seen.has(memberId)) continue;
-    seen.add(memberId);
-    memberIds.push(memberId);
-  }
-
-  return { success: true, memberIds };
-}
-
-function validateTeamShape(
-  rawTeam: unknown,
-  options: { allowMissingId: boolean; requireMemberIdsArray: boolean }
-): { success: true; team: MemberTeam } | { success: false; error: string } {
-  if (!rawTeam || typeof rawTeam !== 'object' || Array.isArray(rawTeam)) {
-    return { success: false, error: 'Invalid team payload.' };
-  }
-
-  const record = rawTeam as Record<string, unknown>;
-  const name = typeof record.name === 'string' ? record.name.trim() : '';
-  if (!name) {
-    return { success: false, error: 'Team name is required.' };
-  }
-
-  let id = typeof record.id === 'string' ? record.id.trim() : '';
-  if (!id && options.allowMissingId) {
-    id = createStableId('team', name);
-  }
-  if (!TEAM_ID_PATTERN.test(id)) {
-    return { success: false, error: `Invalid team id: ${id || '(missing)'}` };
-  }
-
-  const memberIdsResult = parseMemberIds(record.memberIds, {
-    requireArray: options.requireMemberIdsArray
-  });
-  if (!memberIdsResult.success) {
-    return memberIdsResult;
-  }
-
-  const now = new Date().toISOString();
-  const createdAt = normalizeTimestamp(record.createdAt, now);
-  const updatedAt = normalizeTimestamp(record.updatedAt, createdAt);
-
-  return {
-    success: true,
-    team: {
-      id,
-      name,
-      description: normalizeOptionalText(record.description),
-      memberIds: memberIdsResult.memberIds,
-      createdAt,
-      updatedAt
-    }
-  };
 }
 
 function ensureSkillDrafts(skillDrafts: SkillDraft[]): void {
@@ -148,125 +58,70 @@ function ensureSkillDrafts(skillDrafts: SkillDraft[]): void {
   }
 }
 
-function validateMemberPayloads(rawMembers: unknown[]): AgentConfig[] {
-  const members = rawMembers.map((rawMember) => {
-    const memberRecord = rawMember && typeof rawMember === 'object'
-      ? rawMember as Record<string, unknown>
-      : {};
-    const id = typeof memberRecord.id === 'string'
-      ? memberRecord.id.trim()
-      : createStableId('mem', String(memberRecord.name || 'member'));
-
-    if (!MEMBER_ID_PATTERN.test(id)) {
-      throw new Error(`Invalid member id: ${id}`);
-    }
-
-    const result = validateAgentConfig({ ...memberRecord, id });
-    if (!result.success) {
-      throw new Error(result.error);
-    }
-
-    return result.agent;
-  });
-
-  const memberIds = members.map((member) => member.id).filter((id): id is string => Boolean(id));
-  if (new Set(memberIds).size !== memberIds.length) {
-    throw new Error('Duplicate member ids in team payload.');
-  }
-
-  return members;
-}
-
-async function assertMembersCanBePersisted(projectRoot: string, members: AgentConfig[]): Promise<void> {
-  const dangerousCliAllowed = await isDangerousAgentAllowed(projectRoot);
-
-  for (const member of members) {
-    if (member.provider !== 'Local CLI') continue;
-    assertLocalCliExecutionAllowed(member, dangerousCliAllowed);
-  }
-}
-
-async function reserveAndWriteFiles(
-  writes: Array<{ finalPath: string; content: string }>
-): Promise<{ rollbackWarnings: string[]; writtenPaths: string[] }> {
-  if (new Set(writes.map((write) => write.finalPath)).size !== writes.length) {
-    throw new Error('Duplicate write path in team transaction.');
-  }
-
-  const reservedFiles: string[] = [];
-  const completedFiles: string[] = [];
-  const tempFiles: string[] = [];
-  const rollbackWarnings: string[] = [];
-
-  try {
-    for (const write of writes) {
-      await fs.writeFile(write.finalPath, '', { encoding: 'utf-8', flag: 'wx' });
-      reservedFiles.push(write.finalPath);
-    }
-
-    for (const write of writes) {
-      const tempPath = `${write.finalPath}.${randomUUID()}.tmp`;
-      await fs.writeFile(tempPath, write.content, { encoding: 'utf-8', flag: 'wx' });
-      tempFiles.push(tempPath);
-      await fs.rename(tempPath, write.finalPath);
-      tempFiles.splice(tempFiles.indexOf(tempPath), 1);
-      completedFiles.push(write.finalPath);
-    }
-
-    return { rollbackWarnings, writtenPaths: writes.map((write) => write.finalPath) };
-  } catch (error) {
-    for (const filePath of [...new Set([...completedFiles, ...reservedFiles, ...tempFiles])]) {
-      try {
-        await fs.unlink(filePath);
-      } catch {
-        rollbackWarnings.push(filePath);
-      }
-    }
-
-    throw new TeamStoreTransactionError(
-      error instanceof Error ? error.message : String(error),
-      rollbackWarnings
-    );
-  }
-}
-
-export function validateNewTeamDraft(
-  rawTeam: unknown
-): { success: true; team: MemberTeam } | { success: false; error: string } {
-  return validateTeamShape(rawTeam, {
-    allowMissingId: true,
-    requireMemberIdsArray: false
-  });
-}
-
-export function validatePersistedTeamConfig(
-  rawTeam: unknown
-): { success: true; team: MemberTeam } | { success: false; error: string } {
-  return validateTeamShape(rawTeam, {
-    allowMissingId: false,
-    requireMemberIdsArray: true
-  });
-}
-
 export async function loadTeamsWithDiagnostics(projectRoot: string): Promise<LoadTeamsResult> {
   const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
   let entries: string[] = [];
 
   try {
-    entries = await fs.readdir(teamsDir);
+    const listing = await safeReadDirWithStatus(teamsDir, 1_000);
+    entries = listing.files;
+    if (listing.truncated) {
+      return {
+        teams: [],
+        diagnostics: [{
+          filePath: teamsDir,
+          error: 'ROOM team directory exceeds its entry limit.'
+        }]
+      };
+    }
+    const teamFiles = entries.filter(entry => entry.endsWith('.json'));
+    if (teamFiles.length > MAX_ROOM_TEAMS) {
+      return {
+        teams: [],
+        diagnostics: [{
+          filePath: teamsDir,
+          error: `A Room can contain at most ${MAX_ROOM_TEAMS} teams.`
+        }]
+      };
+    }
   } catch {
     return { teams: [], diagnostics: [] };
   }
 
   const teams: MemberTeam[] = [];
   const diagnostics: TeamStoreDiagnostic[] = [];
+  let aggregateBytes = 0;
 
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
 
-    const filePath = resolveWithinProject(teamsDir, entry);
+    const filePath = resolveWithinRoomData(projectRoot, 'teams', entry);
     try {
-      const raw = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+      const fileStat = await fs.lstat(filePath);
+      if (
+        !fileStat.isFile()
+        || fileStat.isSymbolicLink()
+        || fileStat.size > MAX_TEAM_FILE_BYTES
+      ) {
+        throw new Error('ROOM team file exceeds its read limit.');
+      }
+      if (aggregateBytes + fileStat.size > MAX_TEAM_AGGREGATE_BYTES) {
+        diagnostics.push({
+          filePath: teamsDir,
+          error: 'ROOM team data exceeds its aggregate read limit.'
+        });
+        break;
+      }
+      const content = await readRoomTextFile(
+        requireBoundRoomWorkspace(projectRoot),
+        ['teams', entry],
+        MAX_TEAM_FILE_BYTES
+      );
+      aggregateBytes += Buffer.byteLength(content, 'utf-8');
+      if (aggregateBytes > MAX_TEAM_AGGREGATE_BYTES) {
+        throw new Error('ROOM team data exceeds its aggregate read limit.');
+      }
+      const raw = JSON.parse(content);
       const validated = validatePersistedTeamConfig(raw);
       if (validated.success) {
         teams.push(validated.team);
@@ -307,12 +162,12 @@ export async function saveTeam(projectRoot: string, rawTeam: unknown): Promise<M
     createdAt: normalizeTimestamp((rawTeam as Record<string, unknown>)?.createdAt, now),
     updatedAt: now
   };
-  const filePath = resolveWithinProject(
-    teamsDir,
-    `${sanitizeFileName(team.id, 'team')}.json`
+  const filename = `${sanitizeFileName(team.id, 'team')}.json`;
+  await withTeamMutation(
+    projectRoot,
+    [filename],
+    () => writeTeamUnlocked(projectRoot, team)
   );
-
-  await fs.writeFile(filePath, JSON.stringify(team, null, 2), 'utf-8');
   return team;
 }
 
@@ -322,7 +177,13 @@ export async function deleteTeam(projectRoot: string, teamId: string): Promise<v
   }
 
   const safeId = sanitizeFileName(teamId, 'team');
-  await fs.unlink(resolveWithinRoomData(projectRoot, 'teams', `${safeId}.json`));
+  const filename = `${safeId}.json`;
+  await withTeamMutation(projectRoot, [filename], () =>
+    withRoomStorageReconciliation(
+      requireBoundRoomWorkspace(projectRoot),
+      () => fs.unlink(resolveWithinRoomData(projectRoot, 'teams', filename))
+    )
+  );
 }
 
 export async function updateTeamMembers(
@@ -339,29 +200,49 @@ export async function updateTeamMembers(
     throw new Error(parsedMemberIds.error);
   }
 
-  const teams = await loadTeams(projectRoot);
-  const current = teams.find((team) => team.id === teamId);
-  if (!current) {
-    throw new Error('Team not found.');
-  }
-
-  return saveTeam(projectRoot, {
-    ...current,
-    memberIds: parsedMemberIds.memberIds
+  const filename = `${sanitizeFileName(teamId, 'team')}.json`;
+  return withTeamMutation(projectRoot, [filename], async () => {
+    const current = (await loadTeams(projectRoot)).find(team => team.id === teamId);
+    if (!current) throw new Error('Team not found.');
+    const updated = {
+      ...current,
+      memberIds: parsedMemberIds.memberIds,
+      updatedAt: new Date().toISOString()
+    };
+    await writeTeamUnlocked(projectRoot, updated);
+    return updated;
   });
 }
 
 export async function removeMemberFromTeams(projectRoot: string, memberId: string): Promise<void> {
-  const teams = await loadTeams(projectRoot);
+  await withTeamMutation(projectRoot, [], async () => {
+    const teams = await loadTeams(projectRoot);
+    for (const team of teams) {
+      if (!team.memberIds.includes(memberId)) continue;
+      await writeTeamUnlocked(projectRoot, {
+        ...team,
+        memberIds: team.memberIds.filter(id => id !== memberId),
+        updatedAt: new Date().toISOString()
+      });
+    }
+  });
+}
 
-  for (const team of teams) {
-    if (!team.memberIds.includes(memberId)) continue;
-
-    await saveTeam(projectRoot, {
-      ...team,
-      memberIds: team.memberIds.filter((id) => id !== memberId)
-    });
+export async function assertMemberTeamCleanupReadable(
+  roomId: string
+): Promise<void> {
+  const result = await loadTeamsWithDiagnostics(roomId);
+  if (result.diagnostics.length > 0) {
+    throw new Error('ROOM team data must be repaired before deleting this member.');
   }
+}
+
+async function writeTeamUnlocked(roomId: string, team: MemberTeam): Promise<void> {
+  await writeRoomDataFileAtomically(
+    roomId,
+    ['teams', `${sanitizeFileName(team.id, 'team')}.json`],
+    JSON.stringify(team, null, 2)
+  );
 }
 
 export async function createTeamWithMembers(
@@ -376,7 +257,6 @@ export async function createTeamWithMembers(
   }
 
   const members = validateMemberPayloads(rawMembers);
-  await assertMembersCanBePersisted(projectRoot, members);
   const memberIds = members.map((member) => member.id).filter((id): id is string => Boolean(id));
   const team: MemberTeam = {
     ...teamResult.team,
@@ -386,29 +266,57 @@ export async function createTeamWithMembers(
 
   const membersDir = resolveWithinRoomData(projectRoot, 'members');
   const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
-  const skillsDir = resolveWithinRoomData(projectRoot, 'skills');
+  const rolesDir = resolveWithinRoomData(projectRoot, 'roles');
 
   await fs.mkdir(membersDir, { recursive: true });
   await fs.mkdir(teamsDir, { recursive: true });
-  await fs.mkdir(skillsDir, { recursive: true });
+  await fs.mkdir(rolesDir, { recursive: true });
   ensureSkillDrafts(skillDrafts);
 
   const writes = [
     ...members.map((member) => ({
-      finalPath: resolveWithinProject(membersDir, `${member.id}.json`),
-      content: JSON.stringify(member, null, 2)
+      parts: ['members', `${member.id}.json`] as const,
+      content: JSON.stringify(member, null, 2),
+      mode: 'create' as const
+    })),
+    ...skillDrafts.map((skill) => ({
+      parts: ['roles', `${sanitizeFileName(skill.name, 'skill')}.md`] as const,
+      content: skill.content,
+      mode: 'create' as const
     })),
     {
-      finalPath: resolveWithinProject(teamsDir, `${sanitizeFileName(team.id, 'team')}.json`),
-      content: JSON.stringify(team, null, 2)
-    },
-    ...skillDrafts.map((skill) => ({
-      finalPath: resolveWithinProject(skillsDir, `${sanitizeFileName(skill.name, 'skill')}.md`),
-      content: skill.content
-    }))
+      parts: ['teams', `${sanitizeFileName(team.id, 'team')}.json`] as const,
+      content: JSON.stringify(team, null, 2),
+      mode: 'create' as const
+    }
   ];
 
-  const { rollbackWarnings } = await reserveAndWriteFiles(writes);
+  const memberFilenames = members.map(member => `${member.id}.json`);
+  const teamFilename = `${sanitizeFileName(team.id, 'team')}.json`;
+  const { rollbackWarnings } = await withRoomMemberMutation(
+    requireBoundRoomWorkspace(projectRoot),
+    memberFilenames,
+    async () => {
+      await assertNoPendingMemberDeletions(projectRoot, memberIds);
+      return withTeamMutation(projectRoot, [teamFilename], () =>
+        withRoomStorageTransaction(
+          requireBoundRoomWorkspace(projectRoot),
+          async () => ({
+            bytes: writes.reduce(
+              (total, write) => total + Buffer.byteLength(write.content, 'utf-8'),
+              0
+            ),
+            entries: writes.length
+          }),
+          () => executeDurableTeamTransaction(
+            projectRoot,
+            `create-${sanitizeFileName(team.id, 'team')}`,
+            writes
+          )
+        )
+      );
+    }
+  );
   return { team, members, rollbackWarnings };
 }
 
@@ -421,63 +329,101 @@ export async function addMembersToTeam(
   if (!TEAM_ID_PATTERN.test(teamId)) {
     throw new Error('Invalid team id.');
   }
-
-  const teams = await loadTeams(projectRoot);
-  const current = teams.find((team) => team.id === teamId);
-  if (!current) {
-    throw new Error('Team not found.');
-  }
-
   const members = validateMemberPayloads(rawMembers);
-  await assertMembersCanBePersisted(projectRoot, members);
-  const newMemberIds = members.map((member) => member.id).filter((id): id is string => Boolean(id));
-  const updatedTeam: MemberTeam = {
-    ...current,
-    memberIds: [...current.memberIds, ...newMemberIds.filter((id) => !current.memberIds.includes(id))],
-    updatedAt: new Date().toISOString()
-  };
-
   const membersDir = resolveWithinRoomData(projectRoot, 'members');
   const teamsDir = resolveWithinRoomData(projectRoot, 'teams');
-  const skillsDir = resolveWithinRoomData(projectRoot, 'skills');
-
+  const rolesDir = resolveWithinRoomData(projectRoot, 'roles');
   await fs.mkdir(membersDir, { recursive: true });
   await fs.mkdir(teamsDir, { recursive: true });
-  await fs.mkdir(skillsDir, { recursive: true });
+  await fs.mkdir(rolesDir, { recursive: true });
   ensureSkillDrafts(skillDrafts);
-
-  const memberWrites = members.map((member) => ({
-    finalPath: resolveWithinProject(membersDir, `${member.id}.json`),
-    content: JSON.stringify(member, null, 2)
-  }));
-  const skillWrites = skillDrafts.map((skill) => ({
-    finalPath: resolveWithinProject(skillsDir, `${sanitizeFileName(skill.name, 'skill')}.md`),
-    content: skill.content
-  }));
-
-  const teamPath = resolveWithinProject(teamsDir, `${sanitizeFileName(teamId, 'team')}.json`);
-  const { rollbackWarnings, writtenPaths } = await reserveAndWriteFiles([...memberWrites, ...skillWrites]);
-  const teamTempPath = `${teamPath}.${randomUUID()}.tmp`;
-
-  try {
-    await fs.writeFile(teamTempPath, JSON.stringify(updatedTeam, null, 2), { encoding: 'utf-8', flag: 'wx' });
-    await fs.rename(teamTempPath, teamPath);
-    return { team: updatedTeam, members, rollbackWarnings };
-  } catch (error) {
-    const cleanupWarnings = [...rollbackWarnings];
-    for (const filePath of [...writtenPaths, teamTempPath]) {
-      try {
-        await fs.unlink(filePath);
-      } catch {
-        cleanupWarnings.push(filePath);
-      }
+  return withRoomMemberMutation(
+    requireBoundRoomWorkspace(projectRoot),
+    members.map(member => `${member.id}.json`),
+    async () => {
+      await assertNoPendingMemberDeletions(
+        projectRoot,
+        members.map(member => member.id!)
+      );
+      return withTeamMutation(
+        projectRoot,
+        [`${sanitizeFileName(teamId, 'team')}.json`],
+        () => addMembersToTeamLocked(projectRoot, teamId, members, skillDrafts)
+      );
     }
+  );
+}
 
-    throw new TeamStoreTransactionError(
-      error instanceof Error ? error.message : String(error),
-      cleanupWarnings
-    );
-  }
+async function addMembersToTeamLocked(
+  roomId: string,
+  teamId: string,
+  members: AgentConfig[],
+  skillDrafts: SkillDraft[]
+): Promise<{ team: MemberTeam; members: AgentConfig[]; rollbackWarnings: string[] }> {
+  const current = (await loadTeams(roomId)).find(team => team.id === teamId);
+  if (!current) throw new Error('Team not found.');
+  const newMemberIds = members
+    .map(member => member.id)
+    .filter((id): id is string => Boolean(id));
+  const updatedTeam: MemberTeam = {
+    ...current,
+    memberIds: [
+      ...current.memberIds,
+      ...newMemberIds.filter(id => !current.memberIds.includes(id))
+    ],
+    updatedAt: new Date().toISOString()
+  };
+  const memberWrites = members.map(member => ({
+    parts: ['members', `${member.id}.json`] as const,
+    content: JSON.stringify(member, null, 2),
+    mode: 'create' as const
+  }));
+  const skillWrites = skillDrafts.map(skill => ({
+    parts: ['roles', `${sanitizeFileName(skill.name, 'skill')}.md`] as const,
+    content: skill.content,
+    mode: 'create' as const
+  }));
+  const teamPath = resolveWithinRoomData(
+    roomId,
+    'teams',
+    `${sanitizeFileName(teamId, 'team')}.json`
+  );
+  const teamContent = JSON.stringify(updatedTeam, null, 2);
+  const newFileBytes = [...memberWrites, ...skillWrites].reduce(
+    (total, write) => total + Buffer.byteLength(write.content, 'utf-8'),
+    0
+  );
+  return withRoomStorageTransaction(
+    requireBoundRoomWorkspace(roomId),
+    async () => {
+      const currentTeamBytes = await fs.lstat(teamPath)
+        .then(stat => stat.isFile() ? stat.size : 0)
+        .catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return 0;
+          throw error;
+        });
+      return {
+        bytes: newFileBytes + Buffer.byteLength(teamContent, 'utf-8') - currentTeamBytes,
+        entries: memberWrites.length + skillWrites.length
+      };
+    },
+    async () => {
+      const { rollbackWarnings } = await executeDurableTeamTransaction(
+        roomId,
+        `add-${sanitizeFileName(teamId, 'team')}`,
+        [
+          ...memberWrites,
+          ...skillWrites,
+          {
+            parts: ['teams', `${sanitizeFileName(teamId, 'team')}.json`],
+            content: teamContent,
+            mode: 'replace'
+          }
+        ]
+      );
+      return { team: updatedTeam, members, rollbackWarnings };
+    }
+  );
 }
 
 export function requireProjectRootForTeams(roomId: string): string {

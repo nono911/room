@@ -1,4 +1,5 @@
 import { Provider, ProviderExecuteOptions } from './provider.js';
+import { fetchProviderJson } from './boundedFetch.js';
 
 export interface OpenAICompatibleConfig {
   baseUrl: string;
@@ -47,27 +48,26 @@ export class OpenAICompatibleProvider implements Provider {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }
 
-    const response = await fetch(url, {
+    const { response, data } = await fetchProviderJson(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({ model: this.modelName, messages, temperature: 0.2 })
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`${this.name} API call failed with status ${response.status}: ${errText}`);
+      throw new Error(`${this.name} API call failed with status ${response.status}.`);
     }
 
-    const data = await response.json();
     try {
-      const text = data.choices?.[0]?.message?.content;
+      const parsed = data as { choices?: Array<{ message?: { content?: string } }> };
+      const text = parsed.choices?.[0]?.message?.content;
       if (!text) {
         throw new Error(`Empty response from ${this.name} API.`);
       }
       options?.onChunk?.(text);
       return text;
     } catch (err: any) {
-      throw new Error(`Failed to parse ${this.name} API response: ${err.message}. Raw: ${JSON.stringify(data)}`);
+      throw new Error(`Failed to parse ${this.name} API response: ${err.message}.`);
     }
   }
 }

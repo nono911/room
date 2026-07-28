@@ -13,6 +13,7 @@ export interface ProviderEntry {
   baseUrl?: string;
   apiKey?: string;
   builtIn?: boolean;
+  securityRevision?: string;
 }
 
 export interface ProviderPreset {
@@ -23,7 +24,7 @@ export interface ProviderPreset {
   keyless?: boolean;
 }
 
-const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 
 const LEGACY_PROVIDER_IDS: Record<string, string> = {
   Gemini: 'gemini',
@@ -87,6 +88,9 @@ export function resolveApiProvider(
   const entry = registry?.find(candidate => candidate.id === id);
   if (entry) {
     return createApiProvider(entry, modelName);
+  }
+  if (registry !== undefined) {
+    throw new Error(`Provider ${id} is not configured.`);
   }
   if (id === 'anthropic') {
     return new ClaudeProvider({ modelName });

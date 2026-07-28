@@ -33,6 +33,8 @@ export function useWorkspaceLifecycle({
         }
         setRoom(result.room);
         restoreWorkspaceRoute(result.room.id);
+        setInitializingRoom(false);
+        setLoading(false);
         await loadProjectData(result.room.id);
       } catch (error) {
         if (active) {

@@ -753,7 +753,7 @@ export const teamPresets: {
   },
   {
     name: 'Coding Execution',
-    description: 'Assign a software developer to edit the active Source, then send the result through senior review and QA.',
+    description: 'Analyze the active Source and produce an implementation plan, then send it through senior review and QA.',
     roles: ['Developer', 'Reviewer', 'QA']
   },
   {

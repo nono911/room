@@ -58,15 +58,12 @@ interface DiscussionsScreenProps {
   setDiscussionMaxRounds: (value: number) => void;
   discussionQualityGate: boolean;
   setDiscussionQualityGate: React.Dispatch<React.SetStateAction<boolean>>;
-  discussionAllowReadOnlyTools: boolean;
-  setDiscussionAllowReadOnlyTools: React.Dispatch<React.SetStateAction<boolean>>;
   discussionModeratorName: string;
   setDiscussionModeratorName: (value: string) => void;
   discussionAutoSummary: boolean;
   setDiscussionAutoSummary: React.Dispatch<React.SetStateAction<boolean>>;
   discussionSummaryAgentName: string;
   setDiscussionSummaryAgentName: (value: string) => void;
-  projectConfig: { mainAgent: string };
   userInputTopic: string;
   setUserInputTopic: (value: string) => void;
   activeDiscussionRunId: string | null;
@@ -134,15 +131,12 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   setDiscussionMaxRounds,
   discussionQualityGate,
   setDiscussionQualityGate,
-  discussionAllowReadOnlyTools,
-  setDiscussionAllowReadOnlyTools,
   discussionModeratorName,
   setDiscussionModeratorName,
   discussionAutoSummary,
   setDiscussionAutoSummary,
   discussionSummaryAgentName,
   setDiscussionSummaryAgentName,
-  projectConfig,
   userInputTopic,
   setUserInputTopic,
   activeDiscussionRunId,
@@ -373,9 +367,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
                                   provider: defaults.provider,
                                   modelName: defaults.modelName || undefined,
                                   systemPrompt: tmpl.prompt,
-                                  skills: skillFiles,
-                                  cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
-                                  permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
+                                  skills: skillFiles
                                 });
                                 if (res.success) {
                                   nextSelectedMemberIds.push(memberId);
@@ -523,18 +515,6 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           />
           Resolve over rounds
         </label>
-        <label
-          title="Let safe-mode CLI members read active Source files and search the web for this discussion."
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', fontWeight: 600 }}
-        >
-          <input
-            type="checkbox"
-            checked={discussionAllowReadOnlyTools}
-            disabled={loading}
-            onChange={(e) => setDiscussionAllowReadOnlyTools(e.target.checked)}
-          />
-          Read-only tools
-        </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'hsl(var(--text-muted))' }}>
           Max rounds
           <select
@@ -568,8 +548,8 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
             style={{ height: '30px', minWidth: '150px', fontSize: '0.78rem', padding: '0 8px' }}
           >
             <option value="">Auto-pick</option>
-            {registeredProjectAgents.map((agent: any) => (
-              <option key={agent.name} value={agent.name}>{agent.name}</option>
+            {savedDiscussionAgents.map((agent: any) => (
+              <option key={agent.id} value={`member:${agent.id}`}>{agent.name}</option>
             ))}
           </select>
         </label>
@@ -591,13 +571,9 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
             onChange={(e) => setDiscussionSummaryAgentName(e.target.value)}
             style={{ height: '30px', minWidth: '180px', fontSize: '0.78rem', padding: '0 8px' }}
           >
-            <option value="__project__">
-              {projectConfig.mainAgent && projectConfig.mainAgent !== 'none'
-                ? `Room settings: ${projectConfig.mainAgent}`
-                : 'Room settings'}
-            </option>
-            {registeredProjectAgents.map((agent: any) => (
-              <option key={agent.name} value={agent.name}>{agent.name}</option>
+            <option value="">Auto-pick from selected members</option>
+            {savedDiscussionAgents.map((agent: any) => (
+              <option key={agent.id} value={`member:${agent.id}`}>{agent.name}</option>
             ))}
           </select>
         </label>

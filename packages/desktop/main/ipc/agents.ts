@@ -1,21 +1,30 @@
 import { ipcMain } from 'electron';
 import * as fs from 'fs/promises';
 import {
-  assertLocalCliExecutionAllowed,
   detectLocalAgents,
   isMachineSkillReference,
+  parseRoomSkillReference,
   readMachineSkill,
   validateAgentConfig as validateEngineAgentConfig,
+  withRoomMemberMutation,
   type AgentConfig
 } from '@room/engine';
 import {
-  requireBoundRoom, resolveWithinProject, resolveWithinRoomData,
-  sanitizeFileName, sanitizeAgentFileName, readTextFileWithLimit,
+  requireBoundRoom, requireBoundRoomWorkspace, resolveWithinRoomData,
+  sanitizeAgentFileName, readTextFileWithLimit,
   extractMarkdownHeading,
   DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
 } from './shared.js';
-import { isDangerousAgentAllowed } from './config-store.js';
-import { createStableId, removeMemberFromTeams } from './team-store.js';
+import { writeRoomDataFileAtomically } from './room-file-write.js';
+import { createStableId } from './team-store.js';
+import { assertJsonBytes, IPC_LIMITS } from './ipc-limits.js';
+import { persistAgentWithMachineSkillApproval } from './machine-skill-grants.js';
+import { toPublicError } from './public-error.js';
+import {
+  deleteMemberDurably,
+  reconcilePendingMemberDeletions
+} from './member-deletion.js';
+import { assertNoPendingMemberDeletions } from './member-tombstone.js';
 
 interface SkillPreviewItem {
   filename: string;
@@ -41,55 +50,45 @@ async function readSkillPreview(projectRoot: string, filename: string): Promise<
         bytes: Buffer.byteLength(content, 'utf-8'),
         heading: extractMarkdownHeading(content)
       };
-    } catch (error: unknown) {
+    } catch {
       return {
         filename,
         reference: filename,
         readable: false,
         source: 'machine',
-        error: error instanceof Error ? error.message : String(error)
+        error: 'Machine skill preview is unavailable.'
       };
     }
   }
 
-  const safeFilename = sanitizeFileName(filename);
-  if (!safeFilename.toLowerCase().endsWith('.md')) {
-    return { filename: safeFilename, readable: false, error: 'Skill filename must end with .md.' };
+  const parsed = parseRoomSkillReference(filename);
+  if (!parsed) {
+    return { filename, readable: false, error: 'Room skill reference is invalid.' };
   }
-
-  for (const source of ['skills', 'roles'] as const) {
-    const candidate = resolveWithinRoomData(projectRoot, source, safeFilename);
-    try {
-      const content = await readTextFileWithLimit(candidate, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES);
-      return {
-        filename: safeFilename,
-        readable: true,
-        source,
-        bytes: Buffer.byteLength(content, 'utf-8'),
-        heading: extractMarkdownHeading(content)
-      };
-    } catch {}
+  const candidate = resolveWithinRoomData(projectRoot, parsed.source, parsed.filename);
+  try {
+    const content = await readTextFileWithLimit(candidate, DISCUSSION_CONTEXT_FILE_LIMIT_BYTES);
+    return {
+      filename: parsed.filename,
+      reference: parsed.reference,
+      readable: true,
+      source: parsed.source,
+      bytes: Buffer.byteLength(content, 'utf-8'),
+      heading: extractMarkdownHeading(content)
+    };
+  } catch {
+    return {
+      filename: parsed.filename,
+      reference: parsed.reference,
+      readable: false,
+      source: parsed.source,
+      error: 'Skill file was not found in this Room.'
+    };
   }
-
-  return { filename: safeFilename, readable: false, error: 'Skill file was not found in this Room.' };
 }
 
-function describeSkillDelivery(provider: string, cliPreset?: string, stdinFormat?: string): string {
-  if (provider !== 'Local CLI') {
-    return 'Sent in the provider system instruction as an Active Skills block.';
-  }
-  if (cliPreset === 'codewhale' || cliPreset === 'agy') {
-    return 'Sent inside the composed prompt argument under # Instructions and Active Skills.';
-  }
-  if (cliPreset === 'kiro') {
-    return 'Sent as an ACP session prompt with instructions before the request.';
-  }
-  if (cliPreset && cliPreset !== 'none') {
-    return 'Sent to the local CLI through stdin with instructions before the request.';
-  }
-  return stdinFormat === 'json'
-    ? 'Sent to the custom command as JSON systemInstruction plus prompt.'
-    : 'Sent to the custom command as plain text instructions before the request.';
+function describeSkillDelivery(): string {
+  return 'Sent in the provider system instruction as an Active Skills block.';
 }
 
 function validateAgentConfig(rawAgent: unknown): { success: true; agent: AgentConfig } | { success: false; error: string } {
@@ -143,7 +142,10 @@ async function cleanupLegacyMemberFiles(
     seenPaths.add(candidatePath);
 
     try {
-      const raw = JSON.parse(await fs.readFile(candidatePath, 'utf-8')) as Record<string, unknown>;
+      const raw = JSON.parse(await readTextFileWithLimit(
+        candidatePath,
+        512 * 1024
+      )) as Record<string, unknown>;
       const rawName = typeof raw.name === 'string' ? raw.name.trim().toLowerCase() : '';
       const rawId = typeof raw.id === 'string' ? raw.id.trim() : '';
       if (rawId || !candidateNames.has(rawName)) {
@@ -155,9 +157,11 @@ async function cleanupLegacyMemberFiles(
 }
 
 export function registerAgentsIpc(): void {
-  ipcMain.handle('save-agent', async (_event, { roomId, agent }: { roomId: string; agent: unknown }) => {
+  ipcMain.handle('save-agent', async (event, { roomId, agent }: { roomId: string; agent: unknown }) => {
     try {
+      assertJsonBytes(agent, 'Agent payload', IPC_LIMITS.agentPayloadBytes);
       requireBoundRoom(roomId);
+      await reconcilePendingMemberDeletions(roomId);
       const agentsDir = resolveWithinRoomData(roomId, 'members');
       const previousName = typeof (agent as { previousName?: unknown })?.previousName === 'string'
         ? (agent as { previousName?: string }).previousName?.trim() || undefined
@@ -171,25 +175,34 @@ export function registerAgentsIpc(): void {
         ? { ...validated.agent, id: validated.agent.id }
         : { ...validated.agent, id: createStableId('mem', validated.agent.name) };
 
-      if (persistedAgent.provider === 'Local CLI') {
-        try {
-          assertLocalCliExecutionAllowed(persistedAgent, await isDangerousAgentAllowed(roomId));
-        } catch (error: any) {
-          return { success: false, error: error.message };
+      await withRoomMemberMutation(
+        requireBoundRoomWorkspace(roomId),
+        [`${persistedAgent.id}.json`],
+        async () => {
+          await assertNoPendingMemberDeletions(roomId, [persistedAgent.id]);
+          return persistAgentWithMachineSkillApproval(
+            event,
+            roomId,
+            persistedAgent,
+            async () => {
+              await fs.mkdir(agentsDir, { recursive: true });
+              await writeRoomDataFileAtomically(
+                roomId,
+                ['members', `${persistedAgent.id}.json`],
+                JSON.stringify(persistedAgent, null, 2)
+              );
+
+              if (!validated.agent.id) {
+                await cleanupLegacyMemberFiles(roomId, persistedAgent, previousName);
+              }
+            }
+          );
         }
-      }
-
-      await fs.mkdir(agentsDir, { recursive: true });
-      const filePath = resolveWithinProject(agentsDir, `${persistedAgent.id}.json`);
-      await fs.writeFile(filePath, JSON.stringify(persistedAgent, null, 2), 'utf-8');
-
-      if (!validated.agent.id) {
-        await cleanupLegacyMemberFiles(roomId, persistedAgent, previousName);
-      }
+      );
 
       return { success: true, agent: persistedAgent };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -199,221 +212,63 @@ export function registerAgentsIpc(): void {
   ) => {
     try {
       requireBoundRoom(roomId);
-      const filePaths: string[] = [];
-      if (typeof memberId === 'string' && /^mem_[a-z0-9][a-z0-9_-]{2,80}$/.test(memberId)) {
-        filePaths.push(resolveWithinRoomData(roomId, 'members', `${memberId}.json`));
+      const validMemberId = typeof memberId === 'string'
+        && /^mem_[a-z0-9][a-z0-9_-]{2,80}$/.test(memberId)
+        ? memberId
+        : undefined;
+      if (memberId !== undefined && validMemberId === undefined) {
+        return { success: false, error: 'Invalid member id.' };
       }
-      if (agentName) {
-        const safeAgentName = sanitizeFileName(agentName.toLowerCase(), 'agent');
-        const filename = `${safeAgentName.replace(/[^a-z0-9_-]/g, '-')}.json`;
-        filePaths.push(
-          resolveWithinRoomData(roomId, 'members', filename),
-          resolveWithinRoomData(roomId, 'agents', filename)
-        );
+      if (!validMemberId) {
+        return {
+          success: false,
+          error: agentName
+            ? 'Agent deletion requires a stable member ID.'
+            : 'Agent was not found.'
+        };
       }
-
-      const seenPaths = new Set<string>();
-      let deleted = false;
-      for (const filePath of filePaths) {
-        if (seenPaths.has(filePath)) {
-          continue;
-        }
-        seenPaths.add(filePath);
-        try {
-          await fs.unlink(filePath);
-          deleted = true;
-        } catch {}
-      }
-      if (!deleted) {
-        return { success: false, error: 'Agent was not found.' };
-      }
-      if (memberId) {
-        await removeMemberFromTeams(roomId, memberId);
-      }
+      await deleteMemberDurably(roomId, validMemberId);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
 
   ipcMain.handle('preview-agent-skills', async (_event, { roomId, agent }: { roomId: string; agent: any }) => {
     try {
+      assertJsonBytes(agent, 'Agent preview payload', IPC_LIMITS.agentPayloadBytes);
       requireBoundRoom(roomId);
       const skills: string[] = Array.isArray(agent?.skills)
-        ? agent.skills.filter((skill: unknown): skill is string => typeof skill === 'string')
+        ? agent.skills
+            .slice(0, 64)
+            .filter((skill: unknown): skill is string => (
+              typeof skill === 'string' && Buffer.byteLength(skill, 'utf-8') <= 1024
+            ))
         : [];
       const items = await Promise.all(skills.map(skill => readSkillPreview(roomId, skill)));
       const readableCount = items.filter(item => item.readable).length;
       return {
         success: true,
-        delivery: describeSkillDelivery(agent?.provider || '', agent?.cliPreset, agent?.stdinFormat),
+        delivery: describeSkillDelivery(),
         readableCount,
         totalCount: items.length,
         items
       };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
 
   ipcMain.handle('detect-local-agents', async () => {
     try {
       const agents = await detectLocalAgents();
-      return { success: true, agents };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('detect-cli-models', async (_, cliId: string) => {
-    try {
-      const { applyApiKeysToEnvironment: applyKeys } = await import('./provider-store.js');
-      await applyKeys();
-      const {
-        resolveOnPath,
-        getFallbackModels,
-        isOpenAiModelAllowed,
-        AGY_FALLBACK_MODELS,
-        detectAcpModels
-      } = await import('@room/engine');
-      const { promisify } = await import('util');
-      const { execFile } = await import('child_process');
-      const execFileP = promisify(execFile);
-
-      const presetBins: Record<string, string> = {
-        codewhale: 'codewhale',
-        agy: 'agy',
-        gemini: 'gemini',
-        claude: 'claude',
-        codex: 'codex',
-        copilot: 'copilot',
-        kiro: 'kiro-cli'
+      return {
+        success: true,
+        agents: agents.map(({ path: _path, ...agent }) => agent)
       };
-      const bin = presetBins[cliId] || null;
-      if (!bin) {
-        return { success: true, models: [] };
-      }
-      const resolvedPath = resolveOnPath(bin);
-      if (!resolvedPath) {
-        return { success: true, models: getFallbackModels(cliId) };
-      }
-
-      let models: { value: string; label: string }[] = [];
-
-      if (cliId === 'kiro') {
-        try {
-          models = await detectAcpModels({
-            bin: resolvedPath,
-            cwd: process.cwd(),
-            env: process.env
-          });
-        } catch {}
-      } else if (cliId === 'gemini') {
-        const geminiKey = process.env.GEMINI_API_KEY || '';
-        if (geminiKey) {
-          try {
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`);
-            if (res.ok) {
-              const data: any = await res.json();
-              models = (data.models || [])
-                .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-                .map((m: any) => ({
-                  value: m.name.replace('models/', ''),
-                  label: m.displayName || m.name
-                }));
-            }
-          } catch {}
-        }
-      } else if (cliId === 'claude') {
-        const anthropicKey = process.env.ANTHROPIC_API_KEY || '';
-        if (anthropicKey) {
-          try {
-            const res = await fetch('https://api.anthropic.com/v1/models', {
-              headers: {
-                'x-api-key': anthropicKey,
-                'anthropic-version': '2023-06-01'
-              }
-            });
-            if (res.ok) {
-              const data: any = await res.json();
-              models = (data.data || []).map((m: any) => ({
-                value: m.id,
-                label: m.display_name || m.id
-              }));
-            }
-          } catch {}
-        }
-      } else if (cliId === 'codex') {
-        const openaiKey = process.env.OPENAI_API_KEY || '';
-        if (openaiKey) {
-          try {
-            const res = await fetch('https://api.openai.com/v1/models', {
-              headers: { 'Authorization': `Bearer ${openaiKey}` }
-            });
-        if (res.ok) {
-          const data: any = await res.json();
-          models = (data.data || [])
-            .filter((m: any) => m.id && isOpenAiModelAllowed(m.id))
-            .map((m: any) => ({
-              value: m.id,
-              label: m.id
-            }));
-            }
-          } catch {}
-        }
-      } else if (cliId === 'codewhale') {
-        try {
-          const result = await execFileP(resolvedPath, ['models'], {
-            timeout: 4000,
-            maxBuffer: 1024 * 1024
-          });
-          const stdout = result.stdout;
-          if (stdout) {
-            const lines = stdout.split('\n');
-            for (let line of lines) {
-              line = line.trim();
-              if (!line || line.toLowerCase().includes('available models') || line.toLowerCase().includes('no models available')) {
-                continue;
-              }
-              const cleanLine = line.replace(/^[\s*]+/, '');
-              const parts = cleanLine.split(' ');
-              const modelId = parts[0];
-              if (modelId) {
-                models.push({ value: modelId, label: cleanLine });
-              }
-            }
-          }
-        } catch {}
-      } else if (cliId === 'agy') {
-        try {
-          const result = await execFileP(resolvedPath, ['models'], {
-            timeout: 4000,
-            maxBuffer: 1024 * 1024
-          });
-          const stdout = result.stdout;
-          if (stdout) {
-            const output = stdout.replace(/available models:?/ig, ' ').replace(/\s+/g, ' ').trim();
-            const knownModels = AGY_FALLBACK_MODELS
-              .map(model => model.value)
-              .filter(model => model !== 'default');
-            for (const modelId of knownModels) {
-              if (!output.includes(modelId)) {
-                continue;
-              }
-              models.push({ value: modelId, label: modelId });
-            }
-          }
-        } catch {}
-      }
-
-      if (models.length > 0) {
-        return { success: true, models };
-      }
-
-      return { success: true, models: getFallbackModels(cliId) };
-    } catch (error: any) {
-      const { getFallbackModels } = await import('@room/engine');
-      return { success: true, models: getFallbackModels(cliId) };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
+
 }

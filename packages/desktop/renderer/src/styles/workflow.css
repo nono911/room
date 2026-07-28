@@ -468,6 +468,16 @@
   background: hsl(var(--bg-sidebar) / 0.72);
 }
 
+.source-git-status {
+  border: 1px solid hsl(var(--border-dim));
+  border-radius: 999px;
+  background: color-mix(in srgb, hsl(var(--accent-green)) 9%, transparent);
+  color: hsl(var(--text-secondary));
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .run-mode-switcher button,
 .file-source-tabs button {
   padding: 7px 11px;

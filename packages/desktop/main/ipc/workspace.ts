@@ -1,43 +1,44 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import {
   attachRoomSource,
   detachRoomSource,
-  discoverMachineSkills,
+  discoverMachineSkillsWithDiagnostics,
   ensurePersonalRoom,
+  executeRecordedRun,
   loadAgents,
   normalizeProviderId,
-  scanDirectory,
+  readRoomTextFile,
+  withCurrentScanSnapshot,
   setActiveRoomSource,
   toWorkspaceLocation,
   touchRoom,
   writeScanData,
-  type AgentConfig,
   type RoomRecord
 } from '@room/engine';
 import {
-  SUPPORTED_LOCAL_CLI_PRESETS_SET,
-  WORKSPACE_FILE_LIMIT,
   bindCurrentRoom,
-  requireBoundProjectRoot,
+  mutateBoundRoom,
   requireBoundRoom,
+  requireBoundSource,
   requireBoundWorkspace,
-  resolveCanonicalWithinProject,
   resolveWithinProject,
-  resolveWithinRoomData,
-  safeReadDir,
-  readFirstExistingFile,
-  readMergedDirs,
+  readRoomSkillReferences,
   sanitizeWorkspaceRelativePath
 } from './shared.js';
 import { browseWorkspaceFiles, listWorkspaceFiles } from './workspace-files.js';
 import { readWorkspaceFilePreview } from './workspace-preview.js';
 import { searchContextItems } from './workspace-context.js';
 import { loadTeamsWithDiagnostics } from './team-store.js';
-import { detectLocalAgents, LocalCliProvider, normalizeLocalCliModelName } from '@room/engine';
-import { applyApiKeysToEnvironment, readProvidersFromDisk } from './provider-store.js';
-import { readProjectConfigFromDisk } from './config-store.js';
+import { readProvidersFromDisk } from './provider-store.js';
+import { getPinnedGitStatus, scanPinnedSource } from './pinned-source.js';
+import { assertJsonBytes, assertUtf8Bytes } from './ipc-limits.js';
+import { toPublicError } from './public-error.js';
+import { listRoomArtifactPage } from './room-artifact-pages.js';
+import { listRoomTaskRunPage } from './task-run-pages.js';
+import { reconcilePendingMemberDeletions } from './member-deletion.js';
+import { reconcileTeamTransactions } from './team-store-transaction.js';
 
 function summarizeRoom(record: RoomRecord) {
   return {
@@ -47,7 +48,6 @@ function summarizeRoom(record: RoomRecord) {
     sources: record.manifest.sources.map(source => ({
       id: source.id,
       name: source.name,
-      path: source.path,
       attachedAt: source.attachedAt
     }))
   };
@@ -57,7 +57,7 @@ function dedupeDiscussionSummaryFiles(files: string[]): string[] {
   const byDiscussion = new Map<string, string>();
   const ordinary: string[] = [];
   for (const file of files) {
-    const match = file.match(/^(.*)-((?:discussion)-\d+)-summary\.md$/);
+    const match = file.match(/^(.*)-((?:discussion)-[A-Za-z0-9_-]+)-summary\.md$/);
     if (!match) {
       ordinary.push(file);
       continue;
@@ -69,62 +69,44 @@ function dedupeDiscussionSummaryFiles(files: string[]): string[] {
 }
 
 async function loadRoomData(roomId: string) {
+  await reconcilePendingMemberDeletions(roomId);
+  await reconcileTeamTransactions(roomId);
   const record = requireBoundRoom(roomId);
   const workspace = toWorkspaceLocation(record);
-  const roomRoot = record.roomRoot;
-  const projectMd = await readFirstExistingFile([
-    resolveWithinProject(roomRoot, 'context', 'overview.md')
+  const readOptionalContext = (filename: string) => readRoomTextFile(
+    workspace,
+    ['context', filename],
+    1024 * 1024
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  const [projectMd, archMd] = await Promise.all([
+    readOptionalContext('overview.md'),
+    readOptionalContext('structure.md')
   ]);
-  const archMd = await readFirstExistingFile([
-    resolveWithinProject(roomRoot, 'context', 'structure.md')
+  const hasScanData = workspace.sourceId
+    ? await withCurrentScanSnapshot(workspace, async scanSnapshot => (
+        fs.stat(resolveWithinProject(scanSnapshot, 'project-map.json'))
+          .then(stat => stat.isFile())
+          .catch(() => false)
+      )) || false
+    : false;
+  const [taskPage, taskRunPage] = await Promise.all([
+    listRoomArtifactPage(roomId, 'tasks'),
+    listRoomTaskRunPage(roomId)
   ]);
-  const hasScanData = await fs.stat(resolveWithinProject(roomRoot, 'context', 'project-map.json'))
-    .then(stat => stat.isFile())
-    .catch(() => false);
-  const tasksDir = resolveWithinProject(roomRoot, 'tasks');
-  const taskFiles = (await safeReadDir(tasksDir)).filter(file => file.toLowerCase().endsWith('.md'));
-  const rawTaskRuns = taskFiles
-    .filter(file => /^task-[\w-]+\.md$/i.test(file) && !file.toLowerCase().endsWith('-artifact.md'))
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-  const taskRuns = await Promise.all(rawTaskRuns.map(async filename => {
-    try {
-      const raw = await fs.readFile(path.join(tasksDir, filename.replace(/\.md$/i, '.json')), 'utf-8');
-      const data = JSON.parse(raw) as Record<string, unknown>;
-      return {
-        filename,
-        id: data.id || filename.replace(/\.md$/i, ''),
-        title: data.title || filename.replace(/\.md$/i, ''),
-        status: data.status || 'unknown',
-        cycles: data.cycles || 0,
-        statusSummary: data.statusSummary || '',
-        associatedCardId: data.associatedCardId || '',
-        sourceProvenance: data.sourceProvenance
-      };
-    } catch {
-      return {
-        filename,
-        id: filename.replace(/\.md$/i, ''),
-        title: filename.replace(/\.md$/i, ''),
-        status: 'unknown',
-        cycles: 0
-      };
-    }
-  }));
 
-  const [agents, teamLoadResult, providers, detectedClis, machineSkills] = await Promise.all([
+  const [agents, teamLoadResult, providers, machineSkillResult] = await Promise.all([
     loadAgents(workspace),
     loadTeamsWithDiagnostics(roomId),
     readProvidersFromDisk(),
-    detectLocalAgents(),
-    discoverMachineSkills({ forceRefresh: true })
+    discoverMachineSkillsWithDiagnostics()
   ]);
-  const activeCli = detectedClis.find(cli => cli.available);
   const configuredIds = new Set(providers.filter(provider => provider.apiKey).map(provider => provider.id));
   const localProvider = providers.find(provider => provider.id === 'ollama')
     || providers.find(provider => provider.id === 'lmstudio');
-  const fallbackProvider: { id: string; cliPreset?: AgentConfig['cliPreset'] } | null = activeCli
-    ? { id: 'Local CLI', cliPreset: activeCli.id as AgentConfig['cliPreset'] }
-    : localProvider
+  const fallbackProvider: { id: string } | null = localProvider
       ? { id: localProvider.id }
       : configuredIds.has('gemini')
         ? { id: 'gemini' }
@@ -141,38 +123,74 @@ async function loadRoomData(roomId: string) {
     return {
       ...agent,
       provider: fallbackProvider.id,
-      cliPreset: fallbackProvider.cliPreset,
-      modelName: fallbackProvider.id === 'Local CLI' ? undefined : agent.modelName
+      modelName: agent.modelName
     };
   });
   const assigned = new Set(teamLoadResult.teams.flatMap(team => team.memberIds));
-  return {
+  const [decisions, reviews, documents, discussions] = await Promise.all([
+    listRoomArtifactPage(roomId, 'decisions'),
+    listRoomArtifactPage(roomId, 'reviews'),
+    listRoomArtifactPage(roomId, 'documents'),
+    listRoomArtifactPage(roomId, 'discussions')
+  ]);
+  const response = {
     success: true,
     room: summarizeRoom(record),
     projectMd,
     archMd,
     hasScanData,
     workspaceDiagnostics: teamLoadResult.diagnostics.map(item => ({
-      source: item.filePath,
-      message: item.error
+      source: path.basename(item.filePath),
+      message: 'Team configuration could not be loaded.'
     })),
-    tasks: taskFiles.filter(file => !/^task-[\w-]+\.md$/i.test(file) && !file.endsWith('-artifact.md')),
-    taskRuns,
-    decisions: await safeReadDir(resolveWithinProject(roomRoot, 'decisions')),
-    reviews: await safeReadDir(resolveWithinProject(roomRoot, 'reviews')),
-    documents: dedupeDiscussionSummaryFiles(await safeReadDir(resolveWithinProject(roomRoot, 'documents'))),
-    discussions: (await safeReadDir(resolveWithinProject(roomRoot, 'discussions')))
-      .filter(file => file.endsWith('.md')),
-    skills: await readMergedDirs([
-      resolveWithinProject(roomRoot, 'skills'),
-      resolveWithinProject(roomRoot, 'roles')
-    ]),
-    machineSkills,
-    agents: updatedAgents,
+    tasks: taskPage.files,
+    taskRuns: taskRunPage.taskRuns,
+    decisions: decisions.files,
+    reviews: reviews.files,
+    documents: dedupeDiscussionSummaryFiles(documents.files),
+    discussions: discussions.files,
+    skills: await readRoomSkillReferences(roomId),
+    machineSkills: machineSkillResult.skills,
+    machineSkillsTruncated: machineSkillResult.truncated,
+    // `strategy` (up to 32KB per member) is unused by the renderer — task and
+    // discussion execution re-reads the full member config from disk via
+    // loadAgents rather than trusting this cached snapshot — so it is the
+    // heaviest field the Home listing can drop without losing anything the UI
+    // reads. `systemPrompt` stays: the AI member editor seeds its form
+    // straight from this payload (see agentEditorState.ts) with no separate
+    // full-member fetch, so truncating it here would risk saving a corrupted
+    // prompt back to disk.
+    agents: updatedAgents.map(agent => {
+      const homeAgent = { ...agent };
+      delete homeAgent.strategy;
+      return homeAgent;
+    }),
     teams: teamLoadResult.teams,
     unassignedMemberIds: updatedAgents
       .filter(agent => !agent.isVirtual && agent.id && !assigned.has(agent.id))
-      .map(agent => agent.id)
+      .map(agent => agent.id),
+    artifactListPagination: {
+      tasks: pageState(taskPage),
+      decisions: pageState(decisions),
+      reviews: pageState(reviews),
+      documents: pageState(documents),
+      discussions: pageState(discussions)
+    },
+    taskRunPagination: pageState(taskRunPage)
+  };
+  assertJsonBytes(response, 'Home data', 16 * 1024 * 1024);
+  return response;
+}
+
+function pageState(page: {
+  hasMore: boolean;
+  nextCursor?: string;
+  truncated: boolean;
+}) {
+  return {
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor,
+    truncated: page.truncated
   };
 }
 
@@ -183,7 +201,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
       bindCurrentRoom(record);
       return { success: true, room: summarizeRoom(record) };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error, 'ROOM could not initialize.') };
     }
   });
 
@@ -197,11 +215,13 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
         properties: ['openDirectory']
       });
       if (selection.canceled || selection.filePaths.length === 0) return { success: true, canceled: true };
-      const record = await attachRoomSource(requireBoundRoom(roomId), selection.filePaths[0]);
-      bindCurrentRoom(record);
+      const record = await mutateBoundRoom(
+        roomId,
+        current => attachRoomSource(current, selection.filePaths[0])
+      );
       return { success: true, room: summarizeRoom(record) };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error, 'ROOM could not attach that Source.') };
     }
   });
 
@@ -210,11 +230,13 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     { roomId, sourceId }: { roomId: string; sourceId: string }
   ) => {
     try {
-      const record = await detachRoomSource(requireBoundRoom(roomId), sourceId);
-      bindCurrentRoom(record);
+      const record = await mutateBoundRoom(
+        roomId,
+        current => detachRoomSource(current, sourceId)
+      );
       return { success: true, room: summarizeRoom(record) };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -223,11 +245,13 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     { roomId, sourceId }: { roomId: string; sourceId?: string }
   ) => {
     try {
-      const record = await setActiveRoomSource(requireBoundRoom(roomId), sourceId);
-      bindCurrentRoom(record);
+      const record = await mutateBoundRoom(
+        roomId,
+        current => setActiveRoomSource(current, sourceId)
+      );
       return { success: true, room: summarizeRoom(record) };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -235,7 +259,7 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     try {
       return await loadRoomData(roomId);
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error, 'ROOM data could not be loaded.') };
     }
   });
 
@@ -244,11 +268,11 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     { roomId, sourceId }: { roomId: string; sourceId: string }
   ) => {
     try {
-      const sourceRoot = requireBoundProjectRoot(roomId, sourceId);
-      const files = await listWorkspaceFiles(sourceRoot);
-      return { success: true, files, truncated: files.length >= WORKSPACE_FILE_LIMIT };
+      const source = requireBoundSource(roomId, sourceId);
+      const { files, truncated } = await listWorkspaceFiles(source);
+      return { success: true, files, truncated };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -257,16 +281,18 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     payload: { roomId: string; sourceId: string; directory?: string; query?: string }
   ) => {
     try {
-      const sourceRoot = requireBoundProjectRoot(payload.roomId, payload.sourceId);
+      const source = requireBoundSource(payload.roomId, payload.sourceId);
+      assertUtf8Bytes(payload.directory || '', 'Source directory', 4_096);
+      assertUtf8Bytes(payload.query || '', 'Search query', 512);
       const directory = payload.directory?.trim()
         ? sanitizeWorkspaceRelativePath(payload.directory)
         : '';
       return {
         success: true,
-        ...await browseWorkspaceFiles(sourceRoot, directory, payload.query?.slice(0, 160) || '')
+        ...await browseWorkspaceFiles(source, directory, payload.query || '')
       };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -275,10 +301,14 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     { roomId, sourceId, query }: { roomId: string; sourceId?: string; query?: string }
   ) => {
     try {
-      const sourceRoot = sourceId ? requireBoundProjectRoot(roomId, sourceId) : undefined;
-      return { success: true, items: await searchContextItems(roomId, sourceRoot, query || '') };
+      assertUtf8Bytes(query || '', 'Search query', 512);
+      const source = sourceId ? requireBoundSource(roomId, sourceId) : undefined;
+      return {
+        success: true,
+        items: await searchContextItems(roomId, source, query || '')
+      };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -287,23 +317,22 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     { roomId, sourceId, filePath }: { roomId: string; sourceId: string; filePath: string }
   ) => {
     try {
-      return await readWorkspaceFilePreview(requireBoundProjectRoot(roomId, sourceId), filePath);
+      assertUtf8Bytes(filePath, 'Source file path', 4_096);
+      return await readWorkspaceFilePreview(requireBoundSource(roomId, sourceId), filePath);
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
-  ipcMain.handle('reveal-source-file', async (
+  ipcMain.handle('get-source-git-status', async (
     _event,
-    { roomId, sourceId, filePath }: { roomId: string; sourceId: string; filePath: string }
+    { roomId, sourceId }: { roomId: string; sourceId: string }
   ) => {
     try {
-      const sourceRoot = requireBoundProjectRoot(roomId, sourceId);
-      const target = await resolveCanonicalWithinProject(sourceRoot, sanitizeWorkspaceRelativePath(filePath));
-      shell.showItemInFolder(target);
-      return { success: true };
+      const git = await getPinnedGitStatus(requireBoundSource(roomId, sourceId));
+      return { success: true, git };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 
@@ -312,41 +341,19 @@ export function registerWorkspaceIpc(getMainWindow: () => BrowserWindow | null):
     payload: {
       roomId: string;
       sourceId: string;
-      mainAgent?: string;
-      modelName?: string;
-      allowDangerousCli?: boolean;
     }
   ) => {
     try {
-      await applyApiKeysToEnvironment();
-      const sourceRoot = requireBoundProjectRoot(payload.roomId, payload.sourceId);
+      const source = requireBoundSource(payload.roomId, payload.sourceId);
       const workspace = requireBoundWorkspace(payload.roomId, payload.sourceId);
-      await writeScanData(workspace, await scanDirectory(sourceRoot));
-      const config = await readProjectConfigFromDisk(payload.roomId);
-      const preset = payload.mainAgent && SUPPORTED_LOCAL_CLI_PRESETS_SET.has(payload.mainAgent)
-        ? payload.mainAgent
-        : 'none';
-      if (preset !== 'none') {
-        const provider = new LocalCliProvider({
-          cliPreset: preset as AgentConfig['cliPreset'],
-          cwd: sourceRoot,
-          roomRoot: workspace.roomRoot,
-          modelName: normalizeLocalCliModelName(payload.modelName),
-          permissionMode: payload.allowDangerousCli && config.allowDangerousCli ? 'dangerous' : 'safe'
-        });
-        const summary = await provider.execute(
-          'Review this Source and produce a concise Markdown overview. Do not modify files.',
-          'You are the ROOM source scanner. Return Markdown only.'
-        );
-        if (summary.trim()) {
-          await fs.writeFile(resolveWithinRoomData(payload.roomId, 'context', 'overview.md'), summary, 'utf-8');
-        }
-      }
-      const touched = await touchRoom(requireBoundRoom(payload.roomId));
-      bindCurrentRoom(touched);
+      await executeRecordedRun(workspace, 'scan', payload.sourceId, async () => {
+        const scan = await scanPinnedSource(source);
+        await writeScanData(workspace, scan);
+        await mutateBoundRoom(payload.roomId, touchRoom);
+      });
       return { success: true, message: 'Source scan complete.' };
     } catch (error: unknown) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
+      return { success: false, error: toPublicError(error) };
     }
   });
 }

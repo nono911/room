@@ -69,7 +69,9 @@ describe('OpenAICompatibleProvider', () => {
     const provider = new OpenAICompatibleProvider({
       baseUrl: 'https://api.groq.com/openai/v1', apiKey: 'sk-bad', modelName: 'llama-3.3-70b', providerLabel: 'Groq'
     });
-    await expect(provider.execute('hi')).rejects.toThrow('Groq API call failed with status 401: bad key');
+    const error = await provider.execute('hi').catch(caught => caught as Error);
+    expect(error.message).toBe('Groq API call failed with status 401.');
+    expect(error.message).not.toContain('bad key');
   });
 
   it('treats modelName "default" as unset and falls back to gpt-4o', async () => {

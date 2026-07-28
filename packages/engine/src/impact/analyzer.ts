@@ -1,10 +1,21 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { GeminiProvider } from '../providers/gemini.js';
 import { ClaudeProvider } from '../providers/claude.js';
 import { CodexProvider } from '../providers/codex.js';
 import { Provider } from '../providers/provider.js';
-import { resolveWorkspaceLocation, type WorkspaceInput } from '../workspace.js';
+import {
+  resolveRoomPath,
+  resolveSourceStatePath,
+  resolveWorkspaceLocation,
+  type WorkspaceInput
+} from '../workspace.js';
+import { executeRecordedRun } from '../runRecords.js';
+import { withCurrentScanSnapshot } from '../scanSnapshot.js';
+import { readUtf8FileBounded } from '../boundedFs.js';
+import { withAiRunAdmission } from '../aiRunAdmission.js';
+import type { AgentConfig } from '../agents/registry.js';
+import { createExecutionParticipantSnapshots } from '../discussion/executionParticipants.js';
 
 export interface ImpactReport {
   affectedFiles: string[];
@@ -19,25 +30,56 @@ export async function analyzeFeatureImpact(
   workspace: WorkspaceInput,
   featureDescription: string
 ): Promise<ImpactReport> {
-  const roomDir = resolveWorkspaceLocation(workspace).roomRoot;
-  const readFirstExistingFile = async (paths: string[]) => {
+  const resolvedWorkspace = resolveWorkspaceLocation(workspace);
+  const execution = resolveImpactExecution();
+  const participants = createExecutionParticipantSnapshots(
+    resolvedWorkspace.roomId,
+    [execution.agent]
+  );
+  const operationId = createHash('sha256')
+    .update(featureDescription)
+    .digest('hex')
+    .slice(0, 24);
+  return withAiRunAdmission(resolvedWorkspace, `impact:${operationId}`, () =>
+    executeRecordedRun(resolvedWorkspace, 'impact', undefined, () =>
+      analyzeFeatureImpactInternal(resolvedWorkspace, featureDescription, execution.provider),
+    undefined, participants)
+  );
+}
+
+async function analyzeFeatureImpactInternal(
+  workspace: WorkspaceInput,
+  featureDescription: string,
+  provider: Provider | null
+): Promise<ImpactReport> {
+  const readFirstExistingFile = async (paths: string[], maxBytes = 1024 * 1024) => {
     for (const filePath of paths) {
       try {
-        return await fs.readFile(filePath, 'utf-8');
+        return await readUtf8FileBounded(filePath, maxBytes);
       } catch {}
     }
     return '';
   };
-  
-  const projectMap = await readFirstExistingFile([
-    path.join(roomDir, 'context', 'project-map.json'),
-    path.join(roomDir, 'project-map.json')
+  const sourceContext = resolveWorkspaceLocation(workspace).sourceId
+    ? await withCurrentScanSnapshot(workspace, async sourceScanDir => ({
+        projectMap: await readFirstExistingFile(
+          [path.join(sourceScanDir, 'project-map.json')],
+          2 * 1024 * 1024
+        ),
+        overview: await readFirstExistingFile([path.join(sourceScanDir, 'overview.md')])
+      }))
+    : undefined;
+  const roomProjectMap = await readFirstExistingFile([
+    resolveRoomPath(workspace, 'context', 'project-map.json'),
+    resolveRoomPath(workspace, 'project-map.json')
   ]);
-  const projectMd = await readFirstExistingFile([
-    path.join(roomDir, 'context', 'overview.md'),
-    path.join(roomDir, 'workspace.md'),
-    path.join(roomDir, 'project.md')
+  const roomProjectMd = await readFirstExistingFile([
+    resolveRoomPath(workspace, 'context', 'overview.md'),
+    resolveRoomPath(workspace, 'workspace.md'),
+    resolveRoomPath(workspace, 'project.md')
   ]);
+  const projectMap = sourceContext?.projectMap || roomProjectMap;
+  const projectMd = sourceContext?.overview || roomProjectMd;
 
   const prompt = `Perform a Feature Impact Analysis for the following proposed change:
 "${featureDescription}"
@@ -58,16 +100,7 @@ Please analyze which modules are likely affected and output your response in JSO
 }
 IMPORTANT: Return ONLY the raw JSON string without markdown blocks or wrapper text so that it can be parsed.`;
 
-  let provider: Provider;
-  if (process.env.ANTHROPIC_API_KEY) {
-    provider = new ClaudeProvider({});
-  } else if (process.env.OPENAI_API_KEY) {
-    provider = new CodexProvider({});
-  } else {
-    provider = new GeminiProvider({});
-  }
-
-  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+  if (!provider) {
     return createFallbackImpactReport(featureDescription, projectMap, 'No AI provider API key is configured.');
   }
 
@@ -81,10 +114,67 @@ IMPORTANT: Return ONLY the raw JSON string without markdown blocks or wrapper te
       cleaned = cleaned.slice(0, -3);
     }
     return JSON.parse(cleaned.trim()) as ImpactReport;
-  } catch (err: any) {
-    console.warn('AI Impact analysis failed, returning conservative fallback:', err.message);
-    return createFallbackImpactReport(featureDescription, projectMap, `AI impact analysis failed: ${err.message}`);
+  } catch {
+    console.warn('AI Impact analysis failed; returning a conservative fallback.');
+    return createFallbackImpactReport(
+      featureDescription,
+      projectMap,
+      'AI impact analysis failed.'
+    );
   }
+}
+
+function resolveImpactExecution(): { provider: Provider | null; agent: AgentConfig } {
+  const base = {
+    role: 'Repository impact analysis',
+    systemPrompt: 'Analyze repository impact without modifying files.'
+  };
+  if (process.env.ANTHROPIC_API_KEY) {
+    return {
+      provider: new ClaudeProvider({}),
+      agent: {
+        ...base,
+        id: 'runtime_impact_anthropic',
+        name: 'Impact Analyzer',
+        provider: 'Claude',
+        modelName: 'claude-3-5-sonnet-20241022'
+      }
+    };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      provider: new CodexProvider({}),
+      agent: {
+        ...base,
+        id: 'runtime_impact_openai',
+        name: 'Impact Analyzer',
+        provider: 'Codex',
+        modelName: 'gpt-4o'
+      }
+    };
+  }
+  if (process.env.GEMINI_API_KEY) {
+    return {
+      provider: new GeminiProvider({}),
+      agent: {
+        ...base,
+        id: 'runtime_impact_gemini',
+        name: 'Impact Analyzer',
+        provider: 'Gemini',
+        modelName: 'gemini-1.5-flash'
+      }
+    };
+  }
+  return {
+    provider: null,
+    agent: {
+      ...base,
+      id: 'runtime_impact_heuristic',
+      name: 'Impact Heuristic',
+      provider: 'Local heuristic',
+      modelName: 'keyword-ranking-v1'
+    }
+  };
 }
 
 function createFallbackImpactReport(featureDescription: string, projectMap: string, reason: string): ImpactReport {

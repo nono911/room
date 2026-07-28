@@ -343,7 +343,7 @@ export const AIMembersScreen: React.FC<AIMembersScreenProps> = ({
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     marginTop: '2px'
-                  }} title={cli.path || undefined}>
+                  }}>
                     {cli.available ? (cli.version || 'On PATH') : 'Not on PATH'}
                   </div>
                 </div>

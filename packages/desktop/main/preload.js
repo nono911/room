@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setActiveRoomSource: (roomId, sourceId) =>
     ipcRenderer.invoke('set-active-room-source', { roomId, sourceId }),
   getProjectData: (roomId) => ipcRenderer.invoke('get-room-data', roomId),
+  listRoomArtifacts: (roomId, section, cursor) =>
+    ipcRenderer.invoke('list-room-artifacts', { roomId, section, cursor }),
+  listRoomTaskRuns: (roomId, cursor) =>
+    ipcRenderer.invoke('list-room-task-runs', { roomId, cursor }),
   readRoomFile: (roomId, section, filename) =>
     ipcRenderer.invoke('read-room-file', { roomId, section, filename }),
   listWorkspaceFiles: (roomId, sourceId) =>
@@ -29,36 +33,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('search-context-items', { roomId, sourceId, query }),
   readWorkspaceFile: (roomId, sourceId, filePath) =>
     ipcRenderer.invoke('read-source-file', { roomId, sourceId, filePath }),
-  revealWorkspaceFile: (roomId, sourceId, filePath) =>
-    ipcRenderer.invoke('reveal-source-file', { roomId, sourceId, filePath }),
+  getSourceGitStatus: (roomId, sourceId) =>
+    ipcRenderer.invoke('get-source-git-status', { roomId, sourceId }),
   loadContextSets: (roomId) => ipcRenderer.invoke('load-context-sets', { roomId }),
   saveContextSets: (roomId, contextSets) =>
     ipcRenderer.invoke('save-context-sets', { roomId, contextSets }),
-  runScan: (roomId, sourceId, mainAgent, modelName, allowDangerousCli) =>
-    ipcRenderer.invoke('run-scan', {
-      roomId,
-      sourceId,
-      mainAgent,
-      modelName,
-      allowDangerousCli
-    }),
-  runDiscussion: (roomId, topic, agentNames, options = {}) =>
+  runScan: (roomId, sourceId) =>
+    ipcRenderer.invoke('run-scan', { roomId, sourceId }),
+  runDiscussion: (roomId, topic, participantRefs, options = {}) =>
     ipcRenderer.invoke('run-discussion', {
       roomId,
       topic,
-      agentNames,
+      participantRefs,
       ...selectOptions(options, [
         'sourceId',
         'maxRounds',
         'reviewMode',
-        'allowReadOnlyTools',
         'contextRefs',
         'discussionId',
         'qualityGate',
-        'moderatorName',
+        'moderatorRef',
         'autoSummary',
-        'summaryAgentName',
-        'useProjectSummaryAgent',
+        'summaryAgentRef',
         'temporaryAgents'
       ])
     }),
@@ -68,33 +64,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ...selectOptions(options, [
       'sourceId',
       'taskType',
-      'doerName',
-      'reviewerNames',
+      'doerRef',
+      'reviewerRefs',
       'maxCycles',
       'contextRefs',
       'associatedCardId',
       'continuedFromTaskId',
-      'taskId',
       'temporaryAgents'
     ])
   }),
-  interruptRun: (runId, message) => ipcRenderer.invoke('interrupt-run', { runId, message }),
+  interruptRun: (roomId, runId, message) =>
+    ipcRenderer.invoke('interrupt-run', { roomId, runId, message }),
   summarizeDiscussion: (roomId, discussionId, options = {}) =>
     ipcRenderer.invoke('summarize-discussion', {
       roomId,
       discussionId,
       ...selectOptions(options, [
-        'sourceId',
-        'agentNames',
-        'summaryAgentName',
-        'useProjectSummaryAgent'
+        'participantRefs',
+        'summaryAgentRef',
+        'temporaryAgents'
       ])
     }),
   generateTasksFromDiscussion: (roomId, discussionId, options = {}) =>
     ipcRenderer.invoke('generate-tasks-from-discussion', {
       roomId,
       discussionId,
-      ...selectOptions(options, ['sourceId', 'moderatorName'])
+      ...selectOptions(options, ['moderatorRef'])
     }),
   loadTaskBoard: (roomId) => ipcRenderer.invoke('load-task-board', { roomId }),
   onDiscussionEvent: (callback) => {
@@ -127,11 +122,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProvider: (provider) => ipcRenderer.invoke('save-provider', provider),
   deleteProvider: (providerId) => ipcRenderer.invoke('delete-provider', providerId),
   testProvider: (providerId) => ipcRenderer.invoke('test-provider', providerId),
-  detectCliModels: (cliId) => ipcRenderer.invoke('detect-cli-models', cliId),
   detectApiModels: (providerId) => ipcRenderer.invoke('detect-api-models', { providerId }),
   loadMcpConfig: (roomId) => ipcRenderer.invoke('load-mcp-config', roomId),
   saveMcpConfig: (roomId, config) => ipcRenderer.invoke('save-mcp-config', { roomId, config }),
-  loadProjectConfig: (roomId) => ipcRenderer.invoke('load-project-config', roomId),
-  saveProjectConfig: (roomId, config) =>
-    ipcRenderer.invoke('save-project-config', { roomId, config })
 });

@@ -66,6 +66,11 @@ describe('resolveApiProvider', () => {
     expect(provider.name).toBe('Groq');
   });
 
+  it('fails closed when an authoritative registry no longer contains the provider', () => {
+    expect(() => resolveApiProvider(registry, 'deleted-custom-provider'))
+      .toThrow('is not configured');
+  });
+
   it('falls back to env-style providers without a registry', () => {
     expect(resolveApiProvider(undefined, 'Claude')).toBeInstanceOf(ClaudeProvider);
     expect(resolveApiProvider(undefined, 'Codex').name).toBe('Codex');

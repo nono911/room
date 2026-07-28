@@ -157,17 +157,9 @@ export const ProvidersProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const fetchModelsForProvider = async (provider: string, preset?: string) => {
+    void preset;
     if (provider === 'Local CLI') {
-      if (!preset || preset === 'none' || dynamicCliModels[preset]) return;
-      try {
-        const res = await api.detectCliModels(preset);
-        if (res.success && res.models && res.models.length > 0) {
-          const models = res.models;
-          setDynamicCliModels(prev => ({ ...prev, [preset]: models }));
-        }
-      } catch (err) {
-        console.error(`Failed to fetch models for CLI preset ${preset}:`, err);
-      }
+      return;
     } else {
       if (!provider || dynamicCliModels[provider]) return;
       try {
@@ -183,13 +175,8 @@ export const ProvidersProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const getModelOptions = (provider: string, preset?: string) => {
+    void preset;
     if (provider === 'Local CLI') {
-      if (preset && dynamicCliModels[preset] && dynamicCliModels[preset].length > 0) {
-        return dynamicCliModels[preset];
-      }
-      if (preset && preset !== 'none') {
-        return getFallbackModels(preset as any) as ModelOption[];
-      }
       return [];
     }
 

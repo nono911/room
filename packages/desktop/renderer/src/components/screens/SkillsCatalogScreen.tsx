@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { ProjectData } from '../../types/domain.js';
+import {
+  parseRoomSkillReference,
+  roomSkillLabel
+} from '../../shared/lib/roomSkillReference.js';
 
 interface SkillsCatalogScreenProps {
   projectData: ProjectData | null;
@@ -14,8 +18,8 @@ export function SkillsCatalogScreen({ projectData, setActiveTab, resetAgentForm 
   ), [projectData]);
   const workspaceSkills = (projectData?.skills || []).map(filename => ({
     key: filename,
-    name: filename.replace(/\.md$/i, ''),
-    source: 'Room',
+    name: roomSkillLabel(filename),
+    source: parseRoomSkillReference(filename)?.source === 'roles' ? 'Room Role' : 'Room Skill',
     detail: 'Stored with this Room'
   }));
   const machineSkills = (projectData?.machineSkills || []).map(skill => ({
@@ -57,13 +61,18 @@ export function SkillsCatalogScreen({ projectData, setActiveTab, resetAgentForm 
         />
         <span>{workspaceSkills.length} Room · {machineSkills.length} on this Mac</span>
       </div>
+      {projectData?.machineSkillsTruncated && (
+        <div className="file-tree-empty">
+          Machine skill discovery stopped at its safety limit. Saved skill references still resolve directly.
+        </div>
+      )}
       {skills.length === 0 ? (
         <div className="activity-empty">
           <strong>No matching skills</strong>
           <p>Try another search or create a Room skill from an AI member.</p>
         </div>
       ) : (
-        <div className="skills-catalog-grid">
+      <div className="skills-catalog-grid">
           {skills.map(skill => (
             <article key={skill.key}>
               <div>

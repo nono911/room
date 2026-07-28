@@ -3,6 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { CreateTeamWizard } from './CreateTeamWizard.js';
 
 describe('CreateTeamWizard', () => {
+  it('does not offer Local CLI while Source-confined execution is disabled', () => {
+    render(
+      <CreateTeamWizard
+        existingNames={[]}
+        existingSkillFiles={[]}
+        onCancel={vi.fn()}
+        onCreate={vi.fn()}
+      />
+    );
+
+    const provider = screen.getByLabelText('Member 1 provider') as HTMLSelectElement;
+    expect([...provider.options].map(option => option.value)).not.toContain('Local CLI');
+  });
+
   it('builds a multi-template team payload with editable member drafts', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
 
@@ -60,7 +74,11 @@ describe('CreateTeamWizard', () => {
       name: 'UX Researcher',
       provider: 'anthropic',
       modelName: 'claude-sonnet-4',
-      skills: ['interaction-states.md', 'accessibility-review.md', 'custom-collab.md']
+      skills: [
+        'room://roles/interaction-states.md',
+        'room://roles/accessibility-review.md',
+        'room://roles/custom-collab.md'
+      ]
     });
     expect(members.map((member: { name: string }) => member.name)).toEqual([
       'UX Researcher',

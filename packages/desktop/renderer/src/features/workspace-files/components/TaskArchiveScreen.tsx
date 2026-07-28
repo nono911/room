@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import type { ProjectData, TaskBoardCard } from '../../../types/domain.js';
+import type {
+  ProjectData,
+  RoomListPageState,
+  TaskBoardCard,
+  TaskRunSummary
+} from '../../../types/domain.js';
 import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownContent.js';
 import { api } from '../../../shared/ipc/client.js';
 
@@ -34,12 +39,20 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
   const [selectedTaskCardId, setSelectedTaskCardIdLocal] = useState<string | null>(null);
   const [selectedTaskContent, setSelectedTaskContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [extraTaskRuns, setExtraTaskRuns] = useState<TaskRunSummary[]>([]);
+  const [taskRunPage, setTaskRunPage] = useState<RoomListPageState | undefined>();
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
 
   useEffect(() => {
     setSelectedTaskFile(null);
     setSelectedTaskCardId(null);
     setSelectedTaskContent('');
   }, [projectPath]);
+
+  useEffect(() => {
+    setExtraTaskRuns([]);
+    setTaskRunPage(projectData?.taskRunPagination);
+  }, [projectPath, projectData]);
 
   useEffect(() => {
     if (initialSelectedFile && initialSelectedFile.section === 'tasks') {
@@ -83,8 +96,39 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
   };
 
   const tasks = projectData?.tasks || [];
-  const taskRuns = projectData?.taskRuns || [];
-  const hasTaskFiles = tasks.length > 0 || taskRuns.length > 0;
+  const taskRuns = [
+    ...(projectData?.taskRuns || []),
+    ...extraTaskRuns
+  ];
+  const hasTaskFiles = tasks.length > 0
+    || taskRuns.length > 0
+    || Boolean(taskRunPage?.truncated);
+
+  const loadMoreTaskRuns = async () => {
+    if (!projectPath || !taskRunPage?.hasMore || loadingMoreRuns) return;
+    setLoadingMoreRuns(true);
+    try {
+      const result = await api.listRoomTaskRuns(projectPath, taskRunPage.nextCursor);
+      if (!result.success) {
+        setErrorMsg(result.error || 'Failed to load more task runs.');
+        return;
+      }
+      setExtraTaskRuns(previous => {
+        const byFilename = new Map(previous.map(run => [run.filename, run]));
+        for (const run of result.taskRuns || []) byFilename.set(run.filename, run);
+        return [...byFilename.values()];
+      });
+      setTaskRunPage({
+        hasMore: Boolean(result.hasMore),
+        nextCursor: result.nextCursor,
+        truncated: Boolean(result.truncated)
+      });
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Failed to load more task runs.');
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px', minHeight: '520px' }}>
@@ -193,7 +237,7 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                   })}
                 </div>
               )}
-              {taskRuns.length > 0 && (
+              {(taskRuns.length > 0 || taskRunPage?.hasMore || taskRunPage?.truncated) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-muted))' }}>
                     Run Transcripts
@@ -259,6 +303,21 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                       </button>
                     );
                   })}
+                  {taskRunPage?.hasMore && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={loadingMoreRuns}
+                      onClick={() => void loadMoreTaskRuns()}
+                    >
+                      {loadingMoreRuns ? 'Loading…' : 'Load more runs'}
+                    </button>
+                  )}
+                  {taskRunPage?.truncated && (
+                    <div className="file-tree-empty">
+                      Run history stopped at the Room safety limit. Remove excess entries to continue.
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -332,7 +391,7 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                     setSelectedCodingTaskContextRefs([
                       'workspace:overview',
                       'workspace:structure',
-                      `task:${artifactFile}`
+                      `document:${artifactFile}`
                     ]);
                     if (associatedCardId) {
                       setSelectedTaskCardId(associatedCardId);

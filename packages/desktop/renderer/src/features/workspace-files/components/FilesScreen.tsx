@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ProjectData, WorkspaceFileEntry, WorkspaceFilePreview } from '../../../types/domain.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  ProjectData,
+  RoomListPageState,
+  SourceGitStatus,
+  WorkspaceFileEntry,
+  WorkspaceFilePreview
+} from '../../../types/domain.js';
 import { api } from '../../../shared/ipc/client.js';
 import { FilePreviewPane } from './FilePreviewPane.js';
 import {
@@ -49,7 +55,76 @@ export function FilesScreen({
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [gitStatus, setGitStatus] = useState<SourceGitStatus | null>(null);
+  const [extraArtifacts, setExtraArtifacts] = useState<
+    Partial<Record<RoomArtifactSection, string[]>>
+  >({});
+  const [artifactPagination, setArtifactPagination] = useState<
+    Partial<Record<RoomArtifactSection, RoomListPageState>>
+  >({});
+  const [loadingArtifactSection, setLoadingArtifactSection] =
+    useState<RoomArtifactSection | null>(null);
   const previewRequestRef = useRef(0);
+
+  useEffect(() => {
+    setExtraArtifacts({});
+    setArtifactPagination(projectData?.artifactListPagination || {});
+    setLoadingArtifactSection(null);
+  }, [projectPath, projectData]);
+
+  const artifactProjectData = useMemo(() => {
+    if (!projectData) return null;
+    const merge = (section: RoomArtifactSection) => Array.from(new Set([
+      ...(projectData[section] || []),
+      ...(extraArtifacts[section] || [])
+    ])).sort((left, right) => left.localeCompare(right));
+    return {
+      ...projectData,
+      documents: merge('documents'),
+      reviews: merge('reviews'),
+      discussions: merge('discussions'),
+      tasks: merge('tasks'),
+      decisions: merge('decisions')
+    };
+  }, [projectData, extraArtifacts]);
+
+  const loadMoreArtifacts = async (section: RoomArtifactSection) => {
+    if (!projectPath || loadingArtifactSection) return;
+    const pageState = artifactPagination[section];
+    if (!pageState?.hasMore || pageState.truncated) return;
+    setLoadingArtifactSection(section);
+    setErrorMsg(null);
+    try {
+      const result = await api.listRoomArtifacts(
+        projectPath,
+        section,
+        pageState.nextCursor
+      );
+      if (!result.success) {
+        setErrorMsg(result.error || `Failed to load more ${section}.`);
+        return;
+      }
+      setExtraArtifacts(previous => ({
+        ...previous,
+        [section]: Array.from(new Set([
+          ...(previous[section] || []),
+          ...(result.files || [])
+        ]))
+      }));
+      setArtifactPagination(previous => ({
+        ...previous,
+        [section]: {
+          hasMore: Boolean(result.hasMore),
+          nextCursor: result.nextCursor,
+          truncated: Boolean(result.truncated)
+        }
+      }));
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : `Failed to load more ${section}.`);
+    } finally {
+      setLoadingArtifactSection(null);
+    }
+  };
 
   useEffect(() => {
     previewRequestRef.current += 1;
@@ -57,7 +132,20 @@ export function FilesScreen({
     setSelectedArtifact(null);
     setPreview(null);
     setTab(initialTab);
-  }, [projectPath, initialTab, roomSection]);
+    setLoading(false);
+    setGitStatus(null);
+  }, [projectPath, activeSourceId, initialTab, roomSection]);
+
+  useEffect(() => {
+    if (!projectPath || !activeSourceId) return;
+    let cancelled = false;
+    void api.getSourceGitStatus(projectPath, activeSourceId).then(result => {
+      if (!cancelled) setGitStatus(result.success && result.git ? result.git : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath, activeSourceId, refreshToken]);
 
   const openSourceFile = async (file: WorkspaceFileEntry) => {
     if (!projectPath || !activeSourceId) return;
@@ -75,7 +163,7 @@ export function FilesScreen({
         return;
       }
       setPreview(result.preview);
-      localStorage.setItem(`room:last-file:${projectPath}`, file.path);
+      localStorage.setItem(`room:last-file:${projectPath}:${activeSourceId}`, file.path);
     } catch (error) {
       if (requestId !== previewRequestRef.current) return;
       setErrorMsg(error instanceof Error ? error.message : `Failed to preview ${file.path}.`);
@@ -88,7 +176,7 @@ export function FilesScreen({
 
   useEffect(() => {
     if (!projectPath || !activeSourceId || initialTab !== 'source') return;
-    const lastPath = localStorage.getItem(`room:last-file:${projectPath}`);
+    const lastPath = localStorage.getItem(`room:last-file:${projectPath}:${activeSourceId}`);
     if (!lastPath) return;
     void openSourceFile({
       path: lastPath,
@@ -147,12 +235,6 @@ export function FilesScreen({
     await navigator.clipboard.writeText(selectedPath);
   };
 
-  const revealSource = async () => {
-    if (!projectPath || !activeSourceId || !selectedSource) return;
-    const result = await api.revealWorkspaceFile(projectPath, activeSourceId, selectedSource.path);
-    if (!result.success) setErrorMsg(result.error || 'Failed to reveal the selected file.');
-  };
-
   return (
     <div className="unified-files-screen">
       <header className="workspace-page-header compact">
@@ -163,9 +245,20 @@ export function FilesScreen({
             ? `Browse ${roomSection} through the same durable viewer used across ROOM.`
             : 'Browse the attached source and every durable output ROOM has created.'}</p>
         </div>
-        <button type="button" className="btn-secondary" onClick={() => setRefreshToken(value => value + 1)}>
-          Refresh source
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {activeSourceId && (
+            <span className="source-git-status">
+              {gitStatus?.repository
+                ? `Git · ${gitStatus.branch || 'detached'}${gitStatus.commit ? ` · ${gitStatus.commit}` : ''}`
+                : gitStatus?.unsupportedReason
+                  ? 'Git · linked worktree unsupported'
+                  : 'Git · not a repository'}
+            </span>
+          )}
+          <button type="button" className="btn-secondary" onClick={() => setRefreshToken(value => value + 1)}>
+            Refresh source
+          </button>
+        </div>
       </header>
       <div className="file-source-tabs" role="tablist" aria-label="File source">
         <button type="button" className={tab === 'source' ? 'active' : ''} onClick={() => setTab('source')}>
@@ -196,10 +289,24 @@ export function FilesScreen({
           </div>
         ) : (
           <RoomArtifactList
-            projectData={projectData}
+            projectData={artifactProjectData}
             selected={selectedArtifact}
             onSelect={(selection) => void openArtifact(selection)}
             onlySection={roomSection}
+            hasMore={Object.fromEntries(
+              Object.entries(artifactPagination).map(([section, state]) => [
+                section,
+                state?.hasMore
+              ])
+            )}
+            truncated={Object.fromEntries(
+              Object.entries(artifactPagination).map(([section, state]) => [
+                section,
+                state?.truncated
+              ])
+            )}
+            loadingSection={loadingArtifactSection}
+            onLoadMore={(section) => void loadMoreArtifacts(section)}
           />
         )}
         <FilePreviewPane
@@ -207,11 +314,11 @@ export function FilesScreen({
           subtitle={selectedPath}
           preview={preview}
           loading={loading}
-          canReveal={!!selectedSource}
           canAddContext={!!selectedSource}
           onCopyPath={selectedPath ? () => void copyPath() : undefined}
-          onReveal={() => void revealSource()}
-          onAddContext={selectedSource ? () => onAddContext(`file:${selectedSource.path}`) : undefined}
+          onAddContext={selectedSource && activeSourceId
+            ? () => onAddContext(`source-file:${activeSourceId}:${encodeURIComponent(selectedSource.path)}`)
+            : undefined}
         />
       </div>
     </div>

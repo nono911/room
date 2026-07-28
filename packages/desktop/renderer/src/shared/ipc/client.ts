@@ -1,4 +1,4 @@
-import type { DiscussionIpcEvent } from '../../types/domain.js';
+import type { DiscussionIpcEvent, RoomArtifactSection } from '../../types/domain.js';
 
 type TemporaryAgentPayload = {
   name: string;
@@ -22,6 +22,10 @@ export const api = {
   setActiveRoomSource: (roomId: string, sourceId?: string) =>
     window.electronAPI.setActiveRoomSource(roomId, sourceId),
   getProjectData: (roomId: string) => window.electronAPI.getProjectData(roomId),
+  listRoomArtifacts: (roomId: string, section: RoomArtifactSection, cursor?: string) =>
+    window.electronAPI.listRoomArtifacts(roomId, section, cursor),
+  listRoomTaskRuns: (roomId: string, cursor?: string) =>
+    window.electronAPI.listRoomTaskRuns(roomId, cursor),
   readRoomFile: (roomId: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) =>
     window.electronAPI.readRoomFile(roomId, section, filename),
   listWorkspaceFiles: (roomId: string, sourceId: string) =>
@@ -32,28 +36,29 @@ export const api = {
     window.electronAPI.searchContextItems(roomId, sourceId, query),
   readWorkspaceFile: (roomId: string, sourceId: string, filePath: string) =>
     window.electronAPI.readWorkspaceFile(roomId, sourceId, filePath),
-  revealWorkspaceFile: (roomId: string, sourceId: string, filePath: string) =>
-    window.electronAPI.revealWorkspaceFile(roomId, sourceId, filePath),
+  getSourceGitStatus: (roomId: string, sourceId: string) =>
+    window.electronAPI.getSourceGitStatus(roomId, sourceId),
   loadContextSets: (roomId: string) => window.electronAPI.loadContextSets(roomId),
   saveContextSets: (roomId: string, contextSets: import('../../types/domain.js').ContextSet[]) =>
     window.electronAPI.saveContextSets(roomId, contextSets),
-  runScan: (roomId: string, sourceId: string, mainAgent?: string, modelName?: string, allowDangerousCli?: boolean) =>
-    window.electronAPI.runScan(roomId, sourceId, mainAgent, modelName, allowDangerousCli),
+  runScan: (roomId: string, sourceId: string) =>
+    window.electronAPI.runScan(roomId, sourceId),
   runDiscussion: (
     roomId: string,
     topic: string,
-    agentNames?: string[],
-    options?: { sourceId?: string; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: TemporaryAgentPayload[] }
-  ) => window.electronAPI.runDiscussion(roomId, topic, agentNames, options),
+    participantRefs?: string[],
+    options?: { sourceId?: string; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorRef?: string; autoSummary?: boolean; summaryAgentRef?: string; temporaryAgents?: TemporaryAgentPayload[] }
+  ) => window.electronAPI.runDiscussion(roomId, topic, participantRefs, options),
   runTask: (
     roomId: string,
     task: string,
-    options?: { sourceId?: string; taskType?: string; doerName?: string; reviewerNames?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; taskId?: string; temporaryAgents?: TemporaryAgentPayload[] }
+    options?: { sourceId?: string; taskType?: string; doerRef?: string; reviewerRefs?: string[]; maxCycles?: number; contextRefs?: string[]; associatedCardId?: string; continuedFromTaskId?: string; temporaryAgents?: TemporaryAgentPayload[] }
   ) => window.electronAPI.runTask(roomId, task, options),
-  interruptRun: (runId: string, message: string) => window.electronAPI.interruptRun(runId, message),
-  summarizeDiscussion: (roomId: string, discussionId: string, options?: { sourceId?: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) =>
+  interruptRun: (roomId: string, runId: string, message: string) =>
+    window.electronAPI.interruptRun(roomId, runId, message),
+  summarizeDiscussion: (roomId: string, discussionId: string, options?: { participantRefs?: string[]; summaryAgentRef?: string; temporaryAgents?: TemporaryAgentPayload[] }) =>
     window.electronAPI.summarizeDiscussion(roomId, discussionId, options),
-  generateTasksFromDiscussion: (roomId: string, discussionId: string, options?: { sourceId?: string; moderatorName?: string }) =>
+  generateTasksFromDiscussion: (roomId: string, discussionId: string, options?: { moderatorRef?: string }) =>
     window.electronAPI.generateTasksFromDiscussion(roomId, discussionId, options),
   loadTaskBoard: (roomId: string) => window.electronAPI.loadTaskBoard(roomId),
   onDiscussionEvent: (callback: (event: DiscussionIpcEvent) => void) => window.electronAPI.onDiscussionEvent(callback),
@@ -87,10 +92,7 @@ export const api = {
   saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => window.electronAPI.saveProvider(provider),
   deleteProvider: (providerId: string) => window.electronAPI.deleteProvider(providerId),
   testProvider: (providerId: string) => window.electronAPI.testProvider(providerId),
-  detectCliModels: (cliId: string) => window.electronAPI.detectCliModels(cliId),
   detectApiModels: (providerId: string) => window.electronAPI.detectApiModels(providerId),
   loadMcpConfig: (roomId: string) => window.electronAPI.loadMcpConfig(roomId),
   saveMcpConfig: (roomId: string, config: any) => window.electronAPI.saveMcpConfig(roomId, config),
-  loadProjectConfig: (roomId: string) => window.electronAPI.loadProjectConfig(roomId),
-  saveProjectConfig: (roomId: string, config: any) => window.electronAPI.saveProjectConfig(roomId, config)
 };

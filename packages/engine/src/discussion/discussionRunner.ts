@@ -1,8 +1,14 @@
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import type { AgentConfig } from '../agents/registry.js';
 import { Provider } from '../providers/provider.js';
-import type { DiscussionMessage, DiscussionLog } from './types.js';
+import {
+  createExecutionProvenance,
+  isSameExecutionSource,
+  type DiscussionMessage,
+  type DiscussionLog,
+  type SourceProvenance
+} from './types.js';
+import type { ApprovedMachineSkillSnapshot } from '../skills/machineCatalog.js';
 import { loadAgents } from '../agents/registry.js';
 import {
   cleanAgentStreamChunk,
@@ -11,15 +17,12 @@ import {
   nextStableMessageId,
   isOnlyOmissionNotes,
   localCliNoFinalAnswerMessage,
-  renderDiscussionMarkdown,
   composeAgentSystemPrompt,
   parseSkipTurn,
-  LOCAL_CLI_READ_TOOLS_POLICY,
   REFERENCE_TRACING_PROTOCOL
 } from './utils.js';
 import {
   compileContextWithOptionalSummary,
-  readFirstExistingFile,
   composeProjectContext,
   loadWorkspaceMemoryContext,
   buildSkillsContext,
@@ -27,13 +30,28 @@ import {
   isReviewerAgent,
   buildReviewProtocol
 } from './contextBuilder.js';
+import { loadRunContextFiles } from './runContext.js';
+import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
 import { parseMessageReferences, type MessageReference } from './references.js';
+import {
+  mergeExecutionParticipantSnapshots,
+  type ExecutionParticipantSnapshot
+} from './executionParticipants.js';
 import { isExplicitlyApproved } from './approvalDetector.js';
 import {
   resolveRoomPath,
   resolveExecutionRoot,
+  resolveWorkspaceLocation,
   type WorkspaceInput
 } from '../workspace.js';
+import {
+  assertBoundedRunArtifact,
+  MAX_RUN_ARTIFACT_BYTES,
+  serializeBoundedRunArtifact
+} from './runArtifact.js';
+import { resolveDiscussionParticipants } from './discussionParticipants.js';
+import type { RoomSkillSnapshot } from './roomSkillSnapshot.js';
+import { isDiscussionRunId } from './runId.js';
 
 const DISCUSSION_PROTOCOL = `=== Discussion Protocol ===
 Speak in the first person as your assigned AI member role.
@@ -42,9 +60,7 @@ Your replies should be direct, specific, and build upon prior team responses.
 Keep each reply under roughly 300 words unless the user explicitly asks for exhaustive detail.
 Do not restate points already made in the discussion history; reference them by their stable mNNNN id when available, or visible Message number as a fallback, and add only new reasoning, objections, evidence, or decisions.
 If you have nothing material to add this turn, reply with exactly "SKIP: <one short line saying why>" and nothing else.
-Ensure all files, lines, and commands you reference are valid within the workspace.`;
-
-
+Ensure all files, lines, and commands you reference are valid within the active Source or Room.`;
 
 export interface DiscussionEvent {
   type: string;
@@ -70,7 +86,12 @@ export interface DiscussionRunOptions {
   userLabel?: string;
   getInterruptMessage?: () => string | null;
   temporaryAgents?: AgentConfig[];
-  allowReadOnlyTools?: boolean;
+  sourceProvenance?: SourceProvenance;
+  continueExisting?: boolean;
+  approvedMachineSkills?: readonly ApprovedMachineSkillSnapshot[];
+  roomSkillSnapshots?: readonly RoomSkillSnapshot[];
+  participants?: readonly AgentConfig[];
+  executionParticipants?: readonly ExecutionParticipantSnapshot[];
 }
 
 export async function runDiscussionLoop(
@@ -87,15 +108,18 @@ export async function runDiscussionLoop(
   appendReferenceEvents: (scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage) => Promise<void>,
   appendInterruptEvent: (scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage) => Promise<void>
 ): Promise<DiscussionLog> {
-  if (!/^discussion-[\w-]+$/.test(discussionId)) {
+  if (!isDiscussionRunId(discussionId)) {
     throw new Error('Invalid discussion id.');
   }
 
   const sourceRoot = resolveExecutionRoot(workspace);
-  const agents = [...(options.temporaryAgents || []), ...await loadAgents(workspace)];
-  const workflowAgents = agentNames
-    .map(name => agents.find(a => a.name.toLowerCase() === name.toLowerCase()))
-    .filter((a): a is AgentConfig => !!a);
+  const workflowAgents = options.participants
+    ? [...options.participants]
+    : resolveDiscussionParticipants(
+        await loadAgents(workspace),
+        options.temporaryAgents || [],
+        agentNames
+      ).participants;
 
   if (workflowAgents.length === 0) {
     throw new Error(`None of the requested AI members (${agentNames.join(', ') || 'none'}) were found in the Room.`);
@@ -103,26 +127,53 @@ export async function runDiscussionLoop(
 
   const discussionsDir = resolveRoomPath(workspace, 'discussions');
   await fs.mkdir(discussionsDir, { recursive: true });
-  const logPath = path.join(discussionsDir, `${discussionId}.json`);
-  const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
+  const executionProvenance = options.sourceProvenance
+    || createExecutionProvenance(resolveWorkspaceLocation(workspace));
   let discussionLog: DiscussionLog;
-  try {
-    const existingLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+  const existingContent = await readRoomTextFile(
+    workspace,
+    ['discussions', `${discussionId}.json`],
+    MAX_RUN_ARTIFACT_BYTES
+  ).catch((error: unknown) => {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return '';
+    throw error;
+  });
+  if (existingContent) {
+    const existingLog = JSON.parse(existingContent) as DiscussionLog;
+    if (!existingLog.sourceProvenance) {
+      throw new Error('The existing discussion cannot continue because it has no recorded Source provenance.');
+    }
+    if (!isSameExecutionSource(existingLog.sourceProvenance, executionProvenance)) {
+      throw new Error('A run cannot continue under a different Source.');
+    }
+    if (!options.continueExisting) {
+      throw new Error(`Discussion run "${discussionId}" already exists.`);
+    }
     discussionLog = {
       id: discussionId,
       title: existingLog.title || title,
       topic,
       status: 'active',
-      messages: Array.isArray(existingLog.messages) ? existingLog.messages : []
+      messages: Array.isArray(existingLog.messages) ? existingLog.messages : [],
+      participants: mergeExecutionParticipantSnapshots(
+        existingLog.participants || [],
+        options.executionParticipants || []
+      ),
+      sourceProvenance: existingLog.sourceProvenance
     };
     ensureStableMessageIds(discussionId, discussionLog.messages);
-  } catch {
+  } else {
+    if (options.continueExisting) {
+      throw new Error(`Discussion run "${discussionId}" does not exist and cannot be continued.`);
+    }
     discussionLog = {
       id: discussionId,
       title: title,
       topic,
       status: 'active',
-      messages: []
+      messages: [],
+      participants: [...(options.executionParticipants || [])],
+      sourceProvenance: executionProvenance
     };
   }
   options.onEvent?.({
@@ -131,15 +182,7 @@ export async function runDiscussionLoop(
     title: discussionLog.title
   });
 
-  const overview = await readFirstExistingFile([
-    resolveRoomPath(workspace, 'context', 'overview.md'),
-    resolveRoomPath(workspace, 'workspace.md'),
-    resolveRoomPath(workspace, 'project.md')
-  ]);
-  const structure = await readFirstExistingFile([
-    resolveRoomPath(workspace, 'context', 'structure.md'),
-    resolveRoomPath(workspace, 'architecture', 'current.md')
-  ]);
+  const { overview, structure } = await loadRunContextFiles(workspace);
   const workspaceMemory = await loadWorkspaceMemoryContext(workspace, 2500, discussionId);
   const projectContext = composeProjectContext({
     overview,
@@ -160,9 +203,17 @@ export async function runDiscussionLoop(
   await appendMessageCreatedEvent('discussion', discussionId, userMessage);
 
   const saveDiscussionLog = async () => {
-    await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
-    await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
+    const json = serializeBoundedRunArtifact(
+      discussionLog,
+      'Discussion transcript'
+    );
+    await writeRoomTextFile(
+      workspace,
+      ['discussions', `${discussionId}.json`],
+      json
+    );
   };
+  await saveDiscussionLog();
   const applyInterruptIfRequested = async (): Promise<boolean> => {
     const interruptMessage = options.getInterruptMessage?.()?.trim();
     if (!interruptMessage) return false;
@@ -197,6 +248,19 @@ export async function runDiscussionLoop(
     ? workflowAgents.filter(agent => isReviewerAgent(agent))
     : [];
   const reviewerApprovalState = new Map<string, boolean>();
+  const initialMentionedPaths: string[] = [];
+  const initialDiscussionText = discussionLog.messages.map(message => {
+    for (const match of message.content.matchAll(/file:\/\/\/([^\s#?)]+)/g)) {
+      initialMentionedPaths.push(match[1]);
+    }
+    return message.content;
+  }).join('\n');
+  const autoMatchedSkills = await autoMatchSkills(
+    workspace,
+    initialMentionedPaths,
+    initialDiscussionText,
+    options.roomSkillSnapshots
+  );
 
   for (let round = 1; round <= maxRounds; round++) {
     const roundReviewerApprovals = new Map<string, boolean>();
@@ -219,22 +283,20 @@ export async function runDiscussionLoop(
         timestamp: new Date().toLocaleString()
       });
 
-      const mentionedPaths: string[] = [];
-      let discussionText = '';
-      for (const msg of discussionLog.messages) {
-        discussionText += `\n${msg.content}`;
-        for (const match of msg.content.matchAll(/file:\/\/\/([^\s#?)]+)/g)) {
-          mentionedPaths.push(match[1]);
-        }
-      }
-
-      const autoMatchedSkills = await autoMatchSkills(workspace, mentionedPaths, discussionText);
       const allSkillFiles = Array.from(new Set([
         ...(agent.skills || []),
         ...autoMatchedSkills
       ]));
 
-      const skillsContext = await buildSkillsContext(workspace, allSkillFiles);
+      const skillsContext = await buildSkillsContext(
+        workspace,
+        allSkillFiles,
+        1500,
+        undefined,
+        options.approvedMachineSkills,
+        agent,
+        options.roomSkillSnapshots
+      );
 
       const compiledContext = await compileContextWithOptionalSummary(
         workspace,
@@ -250,7 +312,9 @@ export async function runDiscussionLoop(
           discussionId,
           round,
           ...(summaryEvent.error ? { error: summaryEvent.error } : {})
-        })
+        }),
+        options.approvedMachineSkills,
+        options.roomSkillSnapshots
       );
       const contextMessages = compiledContext.includedMessages;
       const priorMessageInstruction = compiledContext.priorMessageInstruction;
@@ -265,8 +329,11 @@ export async function runDiscussionLoop(
           console.warn(`[Discussion Engine] Ignoring invalid strategy name: ${agent.strategy}`);
         } else {
           try {
-            const strategyPath = resolveRoomPath(workspace, 'strategies', `${sanitizedStrategy}.json`);
-            const rawStrat = await fs.readFile(strategyPath, 'utf-8');
+            const rawStrat = await readRoomTextFile(
+              workspace,
+              ['strategies', `${sanitizedStrategy}.json`],
+              256 * 1024
+            );
             const stratObj = JSON.parse(rawStrat);
             if (stratObj && typeof stratObj.prompt === 'string') {
               strategyContext = `=== Reasoning Strategy: ${stratObj.name || agent.strategy} ===\n${stratObj.prompt}\n`;
@@ -277,13 +344,9 @@ export async function runDiscussionLoop(
         }
       }
 
-      const readOnlyToolsEnabled = !!options.allowReadOnlyTools
-        && agent.provider === 'Local CLI'
-        && agent.permissionMode !== 'dangerous';
       const systemPrompt = composeAgentSystemPrompt(
         agent.systemPrompt,
-        agent.provider === 'Local CLI' && !readOnlyToolsEnabled,
-        readOnlyToolsEnabled ? LOCAL_CLI_READ_TOOLS_POLICY : '',
+        agent.provider === 'Local CLI',
         DISCUSSION_PROTOCOL,
         hasReferableHistory ? REFERENCE_TRACING_PROTOCOL : '',
         skillsContext,
@@ -299,7 +362,7 @@ export async function runDiscussionLoop(
       let messageReferences: MessageReference[] = [];
       try {
         response = await provider.execute(prompt, systemPrompt, {
-          toolAccess: readOnlyToolsEnabled ? 'read-only' : 'none',
+          toolAccess: 'none',
           onChunk: (chunk: string) => {
             options.onEvent?.({
               type: 'agent_chunk',
@@ -352,9 +415,9 @@ export async function runDiscussionLoop(
           providerName: agent.provider,
           ...(agent.modelName ? { modelName: agent.modelName } : {}),
           round,
-          error: err.message
+          error: 'Provider execution failed.'
         });
-        response = cleanAgentUserContent(`[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${err.message}`, sourceRoot);
+        response = `[System Error from ${agent.name}]: Provider execution failed.`;
       }
 
       const msg: DiscussionMessage = {

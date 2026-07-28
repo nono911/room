@@ -1,27 +1,35 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import type { AgentConfig } from '../agents/registry.js';
+import type { ApprovedMachineSkillSnapshot } from '../skills/machineCatalog.js';
+import type { RoomSkillSnapshot } from './roomSkillSnapshot.js';
+import { autoMatchedRoomSkillReferences } from './roomSkillSnapshot.js';
 import { Provider } from '../providers/provider.js';
 import type { DiscussionLog, DiscussionMessage } from './types.js';
 import { loadAgents } from '../agents/registry.js';
 import {
   ensureStableMessageIds,
-  renderDiscussionMarkdown,
   stripExternalFileLinks,
-  LANGUAGE_POLICY,
-  WORKSPACE_BOUNDARY_POLICY,
-  nextStableMessageId
+  nextStableMessageId,
+  composeAgentSystemPrompt
 } from './utils.js';
 import { parseModeratorActions, stripActionBlocks } from './actions.js';
 import { executeModeratorActions, type ActionExecutionResult } from './actionExecutor.js';
 import { parseQualityGateResult, type QualityGateResult } from './approvalDetector.js';
 import { type TaskCard } from './taskBoard.js';
-import { buildBudgetedTranscriptWithCache } from './contextBuilder.js';
+import { buildBudgetedTranscriptWithCache, buildSkillsContext } from './contextBuilder.js';
 import {
-  resolveRoomPath,
   resolveWorkspaceLocation,
   type WorkspaceInput
 } from '../workspace.js';
+import {
+  readRoomTextFile,
+  writeRoomTextFile
+} from '../roomFile.js';
+import {
+  MAX_RUN_ARTIFACT_BYTES,
+  assertBoundedRunArtifact,
+  serializeBoundedRunArtifact
+} from './runArtifact.js';
+import { isDiscussionRunId } from './runId.js';
 
 export function pickModerator(agents: AgentConfig[], moderatorName?: string): AgentConfig | undefined {
   if (moderatorName) {
@@ -39,22 +47,26 @@ export async function evaluateDiscussionLoop(
   workspace: WorkspaceInput,
   discussionId: string,
   moderatorName: string | undefined,
+  moderatorOverride: AgentConfig | undefined,
+  approvedMachineSkills: readonly ApprovedMachineSkillSnapshot[],
+  roomSkillSnapshots: readonly RoomSkillSnapshot[],
   getProvider: (agent: AgentConfig) => Provider,
   assertAgentExecutionAllowed: (agent: AgentConfig) => Promise<void>,
   appendMessageCreatedEvent: (scopeType: 'discussion' | 'coding-task', scopeId: string, message: DiscussionMessage) => Promise<void>,
   appendActionEvents: (sourceDiscussionId: string, executed: ActionExecutionResult) => Promise<void>
 ): Promise<QualityGateResult> {
-  if (!/^discussion-[\w-]+$/.test(discussionId)) {
+  if (!isDiscussionRunId(discussionId)) {
     throw new Error('Invalid discussion id.');
   }
 
-  const discussionsDir = resolveRoomPath(workspace, 'discussions');
-  const logPath = path.join(discussionsDir, `${discussionId}.json`);
-  const markdownLogPath = path.join(discussionsDir, `${discussionId}.md`);
-  const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+  const discussionLog = JSON.parse(await readRoomTextFile(
+    workspace,
+    ['discussions', `${discussionId}.json`],
+    MAX_RUN_ARTIFACT_BYTES
+  )) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
-  const agents = await loadAgents(workspace);
-  const moderator = pickModerator(agents, moderatorName);
+  const moderator = moderatorOverride
+    || pickModerator(await loadAgents(workspace), moderatorName);
 
   if (!moderator) {
     throw new Error('No AI member is available to run the quality gate.');
@@ -91,13 +103,24 @@ Only emit create_task or create_adr for outcomes the chat actually agreed on. Th
 Chat transcript:
 ${transcript}`;
 
-  const systemPrompt = `${moderator.systemPrompt}
-
-${LANGUAGE_POLICY}
-
-${WORKSPACE_BOUNDARY_POLICY}
-
-You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.`;
+  const skillsContext = await buildSkillsContext(
+    workspace,
+    Array.from(new Set([
+      ...(moderator.skills || []),
+      ...autoMatchedRoomSkillReferences(roomSkillSnapshots)
+    ])),
+    1500,
+    undefined,
+    approvedMachineSkills,
+    moderator,
+    roomSkillSnapshots
+  );
+  const systemPrompt = composeAgentSystemPrompt(
+    moderator.systemPrompt,
+    moderator.provider === 'Local CLI',
+    'You are the ROOM quality gate. Your job is to decide whether the current chat is good enough or needs one more focused discussion round.',
+    skillsContext
+  );
 
   const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
     || resolveWorkspaceLocation(workspace).roomRoot;
@@ -146,8 +169,11 @@ You are the ROOM quality gate. Your job is to decide whether the current chat is
   await appendMessageCreatedEvent('discussion', discussionId, discussionLog.messages[discussionLog.messages.length - 1]);
   discussionLog.status = result.status === 'PASS' ? 'approved' : 'needs_revision';
 
-  await fs.writeFile(logPath, JSON.stringify(discussionLog, null, 2), 'utf-8');
-  await fs.writeFile(markdownLogPath, renderDiscussionMarkdown(discussionLog), 'utf-8');
+  await writeRoomTextFile(
+    workspace,
+    ['discussions', `${discussionId}.json`],
+    serializeBoundedRunArtifact(discussionLog, 'Discussion')
+  );
 
   return result;
 }
@@ -156,19 +182,25 @@ export async function generateTasksFromDiscussionLoop(
   workspace: WorkspaceInput,
   discussionId: string,
   moderatorName: string | undefined,
+  moderatorOverride: AgentConfig | undefined,
+  approvedMachineSkills: readonly ApprovedMachineSkillSnapshot[],
+  roomSkillSnapshots: readonly RoomSkillSnapshot[],
   getProvider: (agent: AgentConfig) => Provider,
   assertAgentExecutionAllowed: (agent: AgentConfig) => Promise<void>,
   appendActionEvents: (sourceDiscussionId: string, executed: ActionExecutionResult) => Promise<void>
 ): Promise<{ createdTaskCards: TaskCard[]; errors: string[] }> {
-  if (!/^discussion-[\w-]+$/.test(discussionId)) {
+  if (!isDiscussionRunId(discussionId)) {
     throw new Error('Invalid discussion id.');
   }
 
-  const logPath = resolveRoomPath(workspace, 'discussions', `${discussionId}.json`);
-  const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+  const discussionLog = JSON.parse(await readRoomTextFile(
+    workspace,
+    ['discussions', `${discussionId}.json`],
+    MAX_RUN_ARTIFACT_BYTES
+  )) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
-  const agents = await loadAgents(workspace);
-  const moderator = pickModerator(agents, moderatorName);
+  const moderator = moderatorOverride
+    || pickModerator(await loadAgents(workspace), moderatorName);
   if (!moderator) {
     throw new Error('No AI member is available to generate tasks.');
   }
@@ -189,13 +221,24 @@ Output requirements:
 Chat transcript:
 ${transcript}`;
 
-  const systemPrompt = `${moderator.systemPrompt}
-
-${LANGUAGE_POLICY}
-
-${WORKSPACE_BOUNDARY_POLICY}
-
-You convert finished ROOM chats into actionable task plans for the project task board.`;
+  const skillsContext = await buildSkillsContext(
+    workspace,
+    Array.from(new Set([
+      ...(moderator.skills || []),
+      ...autoMatchedRoomSkillReferences(roomSkillSnapshots)
+    ])),
+    1500,
+    undefined,
+    approvedMachineSkills,
+    moderator,
+    roomSkillSnapshots
+  );
+  const systemPrompt = composeAgentSystemPrompt(
+    moderator.systemPrompt,
+    moderator.provider === 'Local CLI',
+    'You convert finished ROOM chats into actionable task plans for the project task board.',
+    skillsContext
+  );
 
   const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
     || resolveWorkspaceLocation(workspace).roomRoot;

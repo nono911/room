@@ -1,6 +1,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { withRoomDataLock } from '../roomHome.js';
 import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
+import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
+import { listDirectoryNamesBounded } from '../boundedFs.js';
 
 export interface AdrContentOptions {
   context?: string;
@@ -13,46 +16,56 @@ export async function createNewADR(
   options: AdrContentOptions = {}
 ): Promise<{ id: string; filename: string; created: boolean }> {
   const decisionsDir = resolveRoomPath(workspace, 'decisions');
-  await fs.mkdir(decisionsDir, { recursive: true });
+  const roomRoot = resolveRoomPath(workspace);
+  return withRoomDataLock(roomRoot, 'decisions', async () => {
+    await fs.mkdir(decisionsDir, { recursive: true });
 
-  const files = await fs.readdir(decisionsDir);
-  let maxNum = 0;
+    const listing = await listDirectoryNamesBounded(decisionsDir, 1_000);
+    if (listing.truncated) {
+      throw new Error('ROOM decision directory exceeds its entry limit.');
+    }
+    const files = listing.names;
+    let maxNum = 0;
 
-  for (const file of files) {
-    const match = file.match(/^ADR-(\d+)-/i);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num > maxNum) {
-        maxNum = num;
+    for (const file of files) {
+      const match = file.match(/^ADR-(\d+)-/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) {
+          maxNum = num;
+        }
       }
     }
-  }
 
-  const nextNum = maxNum + 1;
-  const nextNumStr = String(nextNum).padStart(3, '0');
-  let kebabTitle = title
-    .normalize('NFC')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/(^-|-$)/g, '');
+    const nextNum = maxNum + 1;
+    const nextNumStr = String(nextNum).padStart(3, '0');
+    let kebabTitle = title
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/(^-|-$)/g, '');
 
-  if (!kebabTitle) {
-    kebabTitle = 'decision';
-  }
-
-  for (const file of files) {
-    const match = file.match(/^ADR-\d+-(.+)\.md$/i);
-    if (match && match[1].normalize('NFC').toLowerCase() === kebabTitle.normalize('NFC').toLowerCase()) {
-      return { id: await readExistingAdrId(path.join(decisionsDir, file), file), filename: file, created: false };
+    if (!kebabTitle) {
+      kebabTitle = 'decision';
     }
-  }
 
-  const id = `adr-${nextNumStr}`;
-  const filename = `ADR-${nextNumStr}-${kebabTitle}.md`;
-  const filePath = path.join(decisionsDir, filename);
-  const createdAt = new Date().toISOString();
+    for (const file of files) {
+      const match = file.match(/^ADR-\d+-(.+)\.md$/i);
+      if (match && match[1].normalize('NFC').toLowerCase() === kebabTitle.normalize('NFC').toLowerCase()) {
+        return {
+          id: await readExistingAdrId(workspace, file),
+          filename: file,
+          created: false
+        };
+      }
+    }
 
-  const adrContent = `---
+    const id = `adr-${nextNumStr}`;
+    const filename = `ADR-${nextNumStr}-${kebabTitle}.md`;
+    const filePath = path.join(decisionsDir, filename);
+    const createdAt = new Date().toISOString();
+
+    const adrContent = `---
 id: ${id}
 title: ${JSON.stringify(title)}
 createdAt: ${JSON.stringify(createdAt)}
@@ -83,13 +96,21 @@ ${options.decision || 'Chosen Option: Option X, because ...'}
 - Bad consequences
 `;
 
-  await fs.writeFile(filePath, adrContent, 'utf-8');
-  return { id, filename, created: true };
+    await writeRoomTextFile(workspace, ['decisions', filename], adrContent);
+    return { id, filename, created: true };
+  });
 }
 
-async function readExistingAdrId(filePath: string, filename: string): Promise<string> {
+async function readExistingAdrId(
+  workspace: WorkspaceInput,
+  filename: string
+): Promise<string> {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await readRoomTextFile(
+      workspace,
+      ['decisions', filename],
+      256 * 1024
+    );
     const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
     const idLine = frontmatter?.[1].match(/^id:\s*(\S+)\s*$/m);
     if (idLine) {

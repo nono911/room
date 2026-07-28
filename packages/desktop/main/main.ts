@@ -2,7 +2,6 @@ import { app, BrowserWindow, protocol, net, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { applyApiKeysToEnvironment } from './ipc/provider-store.js';
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './navigation-security.js';
 import {
   registerWorkspaceIpc,
@@ -13,7 +12,8 @@ import {
   registerMcpIpc,
   registerFilesIpc,
   registerRunControlIpc,
-  registerTeamsIpc
+  registerTeamsIpc,
+  interruptRunsForOwner
 } from './ipc/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,8 +68,12 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Captured up front: webContents is already destroyed once 'closed' fires.
+  const runOwnerId = mainWindow.webContents.id;
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // Runs outlive the window on macOS, where closing does not quit the app.
+    interruptRunsForOwner(runOwnerId);
   });
 }
 
@@ -98,8 +102,6 @@ registerRunControlIpc();
 registerTeamsIpc();
 
 app.whenReady().then(async () => {
-  await applyApiKeysToEnvironment();
-
   // Register custom protocol handler to resolve files from renderer output
   protocol.handle('app', async (request) => {
     try {

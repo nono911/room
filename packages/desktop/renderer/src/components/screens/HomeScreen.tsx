@@ -7,6 +7,8 @@ interface HomeScreenProps {
   activeTaskRunId: string | null;
   activeSourceName?: string;
   onAttachSource: () => void;
+  onScanSource: () => void;
+  scanLoading: boolean;
   setActiveTab: (tab: string) => void;
 }
 
@@ -28,6 +30,8 @@ export function HomeScreen({
   activeTaskRunId,
   activeSourceName,
   onAttachSource,
+  onScanSource,
+  scanLoading,
   setActiveTab
 }: HomeScreenProps) {
   const members = (projectData?.agents || []).filter(agent => !agent.isVirtual);
@@ -58,6 +62,20 @@ export function HomeScreen({
           <span>
             <strong>Attach Source folder</strong>
             <small>Enable files, search, scan, Git, and coding actions.</small>
+          </span>
+        </button>
+      )}
+      {activeSourceName && (
+        <button
+          type="button"
+          className="home-source-cta"
+          disabled={scanLoading}
+          onClick={onScanSource}
+        >
+          <span>⌁</span>
+          <span>
+            <strong>{scanLoading ? 'Scanning active Source…' : 'Scan active Source'}</strong>
+            <small>Refresh this Source snapshot without changing Room memory.</small>
           </span>
         </button>
       )}

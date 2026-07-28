@@ -26,9 +26,13 @@ import { trimTextToTokenBudget } from './tokenBudget.js';
 import { parseSkillFrontmatter } from '../skills/parser.js';
 import {
   isMachineSkillReference,
+  approvedMachineSkillContent,
+  normalizeMachineSkillReference,
   readMachineSkill,
+  type ApprovedMachineSkillSnapshot,
   type MachineSkillCatalogOptions
 } from '../skills/machineCatalog.js';
+import { parseRoomSkillReference } from '../skills/roomSkillReference.js';
 import {
   composeAgentSystemPrompt,
   ensureStableMessageIds,
@@ -39,21 +43,31 @@ import {
 } from './utils.js';
 import type { DiscussionLog } from './types.js';
 import {
+  readRoomTextFile,
+  withRoomStorageReconciliation,
+  writeRoomTextFile
+} from '../roomFile.js';
+import {
+  listDirectoryNamesBounded
+} from '../boundedFs.js';
+import {
+  MAX_RUN_ARTIFACT_BYTES,
+  assertBoundedRunArtifact
+} from './runArtifact.js';
+import { listMarkdownByMtime } from './roomMemoryReader.js';
+import {
   resolveRoomPath,
   resolveWorkspaceLocation,
   type WorkspaceInput
 } from '../workspace.js';
-
-export function globToRegex(pattern: string): RegExp {
-  let result = pattern.trim();
-  result = result.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  result = result.replace(/\*\*\//g, '<<<GLOBSTAR_SLASH>>>');
-  result = result.replace(/\*\*/g, '<<<GLOBSTAR>>>');
-  result = result.replace(/\*/g, '[^/]*');
-  result = result.replace(/<<<GLOBSTAR_SLASH>>>/g, '(.*/)?');
-  result = result.replace(/<<<GLOBSTAR>>>/g, '.*');
-  return new RegExp(`^${result}$`, 'i');
-}
+import { readRoomSkill } from './roomSkillReader.js';
+import {
+  roomSkillSnapshotContent,
+  autoMatchedRoomSkillReferences,
+  type RoomSkillSnapshot
+} from './roomSkillSnapshot.js';
+import { isDiscussionRunId } from './runId.js';
+export { autoMatchSkills } from './autoMatchSkills.js';
 
 export function pickContextSummaryAgent(agents: AgentConfig[]): AgentConfig | undefined {
   const nonLocalAgents = agents.filter(agent => agent.provider !== 'Local CLI');
@@ -79,7 +93,9 @@ export async function compileContextWithOptionalSummary(
   agents: AgentConfig[],
   getProvider: (agent: AgentConfig) => Provider,
   assertAgentExecutionAllowed: (agent: AgentConfig) => Promise<void>,
-  onSummaryEvent?: (event: ContextSummaryEvent) => void
+  onSummaryEvent?: (event: ContextSummaryEvent) => void,
+  approvedMachineSkills: readonly ApprovedMachineSkillSnapshot[] = [],
+  roomSkillSnapshots?: readonly RoomSkillSnapshot[]
 ): Promise<CompiledDiscussionContext> {
   const draftContext = compileDiscussionContext(messages, projectContext);
   const candidateIndexes = draftContext.summaryCandidateIndexes;
@@ -121,10 +137,23 @@ export async function compileContextWithOptionalSummary(
   try {
     await assertAgentExecutionAllowed(summaryAgent);
     const provider = getProvider(summaryAgent);
+    const skillsContext = await buildSkillsContext(
+      workspace,
+      Array.from(new Set([
+        ...(summaryAgent.skills || []),
+        ...autoMatchedRoomSkillReferences(roomSkillSnapshots || [])
+      ])),
+      1500,
+      undefined,
+      approvedMachineSkills,
+      summaryAgent,
+      roomSkillSnapshots
+    );
     const systemPrompt = composeAgentSystemPrompt(
       summaryAgent.systemPrompt,
       false,
-      'You summarize omitted ROOM context into compact durable memory for future agent turns.'
+      'You summarize omitted ROOM context into compact durable memory for future agent turns.',
+      skillsContext
     );
     const summary = reuse.prefix
       ? await updateContextSummary(provider, systemPrompt, existingCache!.summary, messages, reuse.uncoveredIndexes, DEFAULT_CONTEXT_SUMMARY_POLICY)
@@ -191,7 +220,8 @@ export async function loadWorkspaceMemoryContext(
   const sections: string[] = [];
 
   const adrs = await listMarkdownByMtime(
-    resolveRoomPath(workspace, 'decisions'),
+    workspace,
+    'decisions',
     file => /^ADR-/i.test(file),
     3
   );
@@ -200,7 +230,8 @@ export async function loadWorkspaceMemoryContext(
   }
 
   const summaries = await listMarkdownByMtime(
-    resolveRoomPath(workspace, 'documents'),
+    workspace,
+    'documents',
     file => file.endsWith('-summary.md') && (!excludeId || !file.includes(excludeId)),
     2
   );
@@ -217,123 +248,41 @@ export async function buildSkillsContext(
   workspace: WorkspaceInput,
   skillFiles: string[],
   maxTokensPerSkill = 1500,
-  machineCatalogOptions?: MachineSkillCatalogOptions
+  machineCatalogOptions?: MachineSkillCatalogOptions,
+  approvedMachineSkills: readonly ApprovedMachineSkillSnapshot[] = [],
+  executingAgent?: Pick<AgentConfig, 'id' | 'provider'>,
+  roomSkillSnapshots?: readonly RoomSkillSnapshot[]
 ): Promise<string> {
+  void machineCatalogOptions;
   const sections: string[] = [];
   for (const skillFile of skillFiles) {
     try {
-      const machineSkill = isMachineSkillReference(skillFile)
-        ? await readMachineSkill(skillFile, machineCatalogOptions)
+      const machineReference = isMachineSkillReference(skillFile)
+        ? normalizeMachineSkillReference(skillFile)
         : null;
-      const skillContent = machineSkill
-        ? machineSkill.content
-        : await fs.readFile(await resolveSkillPath(workspace, skillFile), 'utf-8');
+      const skillContent = machineReference
+        ? approvedMachineSkillContent(
+            approvedMachineSkills,
+            executingAgent,
+            machineReference
+          )
+          ?? (() => { throw new Error(`Machine skill requires a member-bound approved snapshot: ${skillFile}`); })()
+        : roomSkillSnapshots === undefined
+          ? await readRoomSkill(workspace, skillFile)
+          : roomSkillSnapshotContent(roomSkillSnapshots, skillFile)
+            ?? (() => { throw new Error(`Room skill is unavailable in the run snapshot: ${skillFile}`); })();
       const parsed = parseSkillFrontmatter(skillContent);
       const fitted = trimTextToTokenBudget(parsed.content.trim(), maxTokensPerSkill);
       const body = `${fitted.text}${fitted.truncated ? '\n\n[Skill content trimmed to fit the prompt budget.]' : ''}`;
-      const label = machineSkill
-        ? `${machineSkill.skill.name} · ${machineSkill.skill.sourceLabel}`
-        : skillFile;
-      sections.push(`[Skill: ${label}]\n${body}`);
+      sections.push(`[Skill: ${skillFile}]\n${body}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`Error loading skill ${skillFile}:`, message);
+      if (isMachineSkillReference(skillFile)) throw err;
     }
   }
   if (sections.length === 0) return '';
   return `\n\n=== Active Skills ===\n\n${sections.join('\n\n')}\n`;
-}
-
-async function listMarkdownByMtime(
-  dir: string,
-  match: (file: string) => boolean,
-  limit: number
-): Promise<{ name: string; content: string }[]> {
-  try {
-    const files = (await fs.readdir(dir)).filter(file => file.toLowerCase().endsWith('.md') && match(file));
-    const stats = await Promise.all(files.map(async name => ({
-      name,
-      mtimeMs: (await fs.stat(path.join(dir, name))).mtimeMs
-    })));
-    stats.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    return Promise.all(stats.slice(0, limit).map(async ({ name }) => ({
-      name,
-      content: await fs.readFile(path.join(dir, name), 'utf-8')
-    })));
-  } catch {
-    return [];
-  }
-}
-
-export async function readFirstExistingFile(paths: string[]): Promise<string> {
-  for (const filePath of paths) {
-    try {
-      return await fs.readFile(filePath, 'utf-8');
-    } catch {}
-  }
-  return '';
-}
-
-export async function autoMatchSkills(
-  workspace: WorkspaceInput,
-  mentionedFilePaths: string[],
-  discussionText: string
-): Promise<string[]> {
-  const skillsDir = resolveRoomPath(workspace, 'skills');
-  const matchedSkillFiles: string[] = [];
-
-  try {
-    const files = await fs.readdir(skillsDir);
-    for (const file of files) {
-      if (!file.toLowerCase().endsWith('.md')) {
-        continue;
-      }
-
-      try {
-        const resolvedPath = path.resolve(skillsDir, file);
-        const rawContent = await fs.readFile(resolvedPath, 'utf-8');
-        const { metadata } = parseSkillFrontmatter(rawContent);
-
-        if (metadata.alwaysApply) {
-          matchedSkillFiles.push(file);
-          continue;
-        }
-
-        let matchesGlob = false;
-        if (metadata.globs && metadata.globs.length > 0 && mentionedFilePaths.length > 0) {
-          for (const pattern of metadata.globs) {
-            const regex = globToRegex(pattern);
-            for (const filePath of mentionedFilePaths) {
-              if (regex.test(filePath)) {
-                matchesGlob = true;
-                break;
-              }
-            }
-            if (matchesGlob) break;
-          }
-        }
-
-        let matchesKeyword = false;
-        if (metadata.triggerKeywords && metadata.triggerKeywords.length > 0 && discussionText) {
-          const normalizedText = discussionText.toLowerCase();
-          for (const keyword of metadata.triggerKeywords) {
-            if (normalizedText.includes(keyword.toLowerCase())) {
-              matchesKeyword = true;
-              break;
-            }
-          }
-        }
-
-        if (matchesGlob || matchesKeyword) {
-          matchedSkillFiles.push(file);
-        }
-      } catch (err: any) {
-        console.error(`Error auto-matching skill file ${file}:`, err.message);
-      }
-    }
-  } catch {}
-
-  return matchedSkillFiles;
 }
 
 export async function resolveSkillPath(workspace: WorkspaceInput, skillFile: string): Promise<string> {
@@ -341,34 +290,9 @@ export async function resolveSkillPath(workspace: WorkspaceInput, skillFile: str
   if (isMachineSkillReference(trimmedSkillFile)) {
     return (await readMachineSkill(trimmedSkillFile)).filePath;
   }
-  if (/[\\/]/.test(trimmedSkillFile)) {
-    throw new Error(`Unsafe skill filename: ${skillFile}`);
-  }
-
-  const safeName = path.basename(trimmedSkillFile);
-  if (!safeName || !safeName.toLowerCase().endsWith('.md')) {
-    throw new Error(`Unsafe or unsupported skill filename: ${skillFile}`);
-  }
-
-  const dirs = [
-    resolveRoomPath(workspace, 'skills'),
-    resolveRoomPath(workspace, 'roles')
-  ];
-
-  for (const skillsDir of dirs) {
-    const resolvedPath = path.resolve(skillsDir, safeName);
-    const relativeToSkills = path.relative(skillsDir, resolvedPath);
-    if (relativeToSkills.startsWith('..') || path.isAbsolute(relativeToSkills)) {
-      throw new Error(`Unsafe skill filename: ${skillFile}`);
-    }
-
-    try {
-      await fs.access(resolvedPath);
-      return resolvedPath;
-    } catch {}
-  }
-
-  return path.resolve(dirs[0], safeName);
+  const parsed = parseRoomSkillReference(trimmedSkillFile);
+  if (!parsed) throw new Error(`Unsafe Room skill reference: ${skillFile}`);
+  return resolveRoomPath(workspace, parsed.source, parsed.filename);
 }
 
 export function isReviewerAgent(agent: AgentConfig): boolean {
@@ -405,16 +329,21 @@ export async function summarizeDiscussionLoop(
   discussionId: string,
   agentNames: string[] = [],
   summaryAgentOverride: AgentConfig | undefined,
+  approvedMachineSkills: readonly ApprovedMachineSkillSnapshot[],
+  roomSkillSnapshots: readonly RoomSkillSnapshot[],
   getProvider: (agent: AgentConfig) => Provider,
   assertAgentExecutionAllowed: (agent: AgentConfig) => Promise<void>,
   appendEvent: (input: NewRoomEvent) => Promise<void>
 ): Promise<{ filename: string; content: string }> {
-  if (!/^discussion-[\w-]+$/.test(discussionId)) {
+  if (!isDiscussionRunId(discussionId)) {
     throw new Error('Invalid discussion id.');
   }
 
-  const logPath = resolveRoomPath(workspace, 'discussions', `${discussionId}.json`);
-  const discussionLog = JSON.parse(await fs.readFile(logPath, 'utf-8')) as DiscussionLog;
+  const discussionLog = JSON.parse(await readRoomTextFile(
+    workspace,
+    ['discussions', `${discussionId}.json`],
+    MAX_RUN_ARTIFACT_BYTES
+  )) as DiscussionLog;
   ensureStableMessageIds(discussionId, discussionLog.messages);
   const agents = await loadAgents(workspace);
   const summaryAgent = summaryAgentOverride || agentNames
@@ -452,13 +381,24 @@ Output clean Markdown with these sections:
 Chat transcript:
 ${transcript}`;
 
-  const systemPrompt = `${summaryAgent.systemPrompt}
-
-${LANGUAGE_POLICY}
-
-${WORKSPACE_BOUNDARY_POLICY}
-
-You are summarizing a collaborative ROOM chat into a compact memory artifact. Use the same natural language as the chat unless the user explicitly asked otherwise.`;
+  const skillsContext = await buildSkillsContext(
+    workspace,
+    Array.from(new Set([
+      ...(summaryAgent.skills || []),
+      ...autoMatchedRoomSkillReferences(roomSkillSnapshots)
+    ])),
+    1500,
+    undefined,
+    approvedMachineSkills,
+    summaryAgent,
+    roomSkillSnapshots
+  );
+  const systemPrompt = composeAgentSystemPrompt(
+    summaryAgent.systemPrompt,
+    summaryAgent.provider === 'Local CLI',
+    'You are summarizing a collaborative ROOM chat into a compact memory artifact. Use the same natural language as the chat unless the user explicitly asked otherwise.',
+    skillsContext
+  );
 
   const sourceRoot = resolveWorkspaceLocation(workspace).sourceRoot
     || resolveWorkspaceLocation(workspace).roomRoot;
@@ -470,8 +410,15 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
     : `# Chat Summary: ${titleSource}\n\n${summary.trim()}`;
   const documentsDir = resolveRoomPath(workspace, 'documents');
   await fs.mkdir(documentsDir, { recursive: true });
-  await removeSupersededDiscussionSummaries(documentsDir, discussionId, filename);
-  await fs.writeFile(path.join(documentsDir, filename), `${content}\n`, 'utf-8');
+  await withRoomStorageReconciliation(
+    workspace,
+    () => removeSupersededDiscussionSummaries(documentsDir, discussionId, filename)
+  );
+  await writeRoomTextFile(
+    workspace,
+    ['documents', filename],
+    assertBoundedRunArtifact(`${content}\n`, 'Discussion summary')
+  );
   await appendEvent({
     type: 'artifact.created',
     actor: summaryAgent.name,
@@ -489,7 +436,7 @@ You are summarizing a collaborative ROOM chat into a compact memory artifact. Us
 async function removeSupersededDiscussionSummaries(documentsDir: string, discussionId: string, keepFilename: string): Promise<void> {
   const suffix = `-${discussionId}-summary.md`;
   try {
-    const files = await fs.readdir(documentsDir);
+    const files = (await listDirectoryNamesBounded(documentsDir, 1_000)).names;
     await Promise.all(files
       .filter(file => file.endsWith(suffix) && file !== keepFilename)
       .map(file => fs.rm(path.join(documentsDir, file), { force: true })));

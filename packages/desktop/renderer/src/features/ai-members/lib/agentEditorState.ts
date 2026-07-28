@@ -8,10 +8,6 @@ export interface AgentEditorSeed {
   newAgentModel: string;
   newAgentPrompt: string;
   newAgentSkills: string[];
-  newAgentPreset: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none';
-  newAgentCommand: string;
-  newAgentStdinFormat: 'text' | 'json';
-  newAgentPermissionMode: 'safe' | 'dangerous';
 }
 
 export function buildAgentEditorSeed(agent: any): AgentEditorSeed {
@@ -22,11 +18,7 @@ export function buildAgentEditorSeed(agent: any): AgentEditorSeed {
     newAgentProvider: normalizeProviderId(agent.provider),
     newAgentModel: agent.modelName || '',
     newAgentPrompt: agent.systemPrompt,
-    newAgentSkills: agent.skills || [],
-    newAgentPreset: agent.cliPreset || 'none',
-    newAgentCommand: agent.command || '',
-    newAgentStdinFormat: agent.stdinFormat || 'text',
-    newAgentPermissionMode: agent.permissionMode || 'safe'
+    newAgentSkills: agent.skills || []
   };
 }
 

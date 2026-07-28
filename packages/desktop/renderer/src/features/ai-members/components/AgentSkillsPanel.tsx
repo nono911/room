@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import type { MachineSkillSummary, SkillPreviewResult } from '../../../types/domain.js';
+import {
+  roomSkillLabel
+} from '../../../shared/lib/roomSkillReference.js';
 
 interface AgentSkillsPanelProps {
   workspaceSkills: string[];
@@ -122,7 +125,7 @@ export const AgentSkillsPanel: React.FC<AgentSkillsPanelProps> = ({
               >
                 <SkillToggle
                   checked={isSelected}
-                  label={skill.replace('.md', '').replace(/-/g, ' ')}
+                  label={roomSkillLabel(skill)}
                   onChange={() => toggleSkill(skill)}
                 />
                 <button

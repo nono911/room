@@ -1,6 +1,8 @@
 import * as fs from 'fs/promises';
-import * as path from 'path';
+import { randomUUID } from 'crypto';
+import { withRoomDataLock } from '../roomHome.js';
 import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
+import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
 
 export interface TaskCard {
   id: string;
@@ -26,18 +28,9 @@ export interface NewTaskCardInput {
   assignee?: string;
 }
 
-function boardPaths(workspace: WorkspaceInput) {
-  const tasksDir = resolveRoomPath(workspace, 'tasks');
-  return {
-    tasksDir,
-    jsonPath: path.join(tasksDir, 'board.json'),
-    markdownPath: path.join(tasksDir, 'board.md')
-  };
-}
-
 export async function loadTaskBoard(workspace: WorkspaceInput): Promise<TaskBoard> {
   try {
-    const content = await fs.readFile(boardPaths(workspace).jsonPath, 'utf-8');
+    const content = await readRoomTextFile(workspace, ['tasks', 'board.json'], 4 * 1024 * 1024);
     const parsed = JSON.parse(content) as TaskBoard;
     return { cards: Array.isArray(parsed.cards) ? parsed.cards : [] };
   } catch (err: any) {
@@ -53,40 +46,53 @@ export async function addTaskCards(
   inputs: NewTaskCardInput[],
   sourceDiscussionId?: string
 ): Promise<TaskCard[]> {
-  const { tasksDir, jsonPath, markdownPath } = boardPaths(workspace);
-  await fs.mkdir(tasksDir, { recursive: true });
-  const board = await loadTaskBoard(workspace);
-  let nextNum = board.cards.reduce((max, card) => {
-    const match = card.id.match(/^card-(\d+)$/);
-    return match ? Math.max(max, parseInt(match[1], 10)) : max;
-  }, 0) + 1;
+  const tasksDir = resolveRoomPath(workspace, 'tasks');
+  const roomRoot = resolveRoomPath(workspace);
+  return withRoomDataLock(roomRoot, 'task-board', async () => {
+    await fs.mkdir(tasksDir, { recursive: true });
+    const board = await loadTaskBoard(workspace);
+    let nextNum = board.cards.reduce((max, card) => {
+      const match = card.id.match(/^card-(\d+)$/);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0) + 1;
 
-  const titleToId = new Map(board.cards.map(card => [card.title.normalize('NFC').toLowerCase(), card.id]));
-  const created: TaskCard[] = [];
-  for (const input of inputs) {
-    if (titleToId.has(input.title.normalize('NFC').toLowerCase())) {
-      continue;
+    const titleToId = new Map(board.cards.map(card => [card.title.normalize('NFC').toLowerCase(), card.id]));
+    const created: TaskCard[] = [];
+    for (const input of inputs) {
+      if (titleToId.has(input.title.normalize('NFC').toLowerCase())) {
+        continue;
+      }
+      const card: TaskCard = {
+        id: `card-${String(nextNum++).padStart(3, '0')}`,
+        title: input.title,
+        kind: input.kind || 'task',
+        status: 'todo',
+        createdAt: new Date().toISOString()
+      };
+      if (input.details) card.details = input.details;
+      if (input.assignee) card.assignee = input.assignee;
+      if (sourceDiscussionId) card.sourceDiscussionId = sourceDiscussionId;
+      const parentId = input.parent ? titleToId.get(input.parent.normalize('NFC').toLowerCase()) : undefined;
+      if (parentId) card.parentId = parentId;
+      titleToId.set(card.title.normalize('NFC').toLowerCase(), card.id);
+      board.cards.push(card);
+      created.push(card);
     }
-    const card: TaskCard = {
-      id: `card-${String(nextNum++).padStart(3, '0')}`,
-      title: input.title,
-      kind: input.kind || 'task',
-      status: 'todo',
-      createdAt: new Date().toISOString()
-    };
-    if (input.details) card.details = input.details;
-    if (input.assignee) card.assignee = input.assignee;
-    if (sourceDiscussionId) card.sourceDiscussionId = sourceDiscussionId;
-    const parentId = input.parent ? titleToId.get(input.parent.normalize('NFC').toLowerCase()) : undefined;
-    if (parentId) card.parentId = parentId;
-    titleToId.set(card.title.normalize('NFC').toLowerCase(), card.id);
-    board.cards.push(card);
-    created.push(card);
-  }
 
-  await fs.writeFile(jsonPath, JSON.stringify(board, null, 2), 'utf-8');
-  await fs.writeFile(markdownPath, renderTaskBoardMarkdown(board), 'utf-8');
-  return created;
+    await writeBoardSnapshot(workspace, board);
+    return created;
+  });
+}
+
+async function writeBoardSnapshot(
+  workspace: WorkspaceInput,
+  board: TaskBoard
+): Promise<void> {
+  await writeRoomTextFile(
+    workspace,
+    ['tasks', 'board.json'],
+    JSON.stringify(board, null, 2)
+  );
 }
 
 export function renderTaskBoardMarkdown(board: TaskBoard): string {
@@ -122,21 +128,43 @@ export function renderTaskBoardMarkdown(board: TaskBoard): string {
   return lines.join('\n') + '\n';
 }
 
+// A card that no longer exists (deleted, or never created) is a legitimate,
+// expected outcome and reported as `false`. A write or lock failure is not —
+// it must reach the caller as a thrown error rather than collapse into the
+// same `false`, which no caller here ever checked.
 export async function updateTaskCardStatus(
   workspace: WorkspaceInput,
   cardId: string,
   status: 'todo' | 'in_progress' | 'done'
 ): Promise<boolean> {
-  const { jsonPath, markdownPath } = boardPaths(workspace);
-  try {
+  const roomRoot = resolveRoomPath(workspace);
+  return withRoomDataLock(roomRoot, 'task-board', async () => {
     const board = await loadTaskBoard(workspace);
     const card = board.cards.find(c => c.id === cardId);
-    if (card) {
-      card.status = status;
-      await fs.writeFile(jsonPath, JSON.stringify(board, null, 2), 'utf-8');
-      await fs.writeFile(markdownPath, renderTaskBoardMarkdown(board), 'utf-8');
-      return true;
-    }
-  } catch {}
-  return false;
+    if (!card) return false;
+    card.status = status;
+    await writeBoardSnapshot(workspace, board);
+    return true;
+  });
+}
+
+/**
+ * Task/discussion execution treats card status as bookkeeping, not part of
+ * the run's own success — a run that already completed (or hasn't started
+ * doing real work yet) must not fail because the board couldn't be updated.
+ * Failures are logged and swallowed here, at the boundary, instead of inside
+ * updateTaskCardStatus itself.
+ */
+export async function updateTaskCardStatusBestEffort(
+  workspace: WorkspaceInput,
+  cardId: string,
+  status: 'todo' | 'in_progress' | 'done',
+  action: string
+): Promise<void> {
+  try {
+    await updateTaskCardStatus(workspace, cardId, status);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Discussion Engine] Failed to mark task card ${action}: ${message}`);
+  }
 }

@@ -4,11 +4,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { executeModeratorActions } from './actionExecutor.js';
 import { loadTaskBoard } from './taskBoard.js';
+import { testWorkspace } from '../testWorkspace.js';
 
 let dir: string;
 
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'room-exec-'));
+  await fs.mkdir(path.join(dir, '.room'));
 });
 
 afterEach(async () => {
@@ -17,7 +19,7 @@ afterEach(async () => {
 
 describe('executeModeratorActions', () => {
   it('creates task cards and ADRs and reports them', async () => {
-    const result = await executeModeratorActions(dir, [
+    const result = await executeModeratorActions(testWorkspace(dir), [
       { action: 'create_task', title: 'Epic A', kind: 'epic' },
       { action: 'create_task', title: 'Task A1', kind: 'task', parent: 'Epic A' },
       { action: 'create_adr', title: 'Use SQLite', context: 'ctx', decision: 'dec' }
@@ -28,12 +30,12 @@ describe('executeModeratorActions', () => {
     expect(result.createdAdrs).toEqual([{ id: 'adr-001', filename: 'ADR-001-use-sqlite.md' }]);
     expect(result.errors).toEqual([]);
 
-    const board = await loadTaskBoard(dir);
+    const board = await loadTaskBoard(testWorkspace(dir));
     expect(board.cards.every(card => card.sourceDiscussionId === 'discussion-7')).toBe(true);
   });
 
   it('returns the last control action', async () => {
-    const result = await executeModeratorActions(dir, [
+    const result = await executeModeratorActions(testWorkspace(dir), [
       { action: 'continue', instructions: 'one more round' },
       { action: 'stop', reason: 'done' }
     ]);
@@ -43,7 +45,7 @@ describe('executeModeratorActions', () => {
   });
 
   it('returns null control when no control actions exist', async () => {
-    const result = await executeModeratorActions(dir, [
+    const result = await executeModeratorActions(testWorkspace(dir), [
       { action: 'create_task', title: 'Solo' }
     ]);
     expect(result.control).toBeNull();

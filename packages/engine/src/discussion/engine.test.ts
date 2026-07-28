@@ -2,8 +2,10 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalCliProvider } from '../providers/localCli.js';
+import { GeminiProvider } from '../providers/gemini.js';
 import { DiscussionEngine, safeDocumentSlug, stripExternalFileLinks, globToRegex } from './engine.js';
+import { testWorkspace } from '../testWorkspace.js';
+import { machineSkillContentDigest } from '../skills/machineCatalog.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -19,14 +21,11 @@ async function createWorkspaceWithAgents(agents: unknown[]): Promise<string> {
   return dir;
 }
 
-const localCliAgent = (name: string, role: string) => ({
+const apiAgent = (name: string, role: string) => ({
   name,
   role,
-  provider: 'Local CLI',
-  systemPrompt: `${name} system prompt.`,
-  cliPreset: 'claude',
-  stdinFormat: 'text',
-  permissionMode: 'safe'
+  provider: 'Gemini',
+  systemPrompt: `${name} system prompt.`
 });
 
 describe('safeDocumentSlug', () => {
@@ -67,16 +66,177 @@ describe('stripExternalFileLinks', () => {
 });
 
 describe('DiscussionEngine interrupt checkpoints', () => {
+  it('redacts provider fault details from discussion logs and events', async () => {
+    const dir = await createWorkspaceWithAgents([apiAgent('Doer', 'Developer')]);
+    const sentinel = 'provider-private-sentinel';
+    vi.spyOn(GeminiProvider.prototype, 'execute').mockRejectedValue(new Error(sentinel));
+    const events: unknown[] = [];
+    const log = await new DiscussionEngine(testWorkspace(dir)).runDiscussion(
+      'discussion-provider-fault',
+      'Provider fault',
+      'Try the provider.',
+      ['Doer'],
+      1,
+      { onEvent: event => events.push(event) }
+    );
+    expect(JSON.stringify({ log, events })).not.toContain(sentinel);
+    expect(log.messages.at(-1)?.content).toContain('Provider execution failed');
+  });
+
+  it('rejects persisted machine skills when the caller supplies no approved snapshot', async () => {
+    const dir = await createWorkspaceWithAgents([{
+      ...apiAgent('Skilled', 'Reviewer'),
+      id: 'mem_skilled',
+      skills: ['machine://codex/review']
+    }]);
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute')
+      .mockResolvedValue('Should not execute.');
+
+    await expect(new DiscussionEngine(testWorkspace(dir)).runDiscussion(
+      'discussion-missing-snapshot',
+      'Missing snapshot',
+      'Review this.',
+      ['Skilled'],
+      1
+    )).rejects.toThrow('member-bound approved snapshot');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('runs derived actions for a valid discussion artifact above the default 4 MiB read limit', async () => {
+    const dir = await createWorkspaceWithAgents([
+      apiAgent('Moderator', 'Lead Reviewer')
+    ]);
+    const workspace = testWorkspace(dir);
+    const discussionId = 'discussion-large-artifact';
+    const discussionsDir = path.join(workspace.roomRoot, 'discussions');
+    await fs.mkdir(discussionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(discussionsDir, `${discussionId}.json`),
+      JSON.stringify({
+        id: discussionId,
+        title: 'Large discussion',
+        topic: 'Review the accumulated context',
+        status: 'completed',
+        messages: [{
+          id: 'message-1',
+          type: 'user',
+          agentName: 'You',
+          providerName: 'User',
+          content: 'x'.repeat(4 * 1024 * 1024 + 128),
+          timestamp: '2026-01-01T00:00:00.000Z'
+        }],
+        sourceProvenance: {
+          mode: 'source',
+          roomId: workspace.roomId,
+          sourceId: workspace.sourceId,
+          sourceName: workspace.sourceName,
+          startedAt: '2026-01-01T00:00:00.000Z'
+        }
+      }),
+      'utf-8'
+    );
+    vi.spyOn(GeminiProvider.prototype, 'execute').mockResolvedValue(
+      'STATUS: PASS\nSUMMARY: Complete\nGAPS: None\nNEXT_ROUND_INSTRUCTIONS: None'
+    );
+
+    await expect(new DiscussionEngine(workspace).evaluateDiscussion(
+      discussionId,
+      'Moderator'
+    )).resolves.toMatchObject({ status: 'PASS' });
+  }, 15_000);
+
+  it('uses the exact derived member snapshot with Room and approved machine skills', async () => {
+    const dir = await createWorkspaceWithAgents([]);
+    const workspace = testWorkspace(dir);
+    const discussionId = 'discussion-derived-skills';
+    const agent = {
+      ...apiAgent('Duplicate', 'Lead Reviewer'),
+      id: 'mem_selected',
+      skills: ['room://skills/quality.md', 'machine://codex/quality']
+    };
+    const machineContent = '# Machine quality\nCheck the machine boundary sentinel.';
+    await fs.mkdir(path.join(workspace.roomRoot, 'skills'), { recursive: true });
+    await fs.mkdir(path.join(workspace.roomRoot, 'discussions'), { recursive: true });
+    await fs.writeFile(
+      path.join(workspace.roomRoot, 'skills', 'quality.md'),
+      '# Room quality\nCheck the Room skill sentinel.',
+      'utf-8'
+    );
+    await fs.writeFile(
+      path.join(workspace.roomRoot, 'skills', 'automatic-quality.md'),
+      '---\nalwaysApply: true\n---\n# Automatic quality\nCheck the auto-matched derived sentinel.',
+      'utf-8'
+    );
+    await fs.writeFile(
+      path.join(workspace.roomRoot, 'discussions', `${discussionId}.json`),
+      JSON.stringify({
+        id: discussionId,
+        title: 'Derived skills',
+        topic: 'Review this result',
+        status: 'completed',
+        messages: [],
+        sourceProvenance: {
+          mode: 'source',
+          roomId: workspace.roomId,
+          sourceId: workspace.sourceId,
+          sourceName: workspace.sourceName,
+          startedAt: '2026-01-01T00:00:00.000Z'
+        }
+      }),
+      'utf-8'
+    );
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute').mockResolvedValue(
+      'STATUS: PASS\nSUMMARY: Complete\nGAPS: None\nNEXT_ROUND_INSTRUCTIONS: None'
+    );
+
+    await new DiscussionEngine(workspace).evaluateDiscussion(
+      discussionId,
+      agent.name,
+      agent,
+      [{
+        memberId: agent.id,
+        provider: agent.provider,
+        reference: 'machine://codex/quality',
+        contentDigest: machineSkillContentDigest(machineContent),
+        content: machineContent
+      }]
+    );
+
+    const systemPrompt = execute.mock.calls[0][1] || '';
+    expect(systemPrompt).toContain('Check the Room skill sentinel.');
+    expect(systemPrompt).toContain('Check the auto-matched derived sentinel.');
+    expect(systemPrompt).toContain('Check the machine boundary sentinel.');
+    expect(systemPrompt).toContain('Duplicate system prompt.');
+    const runFiles = await fs.readdir(path.join(workspace.roomRoot, 'runs'));
+    const runRecords = await Promise.all(runFiles.map(async filename => JSON.parse(
+      await fs.readFile(path.join(workspace.roomRoot, 'runs', filename), 'utf-8')
+    )));
+    const moderation = runRecords.find(record => record.kind === 'moderation');
+    expect(moderation).toMatchObject({
+      status: 'completed',
+      participants: [{
+        roomId: workspace.roomId,
+        referenceKind: 'member',
+        id: agent.id,
+        name: agent.name
+      }]
+    });
+    expect(moderation.participants[0].configurationDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(moderation.participants[0].skillSnapshotDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(moderation)).not.toContain(machineContent);
+    expect(JSON.stringify(moderation)).not.toContain(agent.systemPrompt);
+  });
+
   it('stops a discussion after the current agent turn and records the pivot message', async () => {
     const dir = await createWorkspaceWithAgents([
-      localCliAgent('Doer', 'Doer'),
-      localCliAgent('Reviewer', 'Reviewer')
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
     ]);
-    vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValue('Doer output');
+    vi.spyOn(GeminiProvider.prototype, 'execute').mockResolvedValue('Doer output');
     let shouldInterrupt = false;
     const events: string[] = [];
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     const log = await engine.runDiscussion(
       'discussion-100',
       'Test discussion',
@@ -98,19 +258,19 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(log.status).toBe('interrupted');
     expect(log.messages.map(message => message.agentName)).toEqual(['You', 'Doer', 'You']);
     expect(log.messages.at(-1)?.content).toContain('Change direction now.');
-    expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
+    expect(GeminiProvider.prototype.execute).toHaveBeenCalledTimes(1);
     expect(events).toContain('discussion_interrupted');
   });
 
   it('stops a task run before reviewer execution when the user pivots after the doer turn', async () => {
     const dir = await createWorkspaceWithAgents([
-      localCliAgent('Doer', 'Doer'),
-      localCliAgent('Reviewer', 'Reviewer')
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
     ]);
-    vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValue('Doer output');
+    vi.spyOn(GeminiProvider.prototype, 'execute').mockResolvedValue('Doer output');
     let shouldInterrupt = false;
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     const result = await engine.runCodingTask(
       'task-100',
       'Test task',
@@ -132,22 +292,52 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(result.status).toBe('interrupted');
     expect(result.messages.map(message => message.agentName)).toEqual(['You', 'Doer', 'You']);
     expect(result.messages.at(-1)?.content).toContain('Pivot the task before review.');
-    expect(LocalCliProvider.prototype.execute).toHaveBeenCalledTimes(1);
+    expect(GeminiProvider.prototype.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a continuation that would overwrite and clean up its own parent task', async () => {
+    const dir = await createWorkspaceWithAgents([]);
+    const engine = new DiscussionEngine(testWorkspace(dir));
+
+    await expect(engine.runCodingTask(
+      'task-existing',
+      'Continued task',
+      'Continue the work.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general', continuedFromTaskId: 'task-existing' }
+    )).rejects.toThrow('must use a new task id');
+  });
+
+  it('rejects traversal-like continuation lineage IDs before any task files are touched', async () => {
+    const dir = await createWorkspaceWithAgents([]);
+    const engine = new DiscussionEngine(testWorkspace(dir));
+
+    await expect(engine.runCodingTask(
+      'task-child',
+      'Continued task',
+      'Continue the work.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general', continuedFromTaskId: '../room' }
+    )).rejects.toThrow('Invalid continued task id');
   });
 
   it('delivers only each task agent selected skills', async () => {
     const dir = await createWorkspaceWithAgents([
-      { ...localCliAgent('Doer', 'Doer'), skills: ['doer-guidance.md'] },
-      { ...localCliAgent('Reviewer', 'Reviewer'), skills: ['review-guidance.md'] }
+      { ...apiAgent('Doer', 'Doer'), skills: ['room://skills/doer-guidance.md'] },
+      { ...apiAgent('Reviewer', 'Reviewer'), skills: ['room://skills/review-guidance.md'] }
     ]);
     await fs.mkdir(path.join(dir, '.room', 'skills'), { recursive: true });
     await fs.writeFile(path.join(dir, '.room', 'skills', 'doer-guidance.md'), '# Doer\nApply doer-only guidance.');
     await fs.writeFile(path.join(dir, '.room', 'skills', 'review-guidance.md'), '# Review\nApply reviewer-only guidance.');
-    const execute = vi.spyOn(LocalCliProvider.prototype, 'execute')
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute')
       .mockResolvedValueOnce('Completed work.')
       .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     await engine.runCodingTask(
       'task-selected-skills',
       'Selected skill task',
@@ -164,16 +354,113 @@ describe('DiscussionEngine interrupt checkpoints', () => {
     expect(execute.mock.calls[1][1]).not.toContain('Apply doer-only guidance.');
   });
 
+  it('delivers an auto-matched Room skill to the task doer and reviewers', async () => {
+    const dir = await createWorkspaceWithAgents([
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
+    ]);
+    await fs.mkdir(path.join(dir, '.room', 'skills'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, '.room', 'skills', 'automatic-task.md'),
+      [
+        '---',
+        'triggerKeywords: ["release-notes"]',
+        '---',
+        '# Automatic task guidance',
+        'Apply the auto-matched task sentinel.'
+      ].join('\n'),
+      'utf-8'
+    );
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Completed work.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
+
+    await new DiscussionEngine(testWorkspace(dir)).runCodingTask(
+      'task-auto-matched-skill',
+      'Release notes',
+      'Prepare release-notes for the Room.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general' }
+    );
+
+    expect(execute.mock.calls[0][1]).toContain('Apply the auto-matched task sentinel.');
+    expect(execute.mock.calls[1][1]).toContain('Apply the auto-matched task sentinel.');
+  });
+
+  it('never sends canonical Room or Source paths in remote task prompts', async () => {
+    const dir = await createWorkspaceWithAgents([
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
+    ]);
+    const sourceRoot = path.join(dir, 'attached-source');
+    await fs.mkdir(sourceRoot);
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Completed work.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
+
+    await new DiscussionEngine({
+      roomId: 'room_test',
+      roomRoot: path.join(dir, '.room'),
+      sourceId: 'source_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sourceName: 'Attached Source',
+      sourceRoot
+    }).runCodingTask(
+      'task-no-path-leak',
+      'No path leak',
+      'Complete this task.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general' }
+    );
+
+    for (const [prompt] of execute.mock.calls) {
+      expect(prompt).toContain('Source "Attached Source" (source_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)');
+      expect(prompt).not.toContain(sourceRoot);
+      expect(prompt).not.toContain(path.join(dir, '.room'));
+    }
+  });
+
+  it('uses a source-less Room label instead of a local path in remote prompts', async () => {
+    const dir = await createWorkspaceWithAgents([
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
+    ]);
+    const execute = vi.spyOn(GeminiProvider.prototype, 'execute')
+      .mockResolvedValueOnce('Completed work.')
+      .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
+
+    await new DiscussionEngine({
+      roomId: 'room_test',
+      roomRoot: path.join(dir, '.room')
+    }).runCodingTask(
+      'task-room-label',
+      'Room label',
+      'Complete this source-less task.',
+      'Doer',
+      ['Reviewer'],
+      1,
+      { taskType: 'general' }
+    );
+
+    for (const [prompt] of execute.mock.calls) {
+      expect(prompt).toContain('Room room_test (no Source attached)');
+      expect(prompt).not.toContain(path.join(dir, '.room'));
+    }
+  });
+
   it('does not approve when a reviewer skips before any explicit approval', async () => {
     const dir = await createWorkspaceWithAgents([
-      localCliAgent('Doer', 'Doer'),
-      localCliAgent('Reviewer', 'Reviewer')
+      apiAgent('Doer', 'Doer'),
+      apiAgent('Reviewer', 'Reviewer')
     ]);
-    vi.spyOn(LocalCliProvider.prototype, 'execute')
+    vi.spyOn(GeminiProvider.prototype, 'execute')
       .mockResolvedValueOnce('Implementation proposal.')
       .mockResolvedValueOnce('SKIP: no remaining findings');
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     const log = await engine.runDiscussion(
       'discussion-101',
       'Review skip',
@@ -189,11 +476,11 @@ describe('DiscussionEngine interrupt checkpoints', () => {
 
   it('preserves a reviewer approval when the reviewer skips a later round', async () => {
     const dir = await createWorkspaceWithAgents([
-      localCliAgent('Doer', 'Doer'),
-      localCliAgent('ReviewerA', 'Reviewer'),
-      localCliAgent('ReviewerB', 'Reviewer')
+      apiAgent('Doer', 'Doer'),
+      apiAgent('ReviewerA', 'Reviewer'),
+      apiAgent('ReviewerB', 'Reviewer')
     ]);
-    vi.spyOn(LocalCliProvider.prototype, 'execute')
+    vi.spyOn(GeminiProvider.prototype, 'execute')
       .mockResolvedValueOnce('Implementation proposal.')
       .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.')
       .mockResolvedValueOnce('APPROVAL_STATUS: NEEDS_REVISION\nOPEN_FINDINGS: Needs one more pass.')
@@ -201,7 +488,7 @@ describe('DiscussionEngine interrupt checkpoints', () => {
       .mockResolvedValueOnce('SKIP: approval already given')
       .mockResolvedValueOnce('APPROVAL_STATUS: APPROVED\nOPEN_FINDINGS: None.');
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     const log = await engine.runDiscussion(
       'discussion-102',
       'Review skip after approval',
@@ -216,31 +503,30 @@ describe('DiscussionEngine interrupt checkpoints', () => {
       .toBe('[ReviewerA skipped this turn: approval already given]');
   });
 
-  it('passes read-only tool access to safe local CLI agents when enabled', async () => {
-    const dir = await createWorkspaceWithAgents([localCliAgent('Doer', 'Doer')]);
-    const execSpy = vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValueOnce('Answer.');
+  it('ignores persisted Local CLI members rejected by the domain boundary', async () => {
+    const dir = await createWorkspaceWithAgents([{
+      name: 'Doer',
+      role: 'Doer',
+      provider: 'Local CLI',
+      systemPrompt: 'Doer system prompt.',
+      cliPreset: 'claude',
+      permissionMode: 'safe'
+    }]);
 
-    const engine = new DiscussionEngine(dir);
-    await engine.runDiscussion('discussion-201', 'Tools on', 'Check the workspace', ['Doer'], 1, {
-      allowReadOnlyTools: true
-    });
-
-    const [, systemPrompt, execOptions] = execSpy.mock.calls[0];
-    expect(execOptions?.toolAccess).toBe('read-only');
-    expect(systemPrompt).toContain('Read-Only Tools Policy');
-    expect(systemPrompt).not.toContain('Do not inspect the workspace');
+    const engine = new DiscussionEngine(testWorkspace(dir));
+    await expect(engine.runDiscussion('discussion-201', 'Tools on', 'Check the workspace', ['Doer'], 1))
+      .rejects.toThrow('None of the requested AI members');
   });
 
-  it('keeps local CLI agents tool-free by default', async () => {
-    const dir = await createWorkspaceWithAgents([localCliAgent('Doer', 'Doer')]);
-    const execSpy = vi.spyOn(LocalCliProvider.prototype, 'execute').mockResolvedValueOnce('Answer.');
+  it('keeps API agents tool-free by default', async () => {
+    const dir = await createWorkspaceWithAgents([apiAgent('Doer', 'Doer')]);
+    const execSpy = vi.spyOn(GeminiProvider.prototype, 'execute').mockResolvedValueOnce('Answer.');
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     await engine.runDiscussion('discussion-202', 'Tools off', 'Check the workspace', ['Doer'], 1, {});
 
     const [, systemPrompt, execOptions] = execSpy.mock.calls[0];
     expect(execOptions?.toolAccess).toBe('none');
-    expect(systemPrompt).toContain('Do not inspect the workspace');
     expect(systemPrompt).not.toContain('Read-Only Tools Policy');
   });
 });
@@ -350,7 +636,7 @@ alwaysApply: true
       }
     ]);
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     // Access via a discussion run that triggers autoMatchSkills
     // We test indirectly by verifying the skill system works with the workspace
     const skillsDir = path.join(dir, '.room', 'skills');
@@ -360,7 +646,7 @@ alwaysApply: true
 
   it('does not crash on an empty skills directory', async () => {
     const dir = await createWorkspaceWithSkills([]);
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     // Engine should construct without errors even with empty skills dir
     expect(engine).toBeDefined();
   });
@@ -377,7 +663,7 @@ alwaysApply: true
       }, null, 2),
       'utf-8'
     );
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     expect(engine).toBeDefined();
   });
 
@@ -412,7 +698,7 @@ name: [bad yaml
       }
     ]);
 
-    const engine = new DiscussionEngine(dir);
+    const engine = new DiscussionEngine(testWorkspace(dir));
     expect(engine).toBeDefined();
   });
 });

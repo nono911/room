@@ -18,7 +18,6 @@ import {
   agentPersonaTemplates,
   teamPresets
 } from '../../shared/data/staticData.js';
-import type React from 'react';
 import { api } from '../../shared/ipc/client.js';
 import { buildTeamRosters } from '../../features/ai-members/lib/teamRoster.js';
 import type { DiscussionParticipantKey } from '../../features/discussions/lib/discussionSelection.js';
@@ -27,7 +26,9 @@ interface WorkspaceRoutesProps {
   activeTab: string;
   projectPath: string | null;
   activeSourceId?: string;
+  activeSourceName?: string;
   onAttachSource: () => void;
+  onScanSource: () => void;
   projectData: any;
   loading: boolean;
   agentOperationLoading: boolean;
@@ -52,7 +53,6 @@ interface WorkspaceRoutesProps {
   startEditAgent: (agent: any) => void;
   handleDeleteAgent: (agentName: string) => void;
   newAgentProvider: string;
-  newAgentPreset: any;
   newAgentModel: string;
   newAgentName: string;
   setNewAgentName: (value: string) => void;
@@ -65,17 +65,10 @@ interface WorkspaceRoutesProps {
   newAgentRole: string;
   handleRoleChange: (value: string) => void;
   setNewAgentProvider: (value: string) => void;
-  setNewAgentPreset: (value: any) => void;
-  setNewAgentPermissionMode: (value: any) => void;
   setNewAgentModelCustom: (value: boolean) => void;
   setNewAgentModel: (value: string) => void;
   setSkillPreview: (value: any) => void;
   newAgentModelCustom: boolean;
-  newAgentCommand: string;
-  setNewAgentCommand: (value: string) => void;
-  newAgentStdinFormat: any;
-  setNewAgentStdinFormat: (value: any) => void;
-  newAgentPermissionMode: any;
   newAgentSkills: string[];
   editingSkillFile: string;
   setEditingSkillFile: (value: string) => void;
@@ -121,15 +114,12 @@ interface WorkspaceRoutesProps {
   setDiscussionMaxRounds: (value: number) => void;
   discussionQualityGate: any;
   setDiscussionQualityGate: (value: any) => void;
-  discussionAllowReadOnlyTools: boolean;
-  setDiscussionAllowReadOnlyTools: React.Dispatch<React.SetStateAction<boolean>>;
   discussionModeratorName: string;
   setDiscussionModeratorName: (value: string) => void;
   discussionAutoSummary: boolean;
   setDiscussionAutoSummary: any;
   discussionSummaryAgentName: string;
   setDiscussionSummaryAgentName: (value: string) => void;
-  projectConfig: any;
   userInputTopic: string;
   setUserInputTopic: (value: string) => void;
   activeDiscussionRunId: string | null;
@@ -152,7 +142,6 @@ interface WorkspaceRoutesProps {
   applyTaskTypePreset: (value: any) => void;
   codingTaskInput: string;
   setCodingTaskInput: (value: string) => void;
-  enableTaskRunWriteAccess: () => void;
   codingTaskReviewerNames: string[];
   setCodingTaskReviewerNames: (value: string[] | ((prev: string[]) => string[])) => void;
   temporaryTaskAgents: any[];
@@ -163,8 +152,6 @@ interface WorkspaceRoutesProps {
   setSelectedCodingTaskContextRefs: (value: string[] | ((prev: string[]) => string[])) => void;
   handleRunCodingTask: () => void;
   lastCodingTaskResult: any;
-  setLastCodingTaskResult: (value: any) => void;
-  setCodingTaskMessages: (value: any[] | ((prev: any[]) => any[])) => void;
   openRounds: Record<string, boolean>;
   setOpenRounds: (value: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => void;
   expandedMsgKeys: Record<string, boolean>;
@@ -175,9 +162,9 @@ interface WorkspaceRoutesProps {
   taskInterruptPending: boolean;
   interruptActiveTaskRun: () => void;
   continueTaskRunFromPivot: () => void;
+  startNewTaskRun: () => void;
   taskRunView: any;
   setTaskRunView: (value: any) => void;
-  handleUpdateProjectConfig: any;
   contentTheme: string;
   setContentTheme: (value: string) => void;
   contentFontFamily: string;
@@ -196,7 +183,9 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     activeTab,
     projectPath,
     activeSourceId,
+    activeSourceName,
     onAttachSource,
+    onScanSource,
     projectData,
     loading,
     agentOperationLoading,
@@ -221,7 +210,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     startEditAgent,
     handleDeleteAgent,
     newAgentProvider,
-    newAgentPreset,
     newAgentModel,
     newAgentName,
     setNewAgentName,
@@ -234,17 +222,10 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     newAgentRole,
     handleRoleChange,
     setNewAgentProvider,
-    setNewAgentPreset,
-    setNewAgentPermissionMode,
     setNewAgentModelCustom,
     setNewAgentModel,
     setSkillPreview,
     newAgentModelCustom,
-    newAgentCommand,
-    setNewAgentCommand,
-    newAgentStdinFormat,
-    setNewAgentStdinFormat,
-    newAgentPermissionMode,
     newAgentSkills,
     editingSkillFile,
     setEditingSkillFile,
@@ -290,15 +271,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setDiscussionMaxRounds,
     discussionQualityGate,
     setDiscussionQualityGate,
-    discussionAllowReadOnlyTools,
-    setDiscussionAllowReadOnlyTools,
     discussionModeratorName,
     setDiscussionModeratorName,
     discussionAutoSummary,
     setDiscussionAutoSummary,
     discussionSummaryAgentName,
     setDiscussionSummaryAgentName,
-    projectConfig,
     userInputTopic,
     setUserInputTopic,
     activeDiscussionRunId,
@@ -321,7 +299,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     applyTaskTypePreset,
     codingTaskInput,
     setCodingTaskInput,
-    enableTaskRunWriteAccess,
     codingTaskReviewerNames,
     setCodingTaskReviewerNames,
     temporaryTaskAgents,
@@ -332,8 +309,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     setSelectedCodingTaskContextRefs,
     handleRunCodingTask,
     lastCodingTaskResult,
-    setLastCodingTaskResult,
-    setCodingTaskMessages,
     openRounds,
     setOpenRounds,
     expandedMsgKeys,
@@ -344,12 +319,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     taskInterruptPending,
     interruptActiveTaskRun,
     continueTaskRunFromPivot,
+    startNewTaskRun,
     taskRunView,
     setTaskRunView,
     selectedTaskCardId,
     setSelectedTaskCardId,
     setContinuedFromTaskId,
-    handleUpdateProjectConfig,
     contentTheme,
     setContentTheme,
     contentFontFamily,
@@ -384,13 +359,11 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     },
     {
       label: 'Tools',
-      value: discussionAllowReadOnlyTools ? 'Read-only enabled' : 'Agent only',
+      value: 'Agent only',
       ready: true
     }
   ];
-  const taskDeveloper = (projectData?.agents || []).find((agent: any) => agent.name === codingTaskDeveloperName);
-  const taskHasWriteAccess = taskDeveloper?.provider !== 'Local CLI' ||
-    (taskDeveloper?.permissionMode === 'dangerous' && !!projectConfig?.allowDangerousCli);
+  const taskHasWriteAccess = taskRunType !== 'coding' || Boolean(activeSourceId);
   const taskPreflight = [
     {
       label: 'Owner',
@@ -418,8 +391,10 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     return (
       <HomeScreen
         projectData={projectData}
-        activeSourceName={projectData?.room?.sources?.find((source: { id: string }) => source.id === activeSourceId)?.name}
+        activeSourceName={activeSourceName}
         onAttachSource={onAttachSource}
+        onScanSource={onScanSource}
+        scanLoading={loading}
         activeDiscussionRunId={activeDiscussionRunId}
         activeTaskRunId={activeTaskRunId}
         setActiveTab={setActiveTab}
@@ -499,15 +474,12 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setDiscussionMaxRounds={setDiscussionMaxRounds}
         discussionQualityGate={discussionQualityGate}
         setDiscussionQualityGate={setDiscussionQualityGate}
-        discussionAllowReadOnlyTools={discussionAllowReadOnlyTools}
-        setDiscussionAllowReadOnlyTools={setDiscussionAllowReadOnlyTools}
         discussionModeratorName={discussionModeratorName}
         setDiscussionModeratorName={setDiscussionModeratorName}
         discussionAutoSummary={discussionAutoSummary}
         setDiscussionAutoSummary={setDiscussionAutoSummary}
         discussionSummaryAgentName={discussionSummaryAgentName}
         setDiscussionSummaryAgentName={setDiscussionSummaryAgentName}
-        projectConfig={projectConfig}
         userInputTopic={userInputTopic}
         setUserInputTopic={setUserInputTopic}
         activeDiscussionRunId={activeDiscussionRunId}
@@ -537,6 +509,8 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         loadProjectData={loadProjectData}
         ensureTemplateSkills={ensureTemplateSkills}
         projectData={projectData}
+        activeSourceId={activeSourceId}
+        onAttachSource={onAttachSource}
         taskBoardCards={taskBoardCards}
         codingTaskMessages={codingTaskMessages}
         codingTaskDeveloperName={codingTaskDeveloperName}
@@ -546,8 +520,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         taskTypeOptions={taskTypeOptions}
         codingTaskInput={codingTaskInput}
         setCodingTaskInput={setCodingTaskInput}
-        projectConfig={projectConfig}
-        enableTaskRunWriteAccess={enableTaskRunWriteAccess}
         codingTaskReviewerNames={codingTaskReviewerNames}
         setCodingTaskReviewerNames={setCodingTaskReviewerNames}
         temporaryTaskAgents={temporaryTaskAgents}
@@ -562,8 +534,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         getContextLabel={getContextLabel}
         handleRunCodingTask={handleRunCodingTask}
         lastCodingTaskResult={lastCodingTaskResult}
-        setLastCodingTaskResult={setLastCodingTaskResult}
-        setCodingTaskMessages={setCodingTaskMessages}
         openRounds={openRounds}
         setOpenRounds={setOpenRounds}
         expandedMsgKeys={expandedMsgKeys}
@@ -574,6 +544,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         taskInterruptPending={taskInterruptPending}
         interruptActiveTaskRun={interruptActiveTaskRun}
         continueTaskRunFromPivot={continueTaskRunFromPivot}
+        startNewTaskRun={startNewTaskRun}
         scrollToDiscussionMessage={scrollToDiscussionMessage}
         setActiveTab={setActiveTab}
         loadRoomFilePreview={loadRoomFilePreview}
@@ -582,6 +553,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         setTaskRunView={setTaskRunView}
         selectedTaskCardId={selectedTaskCardId}
         setSelectedTaskCardId={setSelectedTaskCardId}
+        setContinuedFromTaskId={setContinuedFromTaskId}
         />
       </RunComposerFrame>
     );
@@ -649,7 +621,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         activeTab={activeTab}
         projectData={projectData}
         newAgentProvider={newAgentProvider}
-        newAgentPreset={newAgentPreset}
         newAgentModel={newAgentModel}
         newAgentName={newAgentName}
         setNewAgentName={setNewAgentName}
@@ -670,17 +641,10 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         newAgentRole={newAgentRole}
         handleRoleChange={handleRoleChange}
         setNewAgentProvider={setNewAgentProvider}
-        setNewAgentPreset={setNewAgentPreset}
-        setNewAgentPermissionMode={setNewAgentPermissionMode}
         setNewAgentModelCustom={setNewAgentModelCustom}
         setNewAgentModel={setNewAgentModel}
         setSkillPreview={setSkillPreview}
         newAgentModelCustom={newAgentModelCustom}
-        newAgentCommand={newAgentCommand}
-        setNewAgentCommand={setNewAgentCommand}
-        newAgentStdinFormat={newAgentStdinFormat}
-        setNewAgentStdinFormat={setNewAgentStdinFormat}
-        newAgentPermissionMode={newAgentPermissionMode}
         newAgentSkills={newAgentSkills}
         editingSkillFile={editingSkillFile}
         setEditingSkillFile={setEditingSkillFile}
@@ -790,8 +754,6 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     return (
       <SettingsScreen
         loading={loading}
-        projectConfig={projectConfig}
-        handleUpdateProjectConfig={handleUpdateProjectConfig}
         contentTheme={contentTheme}
         setContentTheme={setContentTheme}
         contentFontFamily={contentFontFamily}

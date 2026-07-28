@@ -14,6 +14,9 @@ const {
 }));
 
 vi.mock('electron', () => ({
+  BrowserWindow: {
+    fromWebContents: vi.fn(() => null)
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: any[]) => Promise<unknown>) => {
       ipcHandlers.set(channel, handler);

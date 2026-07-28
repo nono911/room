@@ -1,12 +1,9 @@
-import React, { useEffect } from 'react';
-import type { ProjectConfigState } from '../../../types/domain.js';
+import React from 'react';
 import { useProviders } from '../context/ProvidersContext.js';
 import { PROVIDER_PRESETS } from '../../../shared/data/staticData.js';
 
 interface SettingsScreenProps {
   loading: boolean;
-  projectConfig: ProjectConfigState;
-  handleUpdateProjectConfig: (key: keyof ProjectConfigState, value: any) => void;
   contentTheme: string;
   setContentTheme: (theme: string) => void;
   contentFontFamily: string;
@@ -20,8 +17,6 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   loading,
-  projectConfig,
-  handleUpdateProjectConfig,
   contentTheme,
   setContentTheme,
   contentFontFamily,
@@ -34,7 +29,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 }) => {
   const {
     providers,
-    detectedClis,
     providerKeyDrafts,
     setProviderKeyDrafts,
     providerTestResults,
@@ -46,21 +40,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     handleClearProviderKey,
     handleAddProvider,
     handleDeleteProvider,
-    handleTestProvider,
-    getModelOptions,
-    fetchModelsForProvider
+    handleTestProvider
   } = useProviders();
-
-  useEffect(() => {
-    if (projectConfig.mainAgent && projectConfig.mainAgent !== 'none') {
-      fetchModelsForProvider('Local CLI', projectConfig.mainAgent);
-    }
-  }, [projectConfig.mainAgent]);
-
-  const detectedClisOptions = detectedClis.filter(c => c.available);
-  const modelOptions = projectConfig.mainAgent !== 'none'
-    ? getModelOptions('Local CLI', projectConfig.mainAgent)
-    : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', paddingBottom: '40px' }}>
@@ -180,64 +161,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         )}
       </div>
 
-      {/* Section 1: Workspace Agent Settings */}
+      {/* Section 1: Room execution settings */}
       <div className="focus-editor-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'hsl(var(--accent-purple))', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-          Source Scanner Defaults
+          Source Scanner
         </h4>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-secondary))' }}>Scanner Agent</label>
-            <select
-              className="form-select"
-              value={projectConfig.mainAgent}
-              onChange={(e) => handleUpdateProjectConfig('mainAgent', e.target.value)}
-              style={{ width: '100%' }}
-            >
-              <option value="none">None (Use Static Scanner only)</option>
-              {detectedClisOptions.map(cli => (
-                <option key={cli.id} value={cli.id}>{cli.name} ({cli.version || 'installed'})</option>
-              ))}
-              {detectedClisOptions.length === 0 && (
-                <option value="claude" disabled>Claude Code (Not detected)</option>
-              )}
-            </select>
-            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>Runs ADR mapping and AI-assisted repository scanning.</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-secondary))' }}>Scanner Model Override</label>
-            <select
-              className="form-select"
-              value={projectConfig.modelName || ''}
-              onChange={(e) => handleUpdateProjectConfig('modelName', e.target.value)}
-              style={{ width: '100%' }}
-              disabled={projectConfig.mainAgent === 'none'}
-            >
-              <option value="">Default CLI Model</option>
-              {modelOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>Specific model ID to use when scan runs.</span>
-          </div>
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>
-          <input
-            type="checkbox"
-            disabled={projectConfig.mainAgent === 'none'}
-            checked={!!projectConfig.allowDangerousCli}
-            onChange={(e) => handleUpdateProjectConfig('allowDangerousCli', e.target.checked)}
-          />
-          <span>
-            <span style={{ fontWeight: 600, color: 'hsl(var(--text-primary))' }}>Enable dangerous Source CLI permissions</span>
-            <span style={{ color: 'hsl(var(--text-muted))' }}> for scan and Local CLI execution</span>
-          </span>
-        </label>
-        <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', marginTop: '-14px' }}>
-          Safe mode is default. Enabling this grants elevated Local CLI behaviors (file writes, tools, networking) to the active Source scanner.
-        </span>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'hsl(var(--text-muted))', lineHeight: 1.6 }}>
+          ROOM uses its deterministic, read-only scanner for the active Source. Local CLI scanners stay disabled until ROOM can confine reads to the Source at the operating-system boundary.
+        </p>
       </div>
 
       {/* Section 2: Custom Visual Theme (Entire App) */}

@@ -10,7 +10,6 @@ import { useContextPicker } from '../shared/hooks/useContextPicker.js';
 import { useContextSets } from '../shared/hooks/useContextSets.js';
 import { useOnboarding } from '../shared/hooks/useOnboarding.js';
 import { useContentSettings } from '../shared/hooks/useContentSettings.js';
-import { useProjectSettings } from '../features/providers/useProjectSettings.js';
 import { useRoomFilePreview } from './hooks/useRoomFilePreview.js';
 import { useSetupGuidance } from './hooks/useSetupGuidance.js';
 import { useWorkspaceData } from './hooks/useWorkspaceData.js';
@@ -93,12 +92,6 @@ export default function App() {
 
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
   const {
-    projectConfig,
-    setProjectConfig,
-    loadProjectConfig,
-    handleUpdateProjectConfig
-  } = useProjectSettings({ projectPath });
-  const {
     contentTheme, setContentTheme,
     contentFontFamily, setContentFontFamily,
     contentFontSize, setContentFontSize,
@@ -125,6 +118,7 @@ export default function App() {
     interruptActiveTaskRun,
     continueTaskRunFromPivot,
     applyTaskTypePreset,
+    startNewTaskRun,
     selectedTaskCardId,
     setSelectedTaskCardId,
     setContinuedFromTaskId
@@ -157,7 +151,6 @@ export default function App() {
     discussionReviewMode, setDiscussionReviewMode,
     discussionMaxRounds, setDiscussionMaxRounds,
     discussionQualityGate, setDiscussionQualityGate,
-    discussionAllowReadOnlyTools, setDiscussionAllowReadOnlyTools,
     discussionModeratorName, setDiscussionModeratorName,
     discussionAutoSummary, setDiscussionAutoSummary,
     discussionSummaryAgentName, setDiscussionSummaryAgentName,
@@ -175,7 +168,6 @@ export default function App() {
     selectDefaultDiscussionAgents,
     scrollToDiscussionMessage,
     startNewDiscussion,
-    loadTaskBoardCards,
     loadDiscussionSession,
     saveDiscussionOutput,
     summarizeActiveDiscussion,
@@ -253,8 +245,7 @@ export default function App() {
   } = useWorkspaceData({
     setProjectData,
     setHasCompletedScan,
-    loadProjectConfig: (pathStr: string) => loadProjectConfig(pathStr),
-    loadTaskBoardCards: (pathStr: string) => loadTaskBoardCards(pathStr),
+    setTaskBoardCards,
     selectDefaultDiscussionAgents: (agents: any[]) => selectDefaultDiscussionAgents(agents),
     setCodingTaskDeveloperName,
     setCodingTaskReviewerNames,
@@ -266,9 +257,7 @@ export default function App() {
     const messages = [
       'Scanning Source files and detecting structure...',
       'Updating the Room overview and Source structure...',
-      projectConfig.mainAgent && projectConfig.mainAgent !== 'none'
-        ? 'Running the configured scanner agent to enrich the Room overview...'
-        : 'Refreshing Room metadata...'
+      'Refreshing Room metadata...'
     ];
     setScanStatus(messages[0]);
     const interval = window.setInterval(() => {
@@ -277,7 +266,7 @@ export default function App() {
       setScanStatus(messages[index]);
     }, 500);
     return () => window.clearInterval(interval);
-  }, [scanStartedAt, projectConfig.mainAgent]);
+  }, [scanStartedAt]);
 
   useEffect(() => {
     if (projectPath && isRoomProject) {
@@ -311,18 +300,10 @@ export default function App() {
     setNewAgentRole,
     newAgentProvider,
     setNewAgentProvider,
-    newAgentCommand,
-    setNewAgentCommand,
     newAgentPrompt,
     setNewAgentPrompt,
     newAgentSkills,
     setNewAgentSkills,
-    newAgentPreset,
-    setNewAgentPreset,
-    newAgentStdinFormat,
-    setNewAgentStdinFormat,
-    newAgentPermissionMode,
-    setNewAgentPermissionMode,
     editingAgent,
     customSkillName,
     setCustomSkillName,
@@ -370,9 +351,11 @@ export default function App() {
     setErrorMsg
   });
 
-  /*
   const triggerScan = async () => {
-    if (!projectPath) return;
+    if (!projectPath || !activeSourceId) {
+      setErrorMsg('Attach and activate a Source before scanning.');
+      return;
+    }
     const finishScanStatus = (message: string) => {
       setScanStartedAt(null);
       setScanStatus(message);
@@ -383,55 +366,25 @@ export default function App() {
     setLoading(true);
     setErrorMsg(null);
     setScanStartedAt(Date.now());
-    setScanStatus('Starting repository scan...');
+    setScanStatus('Starting Source scan...');
     try {
-      const res = await api.runScan(projectPath, projectConfig.mainAgent, projectConfig.modelName, !!projectConfig.allowDangerousCli);
+      const res = await api.runScan(projectPath, activeSourceId);
       if (!res.success) {
         finishScanStatus('Scan failed.');
         setErrorMsg(res.error || 'Scan failed.');
         return;
       }
       setScanStatus('Refreshing Room data...');
-      localStorage.setItem(`room_scan_completed:${projectPath}`, new Date().toISOString());
+      localStorage.setItem(
+        `room_scan_completed:${projectPath}:${activeSourceId}`,
+        new Date().toISOString()
+      );
       setHasCompletedScan(true);
       await loadProjectData(projectPath);
       finishScanStatus('Scan complete. Room context is up to date.');
     } catch (err: any) {
       finishScanStatus('Scan failed.');
       setErrorMsg(err.message || 'Scan failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  */
-
-  const enableTaskRunWriteAccess = async () => {
-    if (!projectPath || !codingTaskDeveloperName) return;
-    const developer = (projectData?.agents || []).find((agent: any) => agent.name === codingTaskDeveloperName);
-    if (!developer || developer.provider !== 'Local CLI') return;
-
-    const confirmed = window.confirm('Allow this Local CLI Developer to write in the active Source for coding tasks? This enables dangerous permissions for the selected AI member and Source.');
-    if (!confirmed) return;
-
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const nextProjectConfig = { ...projectConfig, allowDangerousCli: true };
-      setProjectConfig(nextProjectConfig);
-      await api.saveProjectConfig(projectPath, nextProjectConfig);
-
-      const res = await api.saveAgent(projectPath, {
-        ...developer,
-        permissionMode: 'dangerous'
-      });
-      if (!res.success) {
-        setErrorMsg(res.error || 'Failed to enable write access for this Developer.');
-        return;
-      }
-
-      await loadProjectData(projectPath);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to enable write access for this Developer.');
     } finally {
       setLoading(false);
     }
@@ -544,7 +497,9 @@ export default function App() {
                 activeTab={activeTab}
                 projectPath={projectPath}
                 activeSourceId={activeSourceId}
+                activeSourceName={activeSource?.name}
                 onAttachSource={() => void handleOpenProject()}
+                onScanSource={() => void triggerScan()}
                 projectData={projectData}
                 loading={loading}
                 agentOperationLoading={agentOperationLoading}
@@ -571,7 +526,6 @@ export default function App() {
                 startEditAgent={startEditAgent}
                 handleDeleteAgent={handleDeleteAgent}
                 newAgentProvider={newAgentProvider}
-                newAgentPreset={newAgentPreset}
                 newAgentModel={newAgentModel}
                 newAgentName={newAgentName}
                 setNewAgentName={setNewAgentName}
@@ -584,17 +538,10 @@ export default function App() {
                 newAgentRole={newAgentRole}
                 handleRoleChange={handleRoleChange}
                 setNewAgentProvider={setNewAgentProvider}
-                setNewAgentPreset={setNewAgentPreset}
-                setNewAgentPermissionMode={setNewAgentPermissionMode}
                 setNewAgentModelCustom={setNewAgentModelCustom}
                 setNewAgentModel={setNewAgentModel}
                 setSkillPreview={setSkillPreview}
                 newAgentModelCustom={newAgentModelCustom}
-                newAgentCommand={newAgentCommand}
-                setNewAgentCommand={setNewAgentCommand}
-                newAgentStdinFormat={newAgentStdinFormat}
-                setNewAgentStdinFormat={setNewAgentStdinFormat}
-                newAgentPermissionMode={newAgentPermissionMode}
                 newAgentSkills={newAgentSkills}
                 editingSkillFile={editingSkillFile}
                 setEditingSkillFile={setEditingSkillFile}
@@ -640,15 +587,12 @@ export default function App() {
                 setDiscussionMaxRounds={setDiscussionMaxRounds}
                 discussionQualityGate={discussionQualityGate}
                 setDiscussionQualityGate={setDiscussionQualityGate}
-                discussionAllowReadOnlyTools={discussionAllowReadOnlyTools}
-                setDiscussionAllowReadOnlyTools={setDiscussionAllowReadOnlyTools}
                 discussionModeratorName={discussionModeratorName}
                 setDiscussionModeratorName={setDiscussionModeratorName}
                 discussionAutoSummary={discussionAutoSummary}
                 setDiscussionAutoSummary={setDiscussionAutoSummary}
                 discussionSummaryAgentName={discussionSummaryAgentName}
                 setDiscussionSummaryAgentName={setDiscussionSummaryAgentName}
-                projectConfig={projectConfig}
                 userInputTopic={userInputTopic}
                 setUserInputTopic={setUserInputTopic}
                 activeDiscussionRunId={activeDiscussionRunId}
@@ -671,7 +615,6 @@ export default function App() {
                 applyTaskTypePreset={applyTaskTypePreset}
                 codingTaskInput={codingTaskInput}
                 setCodingTaskInput={setCodingTaskInput}
-                enableTaskRunWriteAccess={enableTaskRunWriteAccess}
                 codingTaskReviewerNames={codingTaskReviewerNames}
                 setCodingTaskReviewerNames={setCodingTaskReviewerNames}
                 temporaryTaskAgents={temporaryTaskAgents}
@@ -682,8 +625,6 @@ export default function App() {
                 setSelectedCodingTaskContextRefs={setSelectedCodingTaskContextRefs}
                 handleRunCodingTask={handleRunCodingTask}
                 lastCodingTaskResult={lastCodingTaskResult}
-                setLastCodingTaskResult={setLastCodingTaskResult}
-                setCodingTaskMessages={setCodingTaskMessages}
                 openRounds={openRounds}
                 setOpenRounds={setOpenRounds}
                 expandedMsgKeys={expandedMsgKeys}
@@ -694,12 +635,12 @@ export default function App() {
                 taskInterruptPending={taskInterruptPending}
                 interruptActiveTaskRun={interruptActiveTaskRun}
                 continueTaskRunFromPivot={continueTaskRunFromPivot}
+                startNewTaskRun={startNewTaskRun}
                 taskRunView={taskRunView}
                 setTaskRunView={setTaskRunView}
                 selectedTaskCardId={selectedTaskCardId}
                 setSelectedTaskCardId={setSelectedTaskCardId}
                 setContinuedFromTaskId={setContinuedFromTaskId}
-                handleUpdateProjectConfig={handleUpdateProjectConfig}
                 contentTheme={contentTheme}
                 setContentTheme={setContentTheme}
                 contentFontFamily={contentFontFamily}

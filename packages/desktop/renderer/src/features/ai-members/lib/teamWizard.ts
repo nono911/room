@@ -151,13 +151,12 @@ export function buildGeneratedDrafts(
 }
 
 export function buildProviderOptions(): Array<{ id: string; label: string }> {
-  const ids = ['gemini', 'anthropic', 'openai', ...PROVIDER_PRESETS.map(provider => provider.id), 'Local CLI'];
+  const ids = ['gemini', 'anthropic', 'openai', ...PROVIDER_PRESETS.map(provider => provider.id)];
   return Array.from(new Set(ids)).map(id => ({
     id,
     label:
       id === 'anthropic' ? 'Claude / Anthropic' :
       id === 'openai' ? 'OpenAI' :
-      id === 'Local CLI' ? 'Local CLI' :
       id.charAt(0).toUpperCase() + id.slice(1)
   }));
 }

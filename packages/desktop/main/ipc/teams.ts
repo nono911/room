@@ -10,6 +10,10 @@ import {
   updateTeamMembers
 } from './team-store.js';
 import type { SkillDraft } from './team-store.js';
+import * as path from 'path';
+import { assertJsonBytes, IPC_LIMITS } from './ipc-limits.js';
+import { hasMachineSkillAssignment } from './machine-skill-grants.js';
+import { toPublicError } from './public-error.js';
 
 function serializeTeamStoreError(
   error: unknown
@@ -17,14 +21,14 @@ function serializeTeamStoreError(
   if (error instanceof TeamStoreTransactionError) {
     return {
       success: false,
-      error: error.message,
-      rollbackWarnings: error.rollbackWarnings
+      error: toPublicError(error, 'ROOM could not save the team transaction.'),
+      rollbackWarnings: error.rollbackWarnings.map(warning => path.basename(warning))
     };
   }
 
   return {
     success: false,
-    error: error instanceof Error ? error.message : String(error)
+    error: toPublicError(error)
   };
 }
 
@@ -44,6 +48,9 @@ function readTransactionArrayField(
         : 'Transaction field "skillDrafts" must be an array when provided.'
     };
   }
+  if (value.length > 64) {
+    return { success: false, error: `Transaction field "${fieldName}" exceeds 64 items.` };
+  }
   return { success: true, value };
 }
 
@@ -52,7 +59,14 @@ export function registerTeamsIpc(): void {
     try {
       const projectRoot = requireProjectRootForTeams(roomId);
       const result = await loadTeamsWithDiagnostics(projectRoot);
-      return { success: true, teams: result.teams, diagnostics: result.diagnostics };
+      return {
+        success: true,
+        teams: result.teams,
+        diagnostics: result.diagnostics.map(item => ({
+          source: path.basename(item.filePath),
+          message: 'Team configuration could not be loaded.'
+        }))
+      };
     } catch (error) {
       return serializeTeamStoreError(error);
     }
@@ -60,6 +74,7 @@ export function registerTeamsIpc(): void {
 
   ipcMain.handle('save-team', async (_event, { roomId, team }: { roomId: string; team: unknown }) => {
     try {
+      assertJsonBytes(team, 'Team payload', IPC_LIMITS.teamPayloadBytes);
       const projectRoot = requireProjectRootForTeams(roomId);
       return { success: true, team: await saveTeam(projectRoot, team) };
     } catch (error) {
@@ -81,6 +96,7 @@ export function registerTeamsIpc(): void {
     'update-team-members',
     async (_event, { roomId, teamId, memberIds }: { roomId: string; teamId: string; memberIds: unknown }) => {
       try {
+        assertJsonBytes(memberIds, 'Team member update', IPC_LIMITS.teamPayloadBytes);
         const projectRoot = requireProjectRootForTeams(roomId);
         return { success: true, team: await updateTeamMembers(projectRoot, teamId, memberIds) };
       } catch (error) {
@@ -106,9 +122,20 @@ export function registerTeamsIpc(): void {
       }
     ) => {
       try {
+        assertJsonBytes(
+          { team, members, skillDrafts },
+          'Team transaction',
+          IPC_LIMITS.teamPayloadBytes
+        );
         const parsedMembers = readTransactionArrayField(members, 'members');
         if (!parsedMembers.success) {
           return { success: false, error: parsedMembers.error };
+        }
+        if (hasMachineSkillAssignment(parsedMembers.value)) {
+          return {
+            success: false,
+            error: 'Assign machine skills from the AI member editor so ROOM can request native approval.'
+          };
         }
         const parsedSkillDrafts = readTransactionArrayField(skillDrafts, 'skillDrafts', { optional: true });
         if (!parsedSkillDrafts.success) {
@@ -147,9 +174,20 @@ export function registerTeamsIpc(): void {
       }
     ) => {
       try {
+        assertJsonBytes(
+          { members, skillDrafts },
+          'Team transaction',
+          IPC_LIMITS.teamPayloadBytes
+        );
         const parsedMembers = readTransactionArrayField(members, 'members');
         if (!parsedMembers.success) {
           return { success: false, error: parsedMembers.error };
+        }
+        if (hasMachineSkillAssignment(parsedMembers.value)) {
+          return {
+            success: false,
+            error: 'Assign machine skills from the AI member editor so ROOM can request native approval.'
+          };
         }
         const parsedSkillDrafts = readTransactionArrayField(skillDrafts, 'skillDrafts', { optional: true });
         if (!parsedSkillDrafts.success) {

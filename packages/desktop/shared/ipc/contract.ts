@@ -6,9 +6,16 @@ import type {
   MachineSkillSummary,
   MaskedProvider,
   MemberTeam,
+  ModeratorAction,
+  RendererDiscussionLog,
+  RendererTaskResult,
+  RoomArtifactSection,
+  RoomListPageState,
   RoomSummary,
   SkillPreviewResult,
+  SourceGitStatus,
   TaskBoardCard,
+  TaskRunSummary,
   WorkspaceFileEntry,
   WorkspaceFilePreview
 } from '../types/domain.js';
@@ -45,16 +52,38 @@ export interface ElectronAPI {
     hasScanData?: boolean;
     workspaceDiagnostics?: Array<{ source: string; message: string }>;
     tasks?: string[];
-    taskRuns?: unknown[];
+    taskRuns?: Array<string | TaskRunSummary>;
     decisions?: string[];
     reviews?: string[];
     documents?: string[];
     discussions?: string[];
     skills?: string[];
     machineSkills?: MachineSkillSummary[];
+    machineSkillsTruncated?: boolean;
     agents?: unknown[];
     teams?: MemberTeam[];
     unassignedMemberIds?: string[];
+    artifactListPagination?: Partial<Record<RoomArtifactSection, RoomListPageState>>;
+    taskRunPagination?: RoomListPageState;
+  }>;
+  listRoomArtifacts: (
+    roomId: string,
+    section: RoomArtifactSection,
+    cursor?: string
+  ) => Promise<Result & {
+    files?: string[];
+    nextCursor?: string;
+    hasMore?: boolean;
+    truncated?: boolean;
+  }>;
+  listRoomTaskRuns: (
+    roomId: string,
+    cursor?: string
+  ) => Promise<Result & {
+    taskRuns?: TaskRunSummary[];
+    nextCursor?: string;
+    hasMore?: boolean;
+    truncated?: boolean;
   }>;
   readRoomFile: (
     roomId: string,
@@ -81,55 +110,60 @@ export interface ElectronAPI {
     sourceId: string,
     filePath: string
   ) => Promise<Result & { content?: string; preview?: WorkspaceFilePreview }>;
-  revealWorkspaceFile: (roomId: string, sourceId: string, filePath: string) => Promise<Result>;
+  getSourceGitStatus: (
+    roomId: string,
+    sourceId: string
+  ) => Promise<Result & { git?: SourceGitStatus }>;
   loadContextSets: (roomId: string) => Promise<Result & { contextSets?: ContextSet[] }>;
   saveContextSets: (roomId: string, contextSets: ContextSet[]) => Promise<Result>;
   runScan: (
     roomId: string,
-    sourceId: string,
-    mainAgent?: string,
-    modelName?: string,
-    allowDangerousCli?: boolean
+    sourceId: string
   ) => Promise<Result & { message?: string }>;
   runDiscussion: (
     roomId: string,
     topic: string,
-    agentNames?: string[],
+    participantRefs?: string[],
     options?: RunOptions & {
       maxRounds?: number;
       reviewMode?: boolean;
-      allowReadOnlyTools?: boolean;
       discussionId?: string;
       qualityGate?: boolean;
-      moderatorName?: string;
+      moderatorRef?: string;
       autoSummary?: boolean;
-      summaryAgentName?: string;
-      useProjectSummaryAgent?: boolean;
+      summaryAgentRef?: string;
     }
-  ) => Promise<Result & { log?: any; summary?: { filename: string; content: string }; moderatorActions?: any[] }>;
+  ) => Promise<Result & {
+    log?: RendererDiscussionLog;
+    summary?: { filename: string; content: string };
+    moderatorActions?: ModeratorAction[];
+  }>;
   runTask: (
     roomId: string,
     task: string,
     options?: RunOptions & {
       taskType?: string;
-      doerName?: string;
-      reviewerNames?: string[];
+      doerRef?: string;
+      reviewerRefs?: string[];
       maxCycles?: number;
       associatedCardId?: string;
       continuedFromTaskId?: string;
-      taskId?: string;
     }
-  ) => Promise<Result & { result?: any }>;
-  interruptRun: (runId: string, message: string) => Promise<Result>;
+  ) => Promise<Result & { result?: RendererTaskResult }>;
+  interruptRun: (roomId: string, runId: string, message: string) => Promise<Result>;
   summarizeDiscussion: (
     roomId: string,
     discussionId: string,
-    options?: { sourceId?: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }
+    options?: {
+      participantRefs?: string[];
+      summaryAgentRef?: string;
+      temporaryAgents?: TemporaryAgentPayload[];
+    }
   ) => Promise<Result & { filename?: string; content?: string }>;
   generateTasksFromDiscussion: (
     roomId: string,
     discussionId: string,
-    options?: { sourceId?: string; moderatorName?: string }
+    options?: { moderatorRef?: string }
   ) => Promise<Result & { createdTaskCards?: TaskBoardCard[]; errors?: string[] }>;
   loadTaskBoard: (roomId: string) => Promise<Result & { cards?: TaskBoardCard[] }>;
   onDiscussionEvent: (callback: (event: DiscussionIpcEvent) => void) => () => void;
@@ -153,17 +187,19 @@ export interface ElectronAPI {
     members: unknown[],
     skillDrafts?: Array<{ name: string; content: string }>
   ) => Promise<Result & { team?: MemberTeam; members?: any[]; rollbackWarnings?: string[] }>;
-  saveSkill: (roomId: string, name: string, content: string, source?: 'skills' | 'roles') => Promise<Result>;
+  saveSkill: (
+    roomId: string,
+    name: string,
+    content: string,
+    source?: 'skills' | 'roles'
+  ) => Promise<Result & { reference?: string }>;
   previewAgentSkills: (roomId: string, agent: any) => Promise<Result & Partial<SkillPreviewResult>>;
   detectLocalAgents: () => Promise<Result & { agents?: DetectedAgent[] }>;
   loadProviders: () => Promise<Result & { providers?: MaskedProvider[] }>;
   saveProvider: (provider: { id: string; label?: string; baseUrl?: string; apiKey?: string | null }) => Promise<Result & { providers?: MaskedProvider[] }>;
   deleteProvider: (providerId: string) => Promise<Result & { providers?: MaskedProvider[] }>;
   testProvider: (providerId: string) => Promise<Result & { message?: string }>;
-  detectCliModels: (cliId: string) => Promise<Result & { models?: Array<{ value: string; label: string }> }>;
   detectApiModels: (providerId: string) => Promise<Result & { models?: Array<{ value: string; label: string }> }>;
   loadMcpConfig: (roomId: string) => Promise<Result & { config?: any }>;
   saveMcpConfig: (roomId: string, config: any) => Promise<Result>;
-  loadProjectConfig: (roomId: string) => Promise<Result & { config?: any }>;
-  saveProjectConfig: (roomId: string, config: any) => Promise<Result>;
 }

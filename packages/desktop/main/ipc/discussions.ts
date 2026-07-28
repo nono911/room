@@ -1,175 +1,167 @@
 import { ipcMain } from 'electron';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import { DiscussionEngine, loadAgents, type AgentConfig } from '@room/engine';
 import {
-  DISCUSSION_CONTEXT_FILE_LIMIT_BYTES, DISCUSSION_CONTEXT_TOTAL_LIMIT,
-  normalizeTemporaryAgents,
-  createSourceProvenance, requireBoundRoom, requireBoundWorkspace, resolveCanonicalWithinProject,
-  resolveWithinProject, resolveWithinRoomData,
-  sanitizeFileName, sanitizeWorkspaceRelativePath, readFirstExistingFile,
+  createDiscussionRunId,
+  DiscussionEngine,
+  isDiscussionRunId,
+  loadAgents,
+  MAX_RUN_ARTIFACT_BYTES,
+  readRoomTextFile,
+  snapshotRoomSkills
+} from '@room/engine';
+import {
+  createSourceProvenance,
+  requireBoundRoom,
+  requireBoundRoomWorkspace,
+  requireBoundSource,
+  requireBoundWorkspace
 } from './shared.js';
-import { readProjectConfigFromDisk, type ProjectConfig } from './config-store.js';
-import { readProvidersFromDisk, applyApiKeysToEnvironment } from './provider-store.js';
-import { finishControlledRun, getRunInterruptMessage, startControlledRun } from './run-control.js';
-
-function normalizeContextRef(rawRef: unknown): string | null {
-  if (typeof rawRef !== 'string') return null;
-  const ref = rawRef.trim();
-  if (!ref) return null;
-  return ref;
-}
-
-async function readTextFileWithLimitLocal(filePath: string, maxBytes: number): Promise<string> {
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) {
-    throw new Error('Selected item is not a file.');
-  }
-  if (stat.size > maxBytes) {
-    throw new Error('File is too large to include as discussion context.');
-  }
-
-  const buffer = await fs.readFile(filePath);
-  if (buffer.includes(0)) {
-    throw new Error('Binary files cannot be included as discussion context.');
-  }
-  return buffer.toString('utf-8');
-}
-
-async function buildDiscussionContext(
-  roomId: string,
-  sourceRoot: string | undefined,
-  rawRefs: unknown
-): Promise<string> {
-  if (!Array.isArray(rawRefs)) return '';
-
-  const sections: string[] = [];
-  let totalBytes = 0;
-
-  for (const rawRef of rawRefs) {
-    const ref = normalizeContextRef(rawRef);
-    if (!ref) continue;
-
-    let label = ref;
-    let content = '';
-    try {
-      if (ref === 'workspace:overview') {
-        continue;
-      } else if (ref === 'workspace:structure') {
-        continue;
-      } else if (ref.startsWith('file:')) {
-        const relPath = sanitizeWorkspaceRelativePath(ref.slice('file:'.length));
-        label = `Source File: ${relPath}`;
-        const selectedPath = relPath.startsWith('.room/')
-          ? resolveWithinRoomData(roomId, relPath.slice('.room/'.length))
-          : sourceRoot
-            ? await resolveCanonicalWithinProject(sourceRoot, relPath)
-            : (() => { throw new Error('Attach a Source to include source files.'); })();
-        content = await readTextFileWithLimitLocal(
-          selectedPath,
-          DISCUSSION_CONTEXT_FILE_LIMIT_BYTES
-        );
-      } else if (ref.startsWith('document:')) {
-        const filename = sanitizeFileName(ref.slice('document:'.length));
-        label = `Document: ${filename}`;
-        content = await readFirstExistingFile([
-          resolveWithinRoomData(roomId, 'documents', filename),
-          resolveWithinRoomData(roomId, 'reviews', filename),
-          resolveWithinRoomData(roomId, 'decisions', filename)
-        ]);
-      } else if (ref.startsWith('task:')) {
-        const filename = sanitizeFileName(ref.slice('task:'.length));
-        label = `Task: ${filename}`;
-        content = await readFirstExistingFile([
-          resolveWithinRoomData(roomId, 'tasks', filename)
-        ]);
-      } else if (ref.startsWith('discussion:')) {
-        const filename = sanitizeFileName(ref.slice('discussion:'.length));
-        if (!filename.toLowerCase().endsWith('.md')) {
-          throw new Error('Only markdown discussion transcripts can be included as context.');
-        }
-        label = `Previous Discussion: ${filename}`;
-        content = await readFirstExistingFile([
-          resolveWithinRoomData(roomId, 'discussions', filename)
-        ]);
-      }
-    } catch (error: any) {
-      content = `[Unable to include context: ${error.message}]`;
-    }
-
-    if (!content.trim()) continue;
-
-    const section = `\n\n---\n## ${label}\n\n${content.trim()}`;
-    totalBytes += Buffer.byteLength(section, 'utf-8');
-    if (totalBytes > DISCUSSION_CONTEXT_TOTAL_LIMIT) {
-      sections.push('\n\n---\n## Context Limit\n\nAdditional selected context was omitted because the context bundle reached the size limit.');
-      break;
-    }
-    sections.push(section);
-  }
-
-  return sections.join('');
-}
-
-function createProjectSummaryAgent(projectConfig: ProjectConfig): AgentConfig | undefined {
-  if (!projectConfig.mainAgent || projectConfig.mainAgent === 'none') {
-    return undefined;
-  }
-
-  return {
-    name: 'Room Summary Agent',
-    role: 'Room Reporter',
-    provider: 'Local CLI',
-    modelName: projectConfig.modelName || undefined,
-    systemPrompt: `You are the Room Reporter for this Room.
-
-Your job is to turn chat transcripts into durable Room memory.
-Do not contribute new ideas. Capture what was decided, what remains open, useful context, risks, options, and next steps.
-Use the same natural language as the chat unless the user explicitly asks otherwise.`,
-    cliPreset: projectConfig.mainAgent as AgentConfig['cliPreset'],
-    stdinFormat: 'text',
-    permissionMode: 'safe'
-  };
-}
+import { normalizeTemporaryAgents } from './temporary-agents.js';
+import { buildSelectedContext } from './context-bundle.js';
+import { readProvidersFromDisk } from './provider-store.js';
+import {
+  finishControlledRun,
+  getRunInterruptMessage,
+  startControlledRun
+} from './run-control.js';
+import {
+  toRendererDiscussionLog,
+  createRunEventSender,
+  type EngineRendererEvent
+} from './renderer-safe.js';
+import {
+  assertJsonBytes,
+  assertStringArray,
+  assertUtf8Bytes,
+  IPC_LIMITS
+} from './ipc-limits.js';
+import { assertMachineSkillAssignments } from './machine-skill-grants.js';
+import { toPublicError } from './public-error.js';
+import {
+  pickRoleParticipant,
+  resolveOptionalParticipantSnapshot,
+  resolveParticipantSnapshots
+} from './participant-snapshot.js';
 
 export function registerDiscussionsIpc(): void {
-  ipcMain.handle('run-discussion', async (event, { roomId, sourceId, topic, agentNames, maxRounds, reviewMode, allowReadOnlyTools, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorName, autoSummary, summaryAgentName, useProjectSummaryAgent, temporaryAgents }: { roomId: string; sourceId?: string; topic: string; agentNames?: string[]; maxRounds?: number; reviewMode?: boolean; allowReadOnlyTools?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorName?: string; autoSummary?: boolean; summaryAgentName?: string; useProjectSummaryAgent?: boolean; temporaryAgents?: unknown[] }) => {
-    const safeRequestedDiscussionId = typeof requestedDiscussionId === 'string' && /^discussion-\d+$/.test(requestedDiscussionId)
-      ? requestedDiscussionId
-      : '';
-    const discussionId = safeRequestedDiscussionId || `discussion-${Date.now()}`;
+  ipcMain.handle('run-discussion', async (event, { roomId, sourceId, topic, participantRefs, maxRounds, reviewMode, contextRefs, discussionId: requestedDiscussionId, qualityGate, moderatorRef, autoSummary, summaryAgentRef, temporaryAgents }: { roomId: string; sourceId?: string; topic: string; participantRefs?: string[]; maxRounds?: number; reviewMode?: boolean; contextRefs?: string[]; discussionId?: string; qualityGate?: boolean; moderatorRef?: string; autoSummary?: boolean; summaryAgentRef?: string; temporaryAgents?: unknown[] }) => {
+    try {
+      assertUtf8Bytes(topic, 'Discussion topic', IPC_LIMITS.runTextBytes);
+      assertStringArray(participantRefs || [], 'Discussion participants', IPC_LIMITS.runParticipants, 128);
+      assertStringArray(contextRefs || [], 'Context references', IPC_LIMITS.contextReferences);
+      assertJsonBytes(temporaryAgents || [], 'Temporary agents', IPC_LIMITS.teamPayloadBytes);
+      assertUtf8Bytes(moderatorRef || '', 'Moderator reference', 128);
+      assertUtf8Bytes(summaryAgentRef || '', 'Summary agent reference', 128);
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
+    }
+    if (requestedDiscussionId !== undefined && !isDiscussionRunId(requestedDiscussionId)) {
+      return { success: false, error: 'Invalid discussion id.' };
+    }
+    const continueExisting = requestedDiscussionId !== undefined;
+    const discussionId = requestedDiscussionId || createDiscussionRunId();
     const roundLimit = Number.isFinite(maxRounds) ? Math.max(1, Math.min(10, Math.floor(maxRounds || 1))) : 2;
-    const sendDiscussionEvent = (payload: any) => {
-      event.sender.send('discussion-event', payload);
-    };
-    startControlledRun(discussionId);
+    const sendDiscussionEvent = createRunEventSender(event.sender);
+    try {
+      startControlledRun(roomId, discussionId, event.sender.id);
+    } catch (error: unknown) {
+      return {
+        success: false,
+        error: toPublicError(error)
+      };
+    }
     try {
       const workspace = requireBoundWorkspace(roomId, sourceId);
+      const runSource = workspace.sourceId
+        ? requireBoundSource(roomId, workspace.sourceId)
+        : undefined;
       const sourceProvenance = createSourceProvenance(requireBoundRoom(roomId), workspace);
-      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
-      await applyApiKeysToEnvironment();
-      const additionalContext = await buildDiscussionContext(roomId, workspace.sourceRoot, contextRefs);
+      const providerRegistry = await readProvidersFromDisk();
+      const engine = new DiscussionEngine(workspace, { providerRegistry });
+      const additionalContext = await buildSelectedContext(roomId, runSource, contextRefs);
       const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
+      const persistedAgents = (await loadAgents(workspace)).filter(agent => !agent.isVirtual);
+      const {
+        participants,
+        persistedParticipants: selectedPersistedAgents
+      } = resolveParticipantSnapshots(
+        persistedAgents,
+        safeTemporaryAgents,
+        participantRefs || []
+      );
+      if (participants.length === 0) {
+        throw new Error('Select at least one AI member for this run.');
+      }
+      const moderator = qualityGate
+        ? resolveOptionalParticipantSnapshot(
+            persistedAgents,
+            safeTemporaryAgents,
+            moderatorRef
+          ) || pickRoleParticipant(participants, ['moderator', 'lead', 'reviewer'])
+        : undefined;
+      const summaryAgent = autoSummary
+        ? resolveOptionalParticipantSnapshot(
+            persistedAgents,
+            safeTemporaryAgents,
+            summaryAgentRef
+          ) || pickRoleParticipant(participants, ['reporter', 'scribe', 'summary'])
+        : undefined;
+      const persistedDerivedAgents = [moderator, summaryAgent].filter(
+        (agent): agent is typeof persistedAgents[number] => (
+          Boolean(agent?.id)
+          && persistedAgents.some(candidate => candidate.id === agent?.id)
+        )
+      );
+      const approvedMachineSkills = await assertMachineSkillAssignments(
+        roomId,
+        dedupeAgentsById([...selectedPersistedAgents, ...persistedDerivedAgents]),
+        providerRegistry
+      );
+      const skillAgents = [
+        ...participants,
+        ...(moderator ? [moderator] : []),
+        ...(summaryAgent ? [summaryAgent] : [])
+      ];
+      const skillSeed = await discussionSkillSeed(
+        workspace,
+        discussionId,
+        topic,
+        continueExisting
+      );
+      const roomSkillSnapshots = await snapshotRoomSkills(workspace, {
+        references: skillAgents.flatMap(agent => agent.skills || []),
+        discussionText: skillSeed,
+        mentionedFilePaths: mentionedPaths(skillSeed)
+      });
       let log = await engine.runDiscussion(
         discussionId,
         `Discussion: ${topic.slice(0, 30)}...`,
         topic,
-        agentNames && agentNames.length > 0 ? agentNames : [],
+        participants.map(agent => agent.name),
         roundLimit,
         {
           onEvent: sendDiscussionEvent,
           reviewMode: !!reviewMode,
-          allowReadOnlyTools: !!allowReadOnlyTools,
           additionalContext,
           temporaryAgents: safeTemporaryAgents,
-          getInterruptMessage: () => getRunInterruptMessage(discussionId)
+          participants,
+          sourceProvenance,
+          approvedMachineSkills,
+          roomSkillSnapshots,
+          continueExisting,
+          getInterruptMessage: () => getRunInterruptMessage(roomId, discussionId)
         }
       );
 
       const moderatorActions: Array<{ type: 'task' | 'adr'; id?: string; title?: string; filename?: string }> = [];
 
       if (qualityGate && log.status !== 'interrupted') {
-        const verdict = await engine.evaluateDiscussion(discussionId, moderatorName);
+        const verdict = await engine.evaluateDiscussion(
+          discussionId,
+          moderator?.name,
+          moderator,
+          approvedMachineSkills,
+          roomSkillSnapshots
+        );
         if (verdict.executed) {
           moderatorActions.push(
             ...verdict.executed.createdTaskCards.map(card => ({ type: 'task' as const, id: card.id, title: card.title })),
@@ -177,86 +169,182 @@ export function registerDiscussionsIpc(): void {
           );
         }
 
-        const discussionsDir = resolveWithinRoomData(roomId, 'discussions');
-        const finalLogPath = resolveWithinProject(discussionsDir, `${discussionId}.json`);
         try {
-          log = JSON.parse(await fs.readFile(finalLogPath, 'utf-8'));
+          log = JSON.parse(await readRoomTextFile(
+            workspace,
+            ['discussions', `${discussionId}.json`],
+            MAX_RUN_ARTIFACT_BYTES
+          ));
         } catch {}
       }
 
       let summary: { filename: string; content: string } | undefined;
       if (autoSummary && log.status !== 'interrupted') {
-        const projectConfig = await readProjectConfigFromDisk(roomId);
-        const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
-        const summaryAgentNames = summaryAgentName
-          ? [summaryAgentName]
-          : (useProjectSummaryAgent ? [] : (agentNames || []));
         summary = await engine.summarizeDiscussion(
           discussionId,
-          summaryAgentNames,
-          projectSummaryAgent
+          summaryAgent ? [summaryAgent.name] : [],
+          summaryAgent,
+          approvedMachineSkills,
+          roomSkillSnapshots
         );
       }
 
-      log.sourceProvenance = sourceProvenance;
-      await fs.writeFile(
-        resolveWithinRoomData(roomId, 'discussions', `${discussionId}.json`),
-        JSON.stringify(log, null, 2),
-        'utf-8'
-      );
-      return { success: true, log, summary, moderatorActions };
-    } catch (error: any) {
+      return { success: true, log: toRendererDiscussionLog(log), summary, moderatorActions };
+    } catch (error: unknown) {
       sendDiscussionEvent({
         type: 'discussion_failed',
         discussionId,
-        error: error.message
+        error: 'ROOM run failed.'
       });
-      return { success: false, error: error.message };
+      return { success: false, error: toPublicError(error, 'ROOM could not complete this run.') };
     } finally {
-      finishControlledRun(discussionId);
+      finishControlledRun(roomId, discussionId);
     }
   });
 
-  ipcMain.handle('summarize-discussion', async (event, { roomId, sourceId, discussionId, agentNames, summaryAgentName, useProjectSummaryAgent }: { roomId: string; sourceId?: string; discussionId: string; agentNames?: string[]; summaryAgentName?: string; useProjectSummaryAgent?: boolean }) => {
+  ipcMain.handle('summarize-discussion', async (_event, { roomId, discussionId, participantRefs, summaryAgentRef, temporaryAgents }: { roomId: string; discussionId: string; participantRefs?: string[]; summaryAgentRef?: string; temporaryAgents?: unknown[] }) => {
     try {
-      await applyApiKeysToEnvironment();
-      const workspace = requireBoundWorkspace(roomId, sourceId);
-      const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
-        ? discussionId
-        : '';
-      if (!safeDiscussionId) {
+      assertStringArray(participantRefs || [], 'Summary participants', IPC_LIMITS.runParticipants, 128);
+      assertUtf8Bytes(summaryAgentRef || '', 'Summary agent reference', 128);
+      assertJsonBytes(temporaryAgents || [], 'Temporary agents', IPC_LIMITS.teamPayloadBytes);
+      if (!isDiscussionRunId(discussionId)) {
         return { success: false, error: 'Invalid discussion id.' };
       }
+      const workspace = await resolveDiscussionWorkspace(roomId, discussionId);
 
-      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
-      const projectConfig = await readProjectConfigFromDisk(roomId);
-      const projectSummaryAgent = useProjectSummaryAgent ? createProjectSummaryAgent(projectConfig) : undefined;
-      const summaryAgentNames = summaryAgentName
-        ? [summaryAgentName]
-        : (useProjectSummaryAgent ? [] : (agentNames || []));
-      const summary = await engine.summarizeDiscussion(safeDiscussionId, summaryAgentNames, projectSummaryAgent);
+      const persistedAgents = (await loadAgents(workspace)).filter(agent => !agent.isVirtual);
+      const safeTemporaryAgents = normalizeTemporaryAgents(temporaryAgents);
+      const selected = resolveParticipantSnapshots(
+        persistedAgents,
+        safeTemporaryAgents,
+        participantRefs || []
+      ).participants;
+      const summaryAgent = resolveOptionalParticipantSnapshot(
+        persistedAgents,
+        safeTemporaryAgents,
+        summaryAgentRef
+      ) || pickRoleParticipant(selected.length > 0 ? selected : persistedAgents, [
+        'reporter',
+        'scribe',
+        'summary'
+      ]);
+      if (!summaryAgent) throw new Error('No AI member is available to summarize this chat.');
+      const providerRegistry = await readProvidersFromDisk();
+      const approvedMachineSkills = await assertMachineSkillAssignments(
+        roomId,
+        [summaryAgent],
+        providerRegistry
+      );
+      const roomSkillSnapshots = await snapshotRoomSkills(workspace, {
+        references: summaryAgent.skills || []
+      });
+      const engine = new DiscussionEngine(workspace, { providerRegistry });
+      const summary = await engine.summarizeDiscussion(
+        discussionId,
+        [summaryAgent.name],
+        summaryAgent,
+        approvedMachineSkills,
+        roomSkillSnapshots
+      );
       return { success: true, ...summary };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
 
-  ipcMain.handle('generate-tasks-from-discussion', async (event, { roomId, sourceId, discussionId, moderatorName }: { roomId: string; sourceId?: string; discussionId: string; moderatorName?: string }) => {
+  ipcMain.handle('generate-tasks-from-discussion', async (_event, { roomId, discussionId, moderatorRef }: { roomId: string; discussionId: string; moderatorRef?: string }) => {
     try {
-      await applyApiKeysToEnvironment();
-      const workspace = requireBoundWorkspace(roomId, sourceId);
-      const safeDiscussionId = typeof discussionId === 'string' && /^discussion-\d+$/.test(discussionId)
-        ? discussionId
-        : '';
-      if (!safeDiscussionId) {
+      assertUtf8Bytes(moderatorRef || '', 'Moderator reference', 128);
+      if (!isDiscussionRunId(discussionId)) {
         return { success: false, error: 'Invalid discussion id.' };
       }
+      const workspace = await resolveDiscussionWorkspace(roomId, discussionId);
 
-      const engine = new DiscussionEngine(workspace, { providerRegistry: await readProvidersFromDisk() });
-      const result = await engine.generateTasksFromDiscussion(safeDiscussionId, moderatorName);
+      const persistedAgents = (await loadAgents(workspace)).filter(agent => !agent.isVirtual);
+      const moderator = resolveOptionalParticipantSnapshot(
+        persistedAgents,
+        [],
+        moderatorRef
+      ) || pickRoleParticipant(persistedAgents, ['moderator', 'lead', 'reviewer']);
+      if (!moderator) throw new Error('No AI member is available to generate tasks.');
+      const providerRegistry = await readProvidersFromDisk();
+      const approvedMachineSkills = await assertMachineSkillAssignments(
+        roomId,
+        [moderator],
+        providerRegistry
+      );
+      const roomSkillSnapshots = await snapshotRoomSkills(workspace, {
+        references: moderator.skills || []
+      });
+      const engine = new DiscussionEngine(workspace, { providerRegistry });
+      const result = await engine.generateTasksFromDiscussion(
+        discussionId,
+        moderator.name,
+        moderator,
+        approvedMachineSkills,
+        roomSkillSnapshots
+      );
       return { success: true, ...result };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
     }
   });
+}
+
+function dedupeAgentsById<T extends { id?: string }>(agents: T[]): T[] {
+  const seen = new Set<string>();
+  return agents.filter(agent => {
+    if (!agent.id || seen.has(agent.id)) return false;
+    seen.add(agent.id);
+    return true;
+  });
+}
+
+async function resolveDiscussionWorkspace(
+  roomId: string,
+  discussionId: string
+) {
+  const roomWorkspace = requireBoundRoomWorkspace(roomId);
+  const discussion = JSON.parse(await readRoomTextFile(
+    roomWorkspace,
+    ['discussions', `${discussionId}.json`],
+    MAX_RUN_ARTIFACT_BYTES
+  )) as { sourceProvenance?: { mode?: unknown; sourceId?: unknown } };
+  if (!discussion.sourceProvenance) {
+    throw new Error('Discussion has no execution provenance.');
+  }
+  if (discussion.sourceProvenance.mode === 'room-only') return roomWorkspace;
+  if (
+    discussion.sourceProvenance.mode !== 'source'
+    || typeof discussion.sourceProvenance.sourceId !== 'string'
+  ) throw new Error('Discussion Source provenance is invalid.');
+  return requireBoundWorkspace(roomId, discussion.sourceProvenance.sourceId);
+}
+
+async function discussionSkillSeed(
+  workspace: ReturnType<typeof requireBoundRoomWorkspace>,
+  discussionId: string,
+  topic: string,
+  continueExisting: boolean
+): Promise<string> {
+  if (!continueExisting) return topic;
+  try {
+    const log = JSON.parse(await readRoomTextFile(
+      workspace,
+      ['discussions', `${discussionId}.json`],
+      MAX_RUN_ARTIFACT_BYTES
+    )) as { messages?: Array<{ content?: unknown }> };
+    return [
+      topic,
+      ...(log.messages || []).flatMap(message => (
+        typeof message.content === 'string' ? [message.content] : []
+      ))
+    ].join('\n');
+  } catch {
+    return topic;
+  }
+}
+
+function mentionedPaths(text: string): string[] {
+  return Array.from(text.matchAll(/file:\/\/\/([^\s#?)]+)/g), match => match[1]);
 }

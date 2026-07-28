@@ -32,10 +32,6 @@ beforeEach(() => {
     room: { id: 'room_personal', name: 'Personal Room', sources: [] }
   });
   mockApi.getProjectData.mockResolvedValue(emptyRoomData);
-  mockApi.loadProjectConfig.mockResolvedValue({
-    success: true,
-    config: { mainAgent: 'none', allowDangerousCli: false }
-  });
   mockApi.loadTaskBoard.mockResolvedValue({ success: true, cards: [] });
   mockApi.loadProviders.mockResolvedValue({ success: true, providers: [] });
   mockApi.detectLocalAgents.mockResolvedValue({ success: true, agents: [] });
@@ -69,4 +65,35 @@ test('shows an Attach Source CTA instead of an IPC error on Files', async () => 
 
   expect(window.electronAPI.attachRoomSource).toHaveBeenCalledWith('room_personal');
   expect(screen.queryByText(/active workspace source/i)).toBeNull();
+});
+
+test('runs a Source scan with room and source identities', async () => {
+  const mockApi = window.electronAPI as any;
+  const roomWithSource = {
+    id: 'room_personal',
+    name: 'Personal Room',
+    sources: [{ id: 'src_repo', name: 'Example Source', attachedAt: new Date().toISOString() }],
+    activeSourceId: 'src_repo'
+  };
+  mockApi.initializePersonalRoom.mockResolvedValue({
+    success: true,
+    room: roomWithSource
+  });
+  mockApi.getProjectData.mockResolvedValue({
+    ...emptyRoomData,
+    room: roomWithSource
+  });
+  mockApi.runScan.mockResolvedValue({ success: true });
+
+  renderApp();
+
+  await waitFor(() => expect(
+    screen.getByRole('button', { name: /Scan active Source/i })
+  ).toBeDefined());
+  fireEvent.click(screen.getByRole('button', { name: /Scan active Source/i }));
+
+  await waitFor(() => expect(mockApi.runScan).toHaveBeenCalledWith(
+    'room_personal',
+    'src_repo'
+  ));
 });

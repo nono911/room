@@ -9,8 +9,6 @@ export interface AgentInstanceConfig {
   modelName?: string;
   systemPrompt: string;
   skills: string[];
-  cliPreset?: AgentDefaultSelection['cliPreset'];
-  permissionMode?: 'safe';
 }
 
 interface AgentTemplate {
@@ -67,9 +65,7 @@ export function createAgentInstancesFromTemplate({
       provider: defaults.provider,
       modelName: defaults.modelName || undefined,
       systemPrompt: buildClonePrompt(template, name),
-      skills: skillFiles,
-      cliPreset: defaults.provider === 'Local CLI' ? defaults.cliPreset : undefined,
-      permissionMode: defaults.provider === 'Local CLI' ? 'safe' : undefined
+      skills: skillFiles
     };
   });
 }

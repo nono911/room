@@ -12,6 +12,7 @@ import {
   sameOrderedIndexes,
   validateContextSummaryId
 } from './contextSummaryCache.js';
+import { testWorkspace } from '../testWorkspace.js';
 
 const messages = [
   { type: 'user' as const, agentName: 'You', providerName: 'User', content: 'topic', timestamp: '10:00' },
@@ -57,7 +58,11 @@ describe('contextSummaryCache', () => {
 
   it('treats corrupted cache JSON as a cache miss', async () => {
     const dirPath = await fs.mkdtemp(path.join(os.tmpdir(), 'room-cache-'));
-    const input = { dirPath, source: 'discussion' as const, contextId: 'discussion-123' };
+    const input = {
+      workspace: testWorkspace(dirPath),
+      source: 'discussion' as const,
+      contextId: 'discussion-123'
+    };
     await fs.mkdir(path.dirname(contextSummaryCachePath(input)), { recursive: true });
     await fs.writeFile(contextSummaryCachePath(input), '{ broken json', 'utf-8');
 

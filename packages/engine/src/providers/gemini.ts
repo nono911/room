@@ -1,4 +1,5 @@
 import { Provider, ProviderConfig, ProviderExecuteOptions } from './provider.js';
+import { fetchProviderJson } from './boundedFetch.js';
 
 export class GeminiProvider implements Provider {
   name = 'Gemini';
@@ -20,7 +21,11 @@ export class GeminiProvider implements Provider {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${this.apiKey}`;
     
-    const payload: any = {
+    const payload: {
+      contents: Array<{ parts: Array<{ text: string }> }>;
+      generationConfig: { temperature: number };
+      systemInstruction?: { parts: Array<{ text: string }> };
+    } = {
       contents: [
         {
           parts: [
@@ -45,7 +50,7 @@ export class GeminiProvider implements Provider {
       };
     }
 
-    const response = await fetch(url, {
+    const { response, data } = await fetchProviderJson(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -54,20 +59,17 @@ export class GeminiProvider implements Provider {
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API call failed with status ${response.status}: ${errText}`);
+      throw new Error(`Gemini API call failed with status ${response.status}.`);
     }
 
-    const data = await response.json();
-    try {
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) {
-        throw new Error('Empty response from Gemini API.');
-      }
-      options?.onChunk?.(text);
-      return text;
-    } catch (err: any) {
-      throw new Error(`Failed to parse Gemini API response: ${err.message}. Raw: ${JSON.stringify(data)}`);
+    const parsed = data as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error('Empty response from Gemini API.');
     }
+    options?.onChunk?.(text);
+    return text;
   }
 }

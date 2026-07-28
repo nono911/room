@@ -36,6 +36,57 @@ describe('useWorkspaceLifecycle', () => {
     expect(loadProjectData).toHaveBeenCalledWith('room_personal');
   });
 
+  it('publishes the Room before optional metadata finishes loading', async () => {
+    let resolveMetadata: ((value: boolean) => void) | undefined;
+    const loadProjectData = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveMetadata = resolve;
+    }));
+    const { result } = renderHook(() => useWorkspaceLifecycle({
+      clearWorkspaceDerivedState: vi.fn(),
+      restoreWorkspaceRoute: vi.fn(),
+      loadProjectData,
+      setLoading: vi.fn(),
+      setErrorMsg: vi.fn()
+    }));
+
+    await waitFor(() => expect(result.current.roomId).toBe('room_personal'));
+    expect(result.current.initializingRoom).toBe(false);
+    expect(loadProjectData).toHaveBeenCalledWith('room_personal');
+
+    await act(async () => {
+      resolveMetadata?.(true);
+    });
+  });
+
+  it('publishes the active Source before optional metadata finishes loading', async () => {
+    (window.electronAPI.initializePersonalRoom as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      room: {
+        id: 'room_personal',
+        name: 'Personal Room',
+        sources: [source],
+        activeSourceId: source.id
+      }
+    });
+    let resolveMetadata: ((value: boolean) => void) | undefined;
+    const { result } = renderHook(() => useWorkspaceLifecycle({
+      clearWorkspaceDerivedState: vi.fn(),
+      restoreWorkspaceRoute: vi.fn(),
+      loadProjectData: () => new Promise<boolean>(resolve => {
+        resolveMetadata = resolve;
+      }),
+      setLoading: vi.fn(),
+      setErrorMsg: vi.fn()
+    }));
+
+    await waitFor(() => expect(result.current.initializingRoom).toBe(false));
+    expect(result.current.activeSource).toEqual(source);
+
+    await act(async () => {
+      resolveMetadata?.(true);
+    });
+  });
+
   it('attaches and detaches a Source while retaining the Room identity', async () => {
     const roomWithSource = {
       id: 'room_personal',

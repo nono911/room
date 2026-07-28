@@ -8,23 +8,49 @@ import { DiscussionEngine } from './discussion/engine.js';
 import {
   attachRoomSource,
   ensurePersonalRoom,
+  toRoomOnlyLocation,
   toWorkspaceLocation
 } from './roomHome.js';
+import { createDiscussionRunId } from './discussion/runId.js';
+import { executeRecordedRun } from './runRecords.js';
 import type { WorkspaceInput, WorkspaceLocation } from './workspace.js';
+import { resolveSourceStatePath } from './workspace.js';
 
 const program = new Command();
+
+interface CliWorkspace extends WorkspaceLocation {
+  rootDevice?: string;
+  rootInode?: string;
+  rootBirthtimeNs?: string;
+}
 
 program
   .name('room')
   .description('ROOM: AI-native Room and Source engine')
   .version('1.0.0');
 
-async function resolveCliWorkspace(targetDir: string): Promise<WorkspaceLocation> {
+async function resolveCliWorkspace(targetDir?: string): Promise<CliWorkspace> {
   const room = await ensurePersonalRoom();
+  if (!targetDir) return toRoomOnlyLocation(room);
   const canonicalTarget = await fs.realpath(targetDir);
   const source = room.manifest.sources.find(item => item.canonicalPath === canonicalTarget);
   if (!source) throw new Error('Source is not attached. Run "room init" first.');
-  return toWorkspaceLocation(room, source.id);
+  const stat = await fs.lstat(canonicalTarget, { bigint: true });
+  if (
+    stat.isSymbolicLink()
+    || !stat.isDirectory()
+    || stat.dev.toString() !== source.rootDevice
+    || stat.ino.toString() !== source.rootInode
+    || stat.birthtimeNs.toString() !== source.rootBirthtimeNs
+  ) {
+    throw new Error('The attached Source root changed after authorization.');
+  }
+  return {
+    ...toWorkspaceLocation(room, source.id),
+    rootDevice: source.rootDevice,
+    rootInode: source.rootInode,
+    rootBirthtimeNs: source.rootBirthtimeNs
+  };
 }
 
 program
@@ -63,14 +89,17 @@ program
 
     console.log(`Scanning repository structure at ${targetDir}...`);
     try {
-      const result = await scanDirectory(targetDir);
       const workspace = await resolveCliWorkspace(targetDir);
-      await writeScanData(workspace, result);
-      const roomRoot = workspace.roomRoot;
+      await executeRecordedRun(workspace, 'scan', workspace.sourceId, async () => {
+        const result = await scanDirectory(targetDir, {
+          device: workspace.rootDevice!,
+          inode: workspace.rootInode!,
+          birthtimeNs: workspace.rootBirthtimeNs!
+        });
+        await writeScanData(workspace, result);
+      });
       console.log('Source scan completed successfully!');
-      console.log(`Updated ${path.join(roomRoot, 'context', 'overview.md')}`);
-      console.log(`Updated ${path.join(roomRoot, 'context', 'structure.md')}`);
-      console.log(`Updated ${path.join(roomRoot, 'context', 'project-map.json')}`);
+      console.log(`Updated ${resolveSourceStatePath(workspace, 'scan', 'current.json')}`);
     } catch (error: any) {
       console.error('Scan failed:', error.message);
       process.exit(1);
@@ -135,9 +164,9 @@ adrCmd
   .command('new')
   .description('Create a new ADR record')
   .argument('<title>', 'Title of the ADR')
-  .option('-p, --path <path>', 'Path to Source directory', '.')
+  .option('-p, --path <path>', 'Optional attached Source directory')
   .action(async (title, options) => {
-    const targetDir = path.resolve(options.path);
+    const targetDir = options.path ? path.resolve(options.path) : undefined;
     try {
       const workspace = await resolveCliWorkspace(targetDir);
       const { filename, created } = await createNewADR(workspace, title);
@@ -157,12 +186,12 @@ program
   .command('review')
   .description('Run a ROOM discussion workflow for a topic')
   .argument('<topic>', 'Topic or proposal to discuss')
-  .option('-p, --path <path>', 'Path to Source directory', '.')
+  .option('-p, --path <path>', 'Optional attached Source directory')
   .option('-a, --agents <names>', 'Comma-separated AI member names to include')
   .option('-r, --max-rounds <rounds>', 'Maximum review rounds before marking needs_revision', '6')
   .action(async (topic, options) => {
-    const targetDir = path.resolve(options.path);
-    const discussionId = `discussion-${Date.now()}`;
+    const targetDir = options.path ? path.resolve(options.path) : undefined;
+    const discussionId = createDiscussionRunId();
     const maxRounds = Math.max(1, Math.min(10, Number.parseInt(options.maxRounds, 10) || 6));
     const agentNames = typeof options.agents === 'string'
       ? options.agents.split(',').map((name: string) => name.trim()).filter(Boolean)
@@ -191,7 +220,6 @@ program
       console.log('      ROOM DISCUSSION COMPLETED');
       console.log('=======================================');
       console.log(`Saved structured log: ${path.join(engine.roomRoot, 'discussions', `${discussionId}.json`)}`);
-      console.log(`Saved transcript: ${path.join(engine.roomRoot, 'discussions', `${discussionId}.md`)}`);
       console.log(`Review status: ${log.status}`);
       console.log(`Total messages exchanged: ${log.messages.length}`);
       console.log('=======================================\n');

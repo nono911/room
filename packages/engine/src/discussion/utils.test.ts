@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSkipTurn } from './utils.js';
+import { executeAgentStep, parseSkipTurn } from './utils.js';
 
 describe('parseSkipTurn', () => {
   it('parses a skip response into its one-line reason', () => {
@@ -24,5 +24,33 @@ describe('parseSkipTurn', () => {
 
   it('returns null for long responses that merely start with SKIP:', () => {
     expect(parseSkipTurn(`SKIP: ${'x'.repeat(500)}`)).toBeNull();
+  });
+
+  it('never persists or emits raw provider fault details', async () => {
+    const events: unknown[] = [];
+    const sentinel = 'provider-private-sentinel';
+    const result = await executeAgentStep(
+      {
+        name: 'Test',
+        execute: async () => {
+          throw new Error(sentinel);
+        }
+      },
+      {
+        name: 'Doer',
+        role: 'Developer',
+        provider: 'gemini',
+        systemPrompt: 'Build safely.'
+      },
+      'prompt',
+      'system',
+      '/room/source',
+      'task-test',
+      1,
+      [],
+      { onEvent: event => events.push(event) }
+    );
+    expect(JSON.stringify({ result, events })).not.toContain(sentinel);
+    expect(result.output).toContain('Provider execution failed');
   });
 });

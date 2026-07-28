@@ -10,6 +10,8 @@ const mockElectronAPI = {
   detachRoomSource: vi.fn().mockResolvedValue({ success: true }),
   setActiveRoomSource: vi.fn().mockResolvedValue({ success: true }),
   getProjectData: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  listRoomArtifacts: vi.fn().mockResolvedValue({ success: true, files: [], hasMore: false }),
+  listRoomTaskRuns: vi.fn().mockResolvedValue({ success: true, taskRuns: [], hasMore: false }),
   readRoomFile: vi.fn().mockResolvedValue({ success: true, content: '' }),
   listWorkspaceFiles: vi.fn().mockResolvedValue({ success: true, files: [] }),
   browseWorkspaceFiles: vi.fn().mockResolvedValue({ success: true, files: [], truncated: false }),
@@ -19,7 +21,10 @@ const mockElectronAPI = {
     content: '',
     preview: { kind: 'text', content: '', mimeType: 'text/plain' }
   }),
-  revealWorkspaceFile: vi.fn().mockResolvedValue({ success: true }),
+  getSourceGitStatus: vi.fn().mockResolvedValue({
+    success: true,
+    git: { repository: false, changed: 0, staged: 0, untracked: 0 }
+  }),
   loadContextSets: vi.fn().mockResolvedValue({ success: true, contextSets: [] }),
   saveContextSets: vi.fn().mockResolvedValue({ success: true }),
   runScan: vi.fn().mockResolvedValue({ success: true }),
@@ -46,12 +51,9 @@ const mockElectronAPI = {
   saveProvider: vi.fn().mockResolvedValue({ success: true }),
   deleteProvider: vi.fn().mockResolvedValue({ success: true }),
   testProvider: vi.fn().mockResolvedValue({ success: true }),
-  detectCliModels: vi.fn().mockResolvedValue({ success: true, models: [] }),
   detectApiModels: vi.fn().mockResolvedValue({ success: true, models: [] }),
   loadMcpConfig: vi.fn().mockResolvedValue({ success: true, config: {} }),
-  saveMcpConfig: vi.fn().mockResolvedValue({ success: true }),
-  loadProjectConfig: vi.fn().mockResolvedValue({ success: true, config: {} }),
-  saveProjectConfig: vi.fn().mockResolvedValue({ success: true })
+  saveMcpConfig: vi.fn().mockResolvedValue({ success: true })
 };
 
 global.window = global.window || {};

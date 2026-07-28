@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type {
-  LocalCliPermissionMode,
   ProjectData,
   SkillPreviewResult,
   TemplateSkill
 } from '../../types/domain.js';
 import { api } from '../../shared/ipc/client.js';
+import {
+  roomSkillReference
+} from '../../shared/lib/roomSkillReference.js';
 import { useProviders } from '../providers/context/ProvidersContext.js';
 import { buildAgentEditorSeed, findAgentForEditorRoute } from './lib/agentEditorState.js';
 
@@ -21,7 +23,6 @@ interface UseAgentManagementOptions {
 
 export interface AgentDefaultSelection {
   provider: string;
-  cliPreset?: 'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro';
   modelName?: string;
 }
 
@@ -30,14 +31,7 @@ export const resolveAgentDefaultSelection = (
   detectedClis: Array<{ id: string; available: boolean }> | undefined,
   getModelOptions: (provider: string, preset?: string) => Array<{ value: string }>
 ): AgentDefaultSelection => {
-  const installedCli = detectedClis?.find(cli => cli.available);
-  if (installedCli) {
-    return {
-      provider: 'Local CLI',
-      cliPreset: installedCli.id as AgentDefaultSelection['cliPreset'],
-      modelName: ''
-    };
-  }
+  void detectedClis;
 
   const activeOllama = providers?.find(p => p.id === 'ollama');
   if (activeOllama) {
@@ -103,12 +97,8 @@ export function useAgentManagement({
   const [newAgentName, setNewAgentName] = useState<string>('');
   const [newAgentRole, setNewAgentRole] = useState<string>('Assistant');
   const [newAgentProvider, setNewAgentProvider] = useState<string>('gemini');
-  const [newAgentCommand, setNewAgentCommand] = useState<string>('');
   const [newAgentPrompt, setNewAgentPrompt] = useState<string>('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
   const [newAgentSkills, setNewAgentSkills] = useState<string[]>([]);
-  const [newAgentPreset, setNewAgentPreset] = useState<'claude' | 'gemini' | 'codex' | 'copilot' | 'codewhale' | 'agy' | 'kiro' | 'none'>('none');
-  const [newAgentStdinFormat, setNewAgentStdinFormat] = useState<'text' | 'json'>('text');
-  const [newAgentPermissionMode, setNewAgentPermissionMode] = useState<LocalCliPermissionMode>('safe');
   const [editingAgent, setEditingAgent] = useState<any | null>(null);
   const [customSkillName, setCustomSkillName] = useState<string>('');
   const [customSkillDesc, setCustomSkillDesc] = useState<string>('');
@@ -131,10 +121,6 @@ export function useAgentManagement({
     setNewAgentPrompt(seed.newAgentPrompt);
     setNewAgentSkills(seed.newAgentSkills);
     setSkillPreview(null);
-    setNewAgentPreset(seed.newAgentPreset);
-    setNewAgentCommand(seed.newAgentCommand);
-    setNewAgentStdinFormat(seed.newAgentStdinFormat);
-    setNewAgentPermissionMode(seed.newAgentPermissionMode);
     setEditingSkillSource('skills');
 
     if (options?.pushRoute !== false) {
@@ -147,17 +133,13 @@ export function useAgentManagement({
 
     const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
     setNewAgentProvider(defaults.provider);
-    setNewAgentPreset(defaults.cliPreset || 'none');
     setNewAgentModel(defaults.modelName || '');
     setNewAgentModelCustom(false);
-    setNewAgentCommand('');
 
     setNewAgentRole('Assistant');
     setNewAgentPrompt('You are a helpful AI assistant in this Room. Cooperate with the team to achieve the user objective.');
 
     setNewAgentSkills([]);
-    setNewAgentStdinFormat('text');
-    setNewAgentPermissionMode('safe');
     setCustomSkillName('');
     setCustomSkillDesc('');
     setEditingSkillFile('');
@@ -175,20 +157,19 @@ export function useAgentManagement({
     if (!newAgentName && (newAgentRole === 'Assistant' || !newAgentRole) && !editingAgent) {
       const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
       setNewAgentProvider(defaults.provider);
-      setNewAgentPreset(defaults.cliPreset || 'none');
       setNewAgentModel(defaults.modelName || '');
     }
   }, [providers, detectedClis, getModelOptions, newAgentName, newAgentRole, editingAgent]);
 
   useEffect(() => {
     if (newAgentProvider) {
-      fetchModelsForProvider(newAgentProvider, newAgentPreset);
+      fetchModelsForProvider(newAgentProvider);
     }
-  }, [newAgentProvider, newAgentPreset]);
+  }, [newAgentProvider]);
 
   useEffect(() => {
     if (newAgentProvider) {
-      const models = getModelOptions(newAgentProvider, newAgentPreset);
+      const models = getModelOptions(newAgentProvider);
       if (models && models.length > 0) {
         setNewAgentModel(current => {
           const currentTrimmed = current.trim();
@@ -198,7 +179,7 @@ export function useAgentManagement({
         });
       }
     }
-  }, [newAgentProvider, newAgentPreset, dynamicCliModels]);
+  }, [newAgentProvider, dynamicCliModels]);
 
   useEffect(() => {
     if (!activeTab.startsWith('Agent:') || activeTab === 'Agent:New') {
@@ -243,16 +224,17 @@ export function useAgentManagement({
     const savedSkillFiles: string[] = [];
 
     for (const skill of skills) {
-      if (!existingSkills.has(skill.filename.toLowerCase())) {
+      const reference = roomSkillReference('roles', skill.filename);
+      if (!existingSkills.has(reference.toLowerCase())) {
         const content = `# ${skill.title}\n\n${skill.content.trim()}\n`;
         const res = await api.saveSkill(projectPath, skill.filename, content, 'roles');
         if (!res.success) {
           throw new Error(res.error || `Failed to save ${skill.filename}.`);
         }
-        existingSkills.add(skill.filename.toLowerCase());
+        existingSkills.add(reference.toLowerCase());
       }
 
-      savedSkillFiles.push(skill.filename);
+      savedSkillFiles.push(reference);
     }
 
     return savedSkillFiles;
@@ -268,22 +250,8 @@ export function useAgentManagement({
     setAgentOperationLoading(true);
     setErrorMsg(null);
     try {
-      const defaultModel = getModelOptions(newAgentProvider, newAgentPreset)[0]?.value;
-      const modelToSave = newAgentProvider === 'Local CLI'
-        ? newAgentModel.trim() || undefined
-        : newAgentModel.trim() || defaultModel;
-      const permissionMode = newAgentProvider === 'Local CLI'
-        ? (newAgentPreset === 'none' ? 'dangerous' : newAgentPermissionMode)
-        : undefined;
-      if (newAgentProvider === 'Local CLI') {
-        if (newAgentPreset === 'none') {
-          const confirmed = window.confirm('ROOM will execute this custom command in the current Room context. Custom Local CLI agents require dangerous mode. Continue?');
-          if (!confirmed) return;
-        } else if (permissionMode === 'dangerous') {
-          const confirmed = window.confirm('Warning: This Local CLI preset will run with dangerous permissions enabled. Continue?');
-          if (!confirmed) return;
-        }
-      }
+      const defaultModel = getModelOptions(newAgentProvider)[0]?.value;
+      const modelToSave = newAgentModel.trim() || defaultModel;
 
       const res = await api.saveAgent(projectPath, {
         id: editingAgent?.id,
@@ -293,11 +261,7 @@ export function useAgentManagement({
         provider: newAgentProvider,
         modelName: modelToSave,
         systemPrompt: newAgentPrompt,
-        skills: newAgentSkills,
-        command: newAgentProvider === 'Local CLI' ? (newAgentPreset === 'none' ? newAgentCommand : undefined) : undefined,
-        cliPreset: newAgentProvider === 'Local CLI' ? newAgentPreset : undefined,
-        stdinFormat: newAgentProvider === 'Local CLI' ? newAgentStdinFormat : undefined,
-        permissionMode
+        skills: newAgentSkills
       });
       if (res.success) {
         resetAgentForm();
@@ -354,13 +318,14 @@ export function useAgentManagement({
     try {
       const res = await api.saveSkill(projectPath, filename, defaultContent, 'skills');
       if (res.success) {
+        const reference = res.reference || roomSkillReference('skills', filename);
         setCustomSkillName('');
         setCustomSkillDesc('');
         setEditingSkillFile(filename);
         setEditingSkillContent(defaultContent);
         setEditingSkillSource('skills');
         await loadProjectData(projectPath);
-        setNewAgentSkills(prev => [...prev, filename]);
+        setNewAgentSkills(prev => [...prev, reference]);
       } else {
         setErrorMsg(res.error || 'Failed to save skill.');
       }
@@ -382,7 +347,9 @@ export function useAgentManagement({
         return;
       }
       await loadProjectData(projectPath);
-      setNewAgentSkills(prev => prev.includes(editingSkillFile) ? prev : [...prev, editingSkillFile]);
+      const reference = res.reference
+        || roomSkillReference(editingSkillSource, editingSkillFile);
+      setNewAgentSkills(prev => prev.includes(reference) ? prev : [...prev, reference]);
       setSkillPreview(null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving skill.');
@@ -398,8 +365,6 @@ export function useAgentManagement({
     try {
       const res = await api.previewAgentSkills(projectPath, {
         provider: newAgentProvider,
-        cliPreset: newAgentProvider === 'Local CLI' ? newAgentPreset : undefined,
-        stdinFormat: newAgentProvider === 'Local CLI' ? newAgentStdinFormat : undefined,
         skills: newAgentSkills
       });
       if (!res.success) {
@@ -426,18 +391,10 @@ export function useAgentManagement({
     setNewAgentRole,
     newAgentProvider,
     setNewAgentProvider,
-    newAgentCommand,
-    setNewAgentCommand,
     newAgentPrompt,
     setNewAgentPrompt,
     newAgentSkills,
     setNewAgentSkills,
-    newAgentPreset,
-    setNewAgentPreset,
-    newAgentStdinFormat,
-    setNewAgentStdinFormat,
-    newAgentPermissionMode,
-    setNewAgentPermissionMode,
     editingAgent,
     customSkillName,
     setCustomSkillName,

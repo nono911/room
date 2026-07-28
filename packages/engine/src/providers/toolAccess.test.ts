@@ -7,11 +7,11 @@ import {
 } from './toolAccess.js';
 
 describe('resolveToolAccess', () => {
-  it('grants read-only only to safe-mode agents', () => {
+  it('always confines safe-mode agents to read-only tools', () => {
     expect(resolveToolAccess('read-only', 'safe')).toBe('read-only');
-    expect(resolveToolAccess('read-only', 'dangerous')).toBe('none');
-    expect(resolveToolAccess('none', 'safe')).toBe('none');
-    expect(resolveToolAccess(undefined, 'safe')).toBe('none');
+    expect(resolveToolAccess('read-only', 'dangerous')).toBe('read-only');
+    expect(resolveToolAccess('none', 'safe')).toBe('read-only');
+    expect(resolveToolAccess(undefined, 'safe')).toBe('read-only');
   });
 });
 
@@ -41,9 +41,16 @@ describe('claudeAllowedToolsArg', () => {
 });
 
 describe('applyReadOnlyToolArgs', () => {
-  it('appends --allowedTools for the claude preset', () => {
+  it('forces plan mode and appends the Claude read-only tool allowlist', () => {
     expect(applyReadOnlyToolArgs('claude', ['-p', '--verbose'], []))
-      .toEqual(['-p', '--verbose', '--allowedTools', 'Read,Grep,Glob,LS,WebSearch,WebFetch']);
+      .toEqual([
+        '-p',
+        '--verbose',
+        '--permission-mode',
+        'plan',
+        '--allowedTools',
+        'Read,Grep,Glob,LS,WebSearch,WebFetch'
+      ]);
   });
 
   it('swaps the codex sandbox to read-only', () => {

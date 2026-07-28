@@ -7,6 +7,10 @@ import {
   getAgentProgressMessage,
   advanceAgentProgressMessage
 } from '../../shared/lib/streaming.js';
+import {
+  taskParticipantEntries,
+  taskParticipantName
+} from './taskParticipantRefs.js';
 
 interface UseTaskRunDeps {
   projectPath: string | null;
@@ -41,6 +45,12 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
   const [selectedTaskCardId, setSelectedTaskCardId] = useState<string | null>(null);
   const [continuedFromTaskId, setContinuedFromTaskId] = useState<string | null>(null);
   const [temporaryTaskAgents, setTemporaryTaskAgents] = useState<any[]>([]);
+  const persistedTaskAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
+  const taskParticipants = taskParticipantEntries(persistedTaskAgents, temporaryTaskAgents);
+  const selectedDoerName = taskParticipantName(codingTaskDeveloperName, taskParticipants);
+  const selectedReviewerNames = codingTaskReviewerNames.map(
+    reference => taskParticipantName(reference, taskParticipants)
+  );
 
   // Auto-expand the newest cycle when a new one starts
   const maxRound = codingTaskMessages.length > 0 ? Math.max(...codingTaskMessages.map(m => m.round ?? 0)) : 0;
@@ -51,7 +61,8 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
     }
   }, [maxRound, lastMaxRound]);
 
-  const resetTaskRun = () => {
+  const startNewTaskRun = () => {
+    setCodingTaskInput('');
     setCodingTaskMessages([]);
     setOpenRounds({});
     setExpandedMsgKeys({});
@@ -60,9 +71,13 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
     setActiveTaskRunId(null);
     setTaskInterruptMessage('');
     setTaskInterruptPending(false);
+    setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
+    setSelectedTaskCardId(null);
     setContinuedFromTaskId(null);
     setTemporaryTaskAgents([]);
+    setTaskRunView('setup');
   };
+  const resetTaskRun = startNewTaskRun;
 
   const handleRunCodingTask = async () => {
     if (!projectPath || !codingTaskInput.trim()) return;
@@ -99,14 +114,14 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
         author: 'System Engine',
         role: 'system',
         time: new Date().toLocaleTimeString(),
-        text: `Starting ${taskRunType} task with ${codingTaskDeveloperName}, then review by ${codingTaskReviewerNames.join(', ')}.`,
+        text: `Starting ${taskRunType} task with ${selectedDoerName}, then review by ${selectedReviewerNames.join(', ')}.`,
         round: 0
       }
     ]);
 
     const messageId = (taskId: string, round: number, agentName: string) => `${taskId}:${round}:${agentName}`;
     const unsubscribe = api.onDiscussionEvent((event) => {
-      if (!event.discussionId.startsWith('task-')) return;
+      if (typeof event.discussionId !== 'string' || !event.discussionId.startsWith('task-')) return;
 
       if (event.type === 'discussion_started') {
         setActiveTaskRunId(event.discussionId);
@@ -251,13 +266,12 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
       const res = await api.runTask(projectPath, task, {
         sourceId: activeSourceId,
         taskType: taskRunType,
-        doerName: codingTaskDeveloperName,
-        reviewerNames: codingTaskReviewerNames,
+        doerRef: codingTaskDeveloperName,
+        reviewerRefs: codingTaskReviewerNames,
         maxCycles: codingTaskMaxCycles,
         contextRefs: selectedCodingTaskContextRefs,
         associatedCardId: selectedTaskCardId || undefined,
         continuedFromTaskId: continuedFromTaskId || undefined,
-        taskId: continuedFromTaskId || undefined,
         temporaryAgents: temporaryTaskAgents
       });
       if (!res.success || !res.result) {
@@ -266,6 +280,8 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
       }
 
       setLastCodingTaskResult(res.result);
+      setContinuedFromTaskId(null);
+      setSelectedTaskCardId(null);
       setCodingTaskMessages([
         ...formatDiscussionLogMessages({ messages: res.result.messages }),
         {
@@ -292,11 +308,11 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
   };
 
   const interruptActiveTaskRun = async () => {
-    if (!activeTaskRunId || !taskInterruptMessage.trim()) return;
+    if (!projectPath || !activeTaskRunId || !taskInterruptMessage.trim()) return;
     setErrorMsg(null);
     setTaskInterruptPending(true);
     try {
-      const res = await api.interruptRun(activeTaskRunId, taskInterruptMessage);
+      const res = await api.interruptRun(projectPath, activeTaskRunId, taskInterruptMessage);
       if (!res.success) {
         setErrorMsg(res.error || 'Failed to interrupt the active task run.');
         setTaskInterruptPending(false);
@@ -321,24 +337,28 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
       originalTask ? `Original task:\n${originalTask}` : '',
       pivotText ? `Interrupt & Pivot direction:\n${pivotText}` : 'Continue from the Interrupt & Pivot direction above.'
     ].filter(Boolean).join('\n\n'));
+    setContinuedFromTaskId(lastCodingTaskResult.id);
     setTaskRunView('setup');
   };
 
   const applyTaskTypePreset = (taskType: string) => {
     setTaskRunType(taskType);
-    const agents = [...(projectData?.agents || []), ...temporaryTaskAgents];
-    if (agents.length === 0) return;
+    const entries = taskParticipantEntries(
+      (projectData?.agents || []).filter((agent: any) => !agent.isVirtual),
+      temporaryTaskAgents
+    );
+    if (entries.length === 0) return;
 
-    const findByTerms = (terms: string[]) => agents.find((agent: any) => {
-      const text = `${agent.name} ${agent.role}`.toLowerCase();
+    const findByTerms = (terms: string[]) => entries.find(entry => {
+      const text = `${entry.agent.name} ${entry.agent.role}`.toLowerCase();
       return terms.some(term => text.includes(term));
     });
-    const findManyByTerms = (terms: string[]) => agents
-      .filter((agent: any) => {
-        const text = `${agent.name} ${agent.role}`.toLowerCase();
+    const findManyByTerms = (terms: string[]) => entries
+      .filter(entry => {
+        const text = `${entry.agent.name} ${entry.agent.role}`.toLowerCase();
         return terms.some(term => text.includes(term));
       })
-      .map((agent: any) => agent.name);
+      .map(entry => entry.ref);
 
     const mapping: Record<string, { doer: string[]; reviewers: string[] }> = {
       coding: {
@@ -372,12 +392,16 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
     };
 
     const preset = mapping[taskType] || mapping.general;
-    const doer = findByTerms(preset.doer) || agents[0];
+    const doer = findByTerms(preset.doer) || entries[0];
     const reviewers = findManyByTerms(preset.reviewers)
-      .filter((name: string) => name !== doer.name)
+      .filter((reference: string) => reference !== doer.ref)
       .slice(0, 3);
-    setCodingTaskDeveloperName(doer.name);
-    setCodingTaskReviewerNames(reviewers.length > 0 ? reviewers : agents.filter((agent: any) => agent.name !== doer.name).slice(0, 2).map((agent: any) => agent.name));
+    setCodingTaskDeveloperName(doer.ref);
+    setCodingTaskReviewerNames(
+      reviewers.length > 0
+        ? reviewers
+        : entries.filter(entry => entry.ref !== doer.ref).slice(0, 2).map(entry => entry.ref)
+    );
   };
 
   return {
@@ -402,6 +426,7 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
     continueTaskRunFromPivot,
     applyTaskTypePreset,
     resetTaskRun,
+    startNewTaskRun,
     selectedTaskCardId, setSelectedTaskCardId,
     continuedFromTaskId, setContinuedFromTaskId
   };

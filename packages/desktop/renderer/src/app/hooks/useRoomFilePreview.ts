@@ -1,4 +1,5 @@
 import { api } from '../../shared/ipc/client.js';
+import { parseRoomSkillReference } from '../../shared/lib/roomSkillReference.js';
 
 type RoomFilePreviewSection = 'skills' | 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions';
 type InitialSelectedFile = {
@@ -39,7 +40,7 @@ export function useRoomFilePreview({
           setErrorMsg(res.error || `Failed to load ${filename}.`);
           return;
         }
-        setEditingSkillFile(filename);
+        setEditingSkillFile(parseRoomSkillReference(filename)?.filename || filename);
         setEditingSkillContent(res.content || '');
         setEditingSkillSource(res.sourceSection === 'roles' ? 'roles' : 'skills');
       } catch (err: any) {

@@ -17,13 +17,14 @@ function isPlaceholderContext(content?: string): boolean {
   const normalized = (content || '').trim();
   if (!normalized) return true;
   return normalized.includes('Describe what this workspace is for.') ||
-    normalized.includes('Describe the important parts of this workspace and how they relate to each other.');
+    normalized.includes('Describe the important parts of this workspace and how they relate to each other.') ||
+    normalized.includes('Your source-independent ROOM memory.') ||
+    normalized.includes('Attach a Source when you want ROOM to inspect Source files or run coding tools.');
 }
 
 export function useSetupGuidance({
   activeTab,
   projectData,
-  hasCompletedScan,
   selectedDiscussionContextRefs,
   selectedCodingTaskContextRefs,
   discussionMessages,
@@ -68,7 +69,7 @@ export function useSetupGuidance({
     }
   ];
 
-  const hasUsefulContext = (hasCompletedScan || !!projectData?.hasScanData) && !!projectData && (
+  const hasUsefulContext = !!projectData && (
     !isPlaceholderContext(projectData.projectMd) ||
     !isPlaceholderContext(projectData.archMd)
   );

@@ -1,8 +1,9 @@
 import { createHash } from 'crypto';
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PromptHistoryMessage } from './contextCompiler.js';
 import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
+import { readRoomTextFile, writeRoomTextFile } from '../roomFile.js';
+import { isDiscussionRunId, isTaskRunId } from './runId.js';
 
 export type ContextSummarySource = 'discussion' | 'coding-task';
 
@@ -25,8 +26,10 @@ export interface ContextSummaryCacheInput {
 }
 
 export function validateContextSummaryId(source: ContextSummarySource, contextId: string): void {
-  const pattern = source === 'discussion' ? /^discussion-[\w-]+$/ : /^task-[\w-]+$/;
-  if (!pattern.test(contextId)) {
+  const valid = source === 'discussion'
+    ? isDiscussionRunId(contextId)
+    : isTaskRunId(contextId);
+  if (!valid) {
     throw new Error(`Invalid ${source} context summary id.`);
   }
 }
@@ -44,7 +47,13 @@ export function contextSummaryCachePath(input: ContextSummaryCacheInput): string
 export async function readContextSummaryCache(input: ContextSummaryCacheInput): Promise<ContextSummaryCache | null> {
   const cachePath = contextSummaryCachePath(input);
   try {
-    const parsed = JSON.parse(await fs.readFile(cachePath, 'utf-8')) as ContextSummaryCache;
+    const workspace = input.workspace ?? input.dirPath;
+    if (!workspace) throw new Error('Room location is required for context summary cache.');
+    const parsed = JSON.parse(await readRoomTextFile(
+      workspace,
+      [input.source === 'discussion' ? 'discussions' : 'tasks', path.basename(cachePath)],
+      2 * 1024 * 1024
+    )) as ContextSummaryCache;
     if (!isContextSummaryCache(parsed, input.source, input.contextId)) {
       return null;
     }
@@ -65,8 +74,13 @@ export async function writeContextSummaryCache(
   cache: ContextSummaryCache
 ): Promise<void> {
   const cachePath = contextSummaryCachePath(input);
-  await fs.mkdir(path.dirname(cachePath), { recursive: true });
-  await fs.writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf-8');
+  const workspace = input.workspace ?? input.dirPath;
+  if (!workspace) throw new Error('Room location is required for context summary cache.');
+  await writeRoomTextFile(
+    workspace,
+    [input.source === 'discussion' ? 'discussions' : 'tasks', path.basename(cachePath)],
+    `${JSON.stringify(cache, null, 2)}\n`
+  );
 }
 
 export function isReusableContextSummaryCache(

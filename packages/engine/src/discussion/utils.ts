@@ -1,11 +1,9 @@
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import type { AgentConfig } from '../agents/registry.js';
 import { Provider } from '../providers/provider.js';
 import type { DiscussionMessage, CodingTaskResult, DiscussionLog } from './types.js';
 import { parseMessageReferences, type MessageReference } from './references.js';
 import type { PromptContextMessage } from './contextCompiler.js';
-import { resolveRoomPath, type WorkspaceInput } from '../workspace.js';
 
 export const LANGUAGE_POLICY = `=== Language Policy ===
 Respond in the same natural language the user uses in the current discussion topic.
@@ -31,13 +29,6 @@ Use only the prompt, discussion history, selected context, active skills, and pr
 Do not inspect the workspace with shell commands, file listing, permission checks, config reads, or tool calls unless the user's current request explicitly asks you to perform that inspection.
 Do not narrate intended tool use such as "I will list files", "Let's read config", or "I am running on model...".
 If you cannot answer from the provided context, say what specific context is missing and ask for it.`;
-
-export const LOCAL_CLI_READ_TOOLS_POLICY = `=== Local CLI Read-Only Tools Policy ===
-You may read files, list directories, and search file contents inside the active workspace, and search the web when it materially improves your answer.
-Do not create, modify, or delete files, change configuration, or run commands that change any state.
-Do not narrate tool use such as "I will read the file" or raw tool logs; use tools silently and return only your final answer.
-Cite real workspace paths for anything you report from files.
-If required context is still missing after inspection, say exactly what is missing.`;
 
 export const REFERENCE_TRACING_PROTOCOL = `=== Reference Tracing Protocol ===
 At the very end of your reply, append exactly one fenced code block labeled room-refs recording which prior messages you actually used:
@@ -70,35 +61,6 @@ export function isDeveloperAgent(agent: AgentConfig): boolean {
   const text = `${agent.name} ${agent.role}`.toLowerCase();
   if (text.includes('planner')) return false;
   return text.includes('developer') || text.includes('implement') || text.includes('engineer') || text.includes('coder');
-}
-
-export async function cleanUpParentTaskFiles(workspace: WorkspaceInput, parentId: string): Promise<void> {
-  if (!parentId) return;
-  try {
-    const tasksDir = resolveRoomPath(workspace, 'tasks');
-    const parentJsonPath = path.join(tasksDir, `${parentId}.json`);
-    const parentMarkdownPath = path.join(tasksDir, `${parentId}.md`);
-    const parentArtifactPath = resolveRoomPath(workspace, 'documents', `${parentId}-artifact.md`);
-    
-    let ancestorId = '';
-    try {
-      const parentContent = await fs.readFile(parentJsonPath, 'utf-8');
-      const parentMeta = JSON.parse(parentContent);
-      ancestorId = parentMeta.continuedFromTaskId || '';
-    } catch {
-      // Ignore
-    }
-
-    await fs.unlink(parentJsonPath).catch(() => {});
-    await fs.unlink(parentMarkdownPath).catch(() => {});
-    await fs.unlink(parentArtifactPath).catch(() => {});
-    
-    if (ancestorId) {
-      await cleanUpParentTaskFiles(workspace, ancestorId);
-    }
-  } catch {
-    // Ignore
-  }
 }
 
 export function isLikelyGeneratedArtifactLine(line: string): boolean {
@@ -240,7 +202,7 @@ export function renderDiscussionMarkdown(log: DiscussionLog): string {
     return `## ${index + 1}. ${message.agentName} (${providerLabel})\n\n${messageIdLine}### Context received\n${contextSummary}\n${referenceSection}\n### Response\n\n${message.content.trim()}\n`;
   }).join('\n');
 
-  return `# ${log.title}\n\n## Current Topic\n${log.topic || 'Untitled'}\n\n## Status\n${log.status}\n\n## Transcript\n${messages || 'No messages yet.'}\n`;
+  return `# ${log.title}\n\n${renderProvenance(log.sourceProvenance)}## Current Topic\n${log.topic || 'Untitled'}\n\n## Status\n${log.status}\n\n## Transcript\n${messages || 'No messages yet.'}\n`;
 }
 
 export function renderCodingTaskMarkdown(result: CodingTaskResult): string {
@@ -253,7 +215,15 @@ export function renderCodingTaskMarkdown(result: CodingTaskResult): string {
     return `## ${index + 1}. ${label}\n\n${messageIdLine}${message.content.trim()}\n`;
   }).join('\n');
 
-  return `# ${result.title}\n\n## Task\n${result.task}\n\n## Task Type\n${result.taskType || 'general'}\n\n## Status\n${result.status}\n\n## Cycles\n${result.cycles}\n\n## Approved By\n${result.approvedBy && result.approvedBy.length > 0 ? result.approvedBy.map((name: string) => `- ${name}`).join('\n') : '- Not approved yet'}\n\n## Artifact\n${result.artifactFilename ? result.artifactFilename : 'No artifact saved yet.'}\n\n## Status Summary\n${result.statusSummary || 'No status summary yet.'}\n\n## Transcript\n${messages || 'No messages yet.'}\n`;
+  return `# ${result.title}\n\n${renderProvenance(result.sourceProvenance)}## Task Type\n${result.taskType || 'general'}\n\n## Status\n${result.status}\n\n## Cycles\n${result.cycles}\n\n## Associated Card ID\n${result.associatedCardId || 'None'}\n\n## Approved By\n${result.approvedBy && result.approvedBy.length > 0 ? result.approvedBy.map((name: string) => `- ${name}`).join('\n') : '- Not approved yet'}\n\n## Artifact\n${result.artifactFilename ? result.artifactFilename : 'No artifact saved yet.'}\n\n## Status Summary\n${result.statusSummary || 'No status summary yet.'}\n\n## Task\n${result.task}\n\n## Transcript\n${messages || 'No messages yet.'}\n`;
+}
+
+function renderProvenance(provenance: DiscussionLog['sourceProvenance']): string {
+  if (!provenance) return '';
+  const source = provenance.mode === 'source'
+    ? `${provenance.sourceName} (${provenance.sourceId})`
+    : 'Source-less';
+  return `## Execution Context\nRoom: ${provenance.roomId}\nSource: ${source}\nStarted: ${provenance.startedAt}\n\n`;
 }
 
 export function renderTaskArtifact(result: CodingTaskResult, doerMessage: DiscussionMessage | null): string {
@@ -332,9 +302,9 @@ export async function executeAgentStep(
       providerName: agent.provider,
       ...(agent.modelName ? { modelName: agent.modelName } : {}),
       round: cycle,
-      error: errMsg
+      error: 'Provider execution failed.'
     });
-    output = cleanAgentUserContent(`[System Error from ${agent.name}]: Failed to execute provider ${agent.provider}. Details: ${errMsg}`, dirPath);
+    output = `[System Error from ${agent.name}]: Provider execution failed.`;
   }
   return { output, references, agentFailed };
 }

@@ -39,10 +39,6 @@ test('keeps agents and machine skills available in a source-less Room', async ()
     teams: [],
     unassignedMemberIds: ['mem_reviewer']
   });
-  mockApi.loadProjectConfig.mockResolvedValue({
-    success: true,
-    config: { mainAgent: 'none', allowDangerousCli: false }
-  });
   mockApi.loadTaskBoard.mockResolvedValue({ success: true, cards: [] });
 
   render(

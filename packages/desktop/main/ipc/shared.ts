@@ -2,18 +2,17 @@ import * as path from 'path';
 import * as fsSync from 'fs';
 import * as fs from 'fs/promises';
 import {
-  isMachineSkillReference,
+  createRoomSkillReference,
+  refreshRoomRecordSync,
+  toRoomOnlyLocation,
   toWorkspaceLocation,
-  validateAgentConfig,
-  type AgentConfig,
   type RoomRecord,
+  type RoomSource,
   type SourceProvenance,
   type WorkspaceLocation
 } from '@room/engine';
 
 export const ROOM_DIR = '.room';
-export const SUPPORTED_LOCAL_CLI_PRESETS = ['claude', 'gemini', 'codex', 'copilot', 'codewhale', 'agy', 'kiro'] as const;
-export const SUPPORTED_LOCAL_CLI_PRESETS_SET = new Set<string>(SUPPORTED_LOCAL_CLI_PRESETS);
 export const ALLOWED_ROOM_FILE_SECTIONS = ['documents', 'tasks', 'discussions', 'decisions', 'reviews', 'skills'] as const;
 export const WORKSPACE_FILE_LIMIT = 500;
 export const WORKSPACE_FILE_READ_LIMIT_BYTES = 1024 * 1024;
@@ -53,7 +52,8 @@ export interface SkillPreviewItem {
   error?: string;
 }
 
-let currentRoom: RoomRecord | null = null;
+const boundRooms = new Map<string, RoomRecord>();
+const roomMutationQueues = new Map<string, Promise<void>>();
 
 export function resolveProjectPath(dirPath: string): string {
   if (typeof dirPath !== 'string' || !dirPath.trim()) {
@@ -63,44 +63,111 @@ export function resolveProjectPath(dirPath: string): string {
 }
 
 export function bindCurrentRoom(record: RoomRecord): RoomRecord {
-  currentRoom = {
+  const roomRoot = path.resolve(record.roomRoot);
+  const stat = fsSync.lstatSync(roomRoot, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`ROOM managed path must be a real directory: ${roomRoot}`);
+  }
+  if (typeof process.getuid === 'function' && stat.uid !== BigInt(process.getuid())) {
+    throw new Error(`ROOM managed path must be owned by the current user: ${roomRoot}`);
+  }
+  const previousRecord = boundRooms.get(record.manifest.id);
+  const previousIdentity = previousRecord?.roomRoot === roomRoot
+    ? previousRecord
+    : null;
+  const rootDevice = record.rootDevice || previousIdentity?.rootDevice || stat.dev.toString();
+  const rootInode = record.rootInode || previousIdentity?.rootInode || stat.ino.toString();
+  if (rootDevice !== stat.dev.toString() || rootInode !== stat.ino.toString()) {
+    throw new Error(`ROOM managed path changed after it was opened: ${roomRoot}`);
+  }
+  const boundRecord = {
     manifest: {
       ...record.manifest,
-      sources: record.manifest.sources.map(source => ({ ...source }))
+      sources: record.manifest.sources.map(source => ({ ...source })),
+      detachedSources: record.manifest.detachedSources?.map(source => ({ ...source }))
     },
-    roomRoot: path.resolve(record.roomRoot)
+    roomRoot,
+    rootDevice,
+    rootInode
   };
-  return currentRoom;
+  boundRooms.set(record.manifest.id, boundRecord);
+  return boundRecord;
+}
+
+export async function mutateBoundRoom(
+  roomId: string,
+  mutate: (record: RoomRecord) => Promise<RoomRecord>
+): Promise<RoomRecord> {
+  const previous = roomMutationQueues.get(roomId) || Promise.resolve();
+  let release = (): void => {};
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  roomMutationQueues.set(roomId, queued);
+  await previous;
+  try {
+    return bindCurrentRoom(await mutate(requireBoundRoom(roomId)));
+  } finally {
+    release();
+    if (roomMutationQueues.get(roomId) === queued) roomMutationQueues.delete(roomId);
+  }
 }
 
 export function requireBoundRoom(roomId: string): RoomRecord {
-  if (typeof roomId !== 'string' || !roomId.trim()) {
+  if (typeof roomId !== 'string' || !/^room_[a-z0-9_-]{1,64}$/.test(roomId)) {
     throw new Error('Invalid Room ID.');
   }
-  if (!currentRoom || roomId !== currentRoom.manifest.id) {
+  const currentRoom = boundRooms.get(roomId);
+  if (!currentRoom) {
     throw new Error('Room is not active.');
   }
+  const refreshed = bindCurrentRoom(refreshRoomRecordSync(currentRoom));
   return {
     manifest: {
-      ...currentRoom.manifest,
-      sources: currentRoom.manifest.sources.map(source => ({ ...source }))
+      ...refreshed.manifest,
+      sources: refreshed.manifest.sources.map(source => ({ ...source }))
     },
-    roomRoot: currentRoom.roomRoot
+    roomRoot: refreshed.roomRoot,
+    rootDevice: refreshed.rootDevice,
+    rootInode: refreshed.rootInode
   };
 }
 
 export function requireBoundWorkspace(roomId: string, sourceId?: string): WorkspaceLocation {
-  const workspace = toWorkspaceLocation(requireBoundRoom(roomId), sourceId);
+  const room = requireBoundRoom(roomId);
+  const workspace = toWorkspaceLocation(room, sourceId);
   if (workspace.sourceRoot) {
-    const stat = fsSync.lstatSync(workspace.sourceRoot);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error('The active Source is no longer a real directory.');
-    }
-    if (fsSync.realpathSync(workspace.sourceRoot) !== path.resolve(workspace.sourceRoot)) {
-      throw new Error('The active Source path changed after it was attached.');
-    }
+    requireBoundSource(roomId, workspace.sourceId);
   }
   return workspace;
+}
+
+export function requireBoundRoomWorkspace(roomId: string): WorkspaceLocation {
+  return toRoomOnlyLocation(requireBoundRoom(roomId));
+}
+
+export function requireBoundSource(roomId: string, sourceId?: string): RoomSource {
+  const room = requireBoundRoom(roomId);
+  if (
+    sourceId !== undefined
+    && !/^source_[a-f0-9]{32}$/.test(sourceId)
+  ) throw new Error('Invalid Source ID.');
+  const selectedSourceId = sourceId || room.manifest.activeSourceId;
+  const source = room.manifest.sources.find(item => item.id === selectedSourceId);
+  if (!source) throw new Error('Attach a Source to use files, search, scan, Git, or coding actions.');
+  const stat = fsSync.lstatSync(source.canonicalPath, { bigint: true });
+  if (
+    stat.isSymbolicLink()
+    || !stat.isDirectory()
+    || fsSync.realpathSync(source.canonicalPath) !== path.resolve(source.canonicalPath)
+    || stat.dev.toString() !== source.rootDevice
+    || stat.ino.toString() !== source.rootInode
+    || stat.birthtimeNs.toString() !== source.rootBirthtimeNs
+  ) {
+    throw new Error('The active Source path changed after it was attached.');
+  }
+  return { ...source };
 }
 
 export function requireBoundProjectRoot(roomId: string, sourceId?: string): string {
@@ -115,12 +182,19 @@ export function createSourceProvenance(
   room: RoomRecord,
   workspace: WorkspaceLocation
 ): SourceProvenance {
-  const source = workspace.sourceId
-    ? room.manifest.sources.find(item => item.id === workspace.sourceId)
-    : undefined;
-  return source
-    ? { mode: 'source', sourceId: source.id, sourceName: source.name }
-    : { mode: 'room-only' };
+  return workspace.sourceId && workspace.sourceRoot
+    ? {
+        mode: 'source',
+        roomId: room.manifest.id,
+        sourceId: workspace.sourceId,
+        sourceName: workspace.sourceName || workspace.sourceId,
+        startedAt: new Date().toISOString()
+      }
+    : {
+        mode: 'room-only',
+        roomId: room.manifest.id,
+        startedAt: new Date().toISOString()
+      };
 }
 
 export function resolveRoomDataRoot(roomId: string): string {
@@ -134,7 +208,34 @@ export function resolveWithinRoomData(roomId: string, ...parts: string[]): strin
   if (resolved !== roomRoot && !resolved.startsWith(safeRoot)) {
     throw new Error('Invalid ROOM data path.');
   }
+  assertNoSymlinkSegments(roomRoot, resolved);
   return resolved;
+}
+
+function assertNoSymlinkSegments(root: string, target: string): void {
+  const rootStat = fsSync.lstatSync(root);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error('ROOM data root must be a real directory.');
+  }
+  const relative = path.relative(root, target);
+  let current = root;
+  for (const segment of relative ? relative.split(path.sep) : []) {
+    current = path.join(current, segment);
+    try {
+      const stat = fsSync.lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        throw new Error('ROOM data paths cannot contain symbolic links.');
+      }
+    } catch (error: unknown) {
+      if (
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'ENOENT'
+      ) return;
+      throw error;
+    }
+  }
 }
 
 export function resolveWithinProject(projectRoot: string, ...parts: string[]): string {
@@ -186,6 +287,44 @@ export async function resolveCanonicalWithinProject(
   return resolved;
 }
 
+export async function openVerifiedFileWithinProject(
+  projectRoot: string,
+  ...parts: string[]
+): Promise<{
+  handle: Awaited<ReturnType<typeof fs.open>>;
+  stat: fsSync.Stats;
+  resolvedPath: string;
+}> {
+  const root = await fs.realpath(resolveProjectPath(projectRoot));
+  const resolvedPath = await resolveCanonicalWithinProject(root, ...parts);
+  const noFollow = typeof fsSync.constants.O_NOFOLLOW === 'number'
+    ? fsSync.constants.O_NOFOLLOW
+    : 0;
+  const handle = await fs.open(resolvedPath, fsSync.constants.O_RDONLY | noFollow);
+  try {
+    const [stat, currentPathStat, currentCanonicalPath] = await Promise.all([
+      handle.stat(),
+      fs.stat(resolvedPath),
+      fs.realpath(resolvedPath)
+    ]);
+    const relative = path.relative(root, currentCanonicalPath);
+    if (
+      relative === '..'
+      || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)
+      || stat.dev !== currentPathStat.dev
+      || stat.ino !== currentPathStat.ino
+      || !stat.isFile()
+    ) {
+      throw new Error('Source file changed during secure open.');
+    }
+    return { handle, stat, resolvedPath };
+  } catch (error: unknown) {
+    await handle.close();
+    throw error;
+  }
+}
+
 export function sanitizeFileName(input: string, fallback = 'untitled'): string {
   const name = path.basename(input || '').trim();
   if (!name) return fallback;
@@ -193,12 +332,28 @@ export function sanitizeFileName(input: string, fallback = 'untitled'): string {
 }
 
 export function sanitizeWorkspaceRelativePath(input: string): string {
-  if (typeof input !== 'string' || !input.trim()) {
+  if (
+    typeof input !== 'string'
+    || !input.trim()
+    || Buffer.byteLength(input, 'utf-8') > 4_096
+  ) {
     throw new Error('Invalid Source file path.');
   }
 
   const normalized = input.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!normalized || normalized.split('/').some(part => !part || part === '.' || part === '..')) {
+  const parts = normalized.split('/');
+  if (
+    !normalized
+    || parts.length > 128
+    || parts.some(part => (
+      !part
+      || part === '.'
+      || part === '..'
+      || part.startsWith('.')
+      || IGNORED_WORKSPACE_DIRS.has(part)
+      || Buffer.byteLength(part, 'utf-8') > 255
+    ))
+  ) {
     throw new Error('Invalid Source file path.');
   }
 
@@ -223,18 +378,6 @@ export function isObjectWithAllowedKeys(value: unknown, allowedKeys: readonly st
   return Object.keys(value).every((key) => allowedKeys.includes(key));
 }
 
-export function normalizeTemporaryAgents(rawAgents: unknown): AgentConfig[] {
-  if (!Array.isArray(rawAgents)) return [];
-  return rawAgents
-    .slice(0, 12)
-    .map(rawAgent => validateAgentConfig(rawAgent))
-    .filter((result): result is { success: true; agent: AgentConfig } => result.success)
-    .map(result => ({
-      ...result.agent,
-      skills: (result.agent.skills || []).filter(skill => !isMachineSkillReference(skill))
-    }));
-}
-
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -242,48 +385,94 @@ export function formatBytes(bytes: number): string {
 }
 
 export async function safeReadDir(dirPath: string): Promise<string[]> {
+  return (await safeReadDirWithStatus(dirPath)).files;
+}
+
+export async function safeReadDirWithStatus(
+  dirPath: string,
+  maxEntries = 1_000
+): Promise<{ files: string[]; truncated: boolean }> {
+  const files: string[] = [];
+  const maxInspectedEntries = Math.min(100_000, Math.max(1_000, maxEntries * 10));
+  const deadline = Date.now() + 2_000;
+  let inspectedEntries = 0;
   try {
-    const files = await fs.readdir(dirPath);
-    return files.filter(f => !f.startsWith('.'));
+    const directory = await fs.opendir(dirPath);
+    try {
+      for await (const entry of directory) {
+        inspectedEntries += 1;
+        if (inspectedEntries > maxInspectedEntries || Date.now() > deadline) {
+          return { files, truncated: true };
+        }
+        if (entry.name.startsWith('.')) continue;
+        if (files.length >= maxEntries) {
+          return { files, truncated: true };
+        }
+        files.push(entry.name);
+      }
+    } finally {
+      await directory.close().catch(() => undefined);
+    }
+    return { files, truncated: false };
   } catch {
-    return [];
+    return { files: [], truncated: false };
   }
 }
 
 export async function readFirstExistingFile(paths: string[]): Promise<string> {
   for (const filePath of paths) {
     try {
-      return await fs.readFile(filePath, 'utf-8');
+      return await readTextFileWithLimit(filePath, 1024 * 1024);
     } catch {}
   }
   return '';
 }
 
-export async function readMergedDirs(dirs: string[]): Promise<string[]> {
-  const names = new Set<string>();
-  for (const dir of dirs) {
-    const files = await safeReadDir(dir);
-    for (const file of files) {
-      names.add(file);
-    }
+export async function readRoomSkillReferences(roomId: string): Promise<string[]> {
+  const references: string[] = [];
+  for (const source of ['skills', 'roles'] as const) {
+    const files = await safeReadDir(resolveWithinRoomData(roomId, source));
+    references.push(...files
+      .filter(file => file.toLowerCase().endsWith('.md'))
+      .map(file => createRoomSkillReference(source, file)));
   }
-  return Array.from(names).sort((a, b) => a.localeCompare(b));
+  return references.sort((left, right) => left.localeCompare(right));
 }
 
 export async function readTextFileWithLimit(filePath: string, maxBytes: number): Promise<string> {
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) {
-    throw new Error('Selected item is not a file.');
+  const noFollow = typeof fsSync.constants.O_NOFOLLOW === 'number'
+    ? fsSync.constants.O_NOFOLLOW
+    : 0;
+  const handle = await fs.open(filePath, fsSync.constants.O_RDONLY | noFollow);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('Selected item is not a file.');
+    if (stat.size > maxBytes) {
+      throw new Error('File is too large to include as discussion context.');
+    }
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let total = 0;
+    while (total <= maxBytes) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        total,
+        Math.min(64 * 1024, maxBytes + 1 - total),
+        total
+      );
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    if (total > maxBytes) {
+      throw new Error('File is too large to include as discussion context.');
+    }
+    const content = buffer.subarray(0, total);
+    if (content.includes(0)) {
+      throw new Error('Binary files cannot be included as discussion context.');
+    }
+    return content.toString('utf-8');
+  } finally {
+    await handle.close();
   }
-  if (stat.size > maxBytes) {
-    throw new Error('File is too large to include as discussion context.');
-  }
-
-  const buffer = await fs.readFile(filePath);
-  if (buffer.includes(0)) {
-    throw new Error('Binary files cannot be included as discussion context.');
-  }
-  return buffer.toString('utf-8');
 }
 
 export function extractMarkdownHeading(content: string): string | undefined {

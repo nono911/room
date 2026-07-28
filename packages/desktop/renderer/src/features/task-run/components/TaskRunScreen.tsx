@@ -9,12 +9,19 @@ import { useProviders } from '../../providers/context/ProvidersContext.js';
 import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
 import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
 import { AgentClonePicker } from '../../ai-members/components/AgentClonePicker.js';
+import { createDiscussionSelectionId } from '../../discussions/lib/discussionSelection.js';
+import {
+  taskParticipantEntries,
+  taskParticipantName
+} from '../taskParticipantRefs.js';
 
 interface TaskRunScreenProps {
   projectPath: string | null;
   loadProjectData: (path: string) => Promise<void>;
   ensureTemplateSkills: (skills: any) => Promise<string[]>;
   projectData: ProjectData | null;
+  activeSourceId?: string;
+  onAttachSource: () => void;
   codingTaskMessages: UIMessage[];
   codingTaskDeveloperName: string;
   setCodingTaskDeveloperName: (value: string) => void;
@@ -23,8 +30,6 @@ interface TaskRunScreenProps {
   taskTypeOptions: Array<{ value: string; label: string }>;
   codingTaskInput: string;
   setCodingTaskInput: (value: string) => void;
-  projectConfig: { allowDangerousCli?: boolean };
-  enableTaskRunWriteAccess: () => void;
   codingTaskReviewerNames: string[];
   setCodingTaskReviewerNames: React.Dispatch<React.SetStateAction<string[]>>;
   temporaryTaskAgents: any[];
@@ -39,8 +44,6 @@ interface TaskRunScreenProps {
   getContextLabel: (ref: string) => string;
   handleRunCodingTask: () => void;
   lastCodingTaskResult: any;
-  setLastCodingTaskResult: (value: any) => void;
-  setCodingTaskMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
   openRounds: Record<number, boolean>;
   setOpenRounds: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
   expandedMsgKeys: Record<string, boolean>;
@@ -60,6 +63,8 @@ interface TaskRunScreenProps {
   taskBoardCards?: TaskBoardCard[];
   selectedTaskCardId: string | null;
   setSelectedTaskCardId: (value: string | null) => void;
+  setContinuedFromTaskId: (value: string | null) => void;
+  startNewTaskRun: () => void;
 }
 
 export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
@@ -67,6 +72,8 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   loadProjectData,
   ensureTemplateSkills,
   projectData,
+  activeSourceId,
+  onAttachSource,
   codingTaskMessages,
   codingTaskDeveloperName,
   setCodingTaskDeveloperName,
@@ -75,8 +82,6 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   taskTypeOptions,
   codingTaskInput,
   setCodingTaskInput,
-  projectConfig,
-  enableTaskRunWriteAccess,
   codingTaskReviewerNames,
   setCodingTaskReviewerNames,
   temporaryTaskAgents,
@@ -91,8 +96,6 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   getContextLabel,
   handleRunCodingTask,
   lastCodingTaskResult,
-  setLastCodingTaskResult,
-  setCodingTaskMessages,
   openRounds,
   setOpenRounds,
   expandedMsgKeys,
@@ -111,13 +114,19 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   setTaskRunView,
   taskBoardCards = [],
   selectedTaskCardId,
-  setSelectedTaskCardId
+  setSelectedTaskCardId,
+  setContinuedFromTaskId,
+  startNewTaskRun
 }) => {
   const [pixelAgentViewMode, setPixelAgentViewMode] = React.useState<PixelAgentViewMode>('classic');
   const { providers, detectedClis, getModelOptions } = useProviders();
   const [localRegistering, setLocalRegistering] = React.useState<boolean>(false);
   const registeredProjectAgents = (projectData?.agents || []).filter((agent: any) => !agent.isVirtual);
-  const agents = [...registeredProjectAgents, ...temporaryTaskAgents];
+  const participantEntries = taskParticipantEntries(
+    registeredProjectAgents,
+    temporaryTaskAgents
+  );
+  const agents = participantEntries.map(entry => entry.agent);
   const savedTaskRuns = (projectData?.taskRuns || []).slice(0, 12);
   const taskRunMessagesByRound: Record<number, UIMessage[]> = {};
   
@@ -130,14 +139,16 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
   });
 
   const taskRunRounds = Object.keys(taskRunMessagesByRound).map(Number).sort((a, b) => a - b);
-  const selectedDoer = agents.find((agent: any) => agent.name === codingTaskDeveloperName);
-  const selectedDoerNeedsWriteAccess = taskRunType === 'coding'
-    && selectedDoer?.provider === 'Local CLI'
-    && (selectedDoer.permissionMode !== 'dangerous' || !projectConfig.allowDangerousCli);
+  const selectedDoer = participantEntries.find(
+    entry => entry.ref === codingTaskDeveloperName
+  )?.agent;
+  const codingSourceMissing = taskRunType === 'coding' && !activeSourceId;
   const selectedTaskTypeLabel = taskTypeOptions.find(option => option.value === taskRunType)?.label || 'Custom';
   const currentRunTitle = codingTaskInput.trim() || 'Draft run';
-  const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0 && !selectedDoerNeedsWriteAccess;
-  const taskRunPixelAgents = [codingTaskDeveloperName, ...codingTaskReviewerNames].filter(Boolean);
+  const canRunCodingTask = !loading && codingTaskInput.trim() && codingTaskDeveloperName && codingTaskReviewerNames.length > 0 && !codingSourceMissing;
+  const taskRunPixelAgents = [codingTaskDeveloperName, ...codingTaskReviewerNames]
+    .filter(Boolean)
+    .map(reference => taskParticipantName(reference, participantEntries));
   const taskRunTabs: Array<{ id: 'setup' | 'timeline' | 'artifact' | 'trace'; label: string; count?: number }> = [
     { id: 'setup', label: 'Setup' },
     { id: 'timeline', label: 'Timeline', count: codingTaskMessages.length || undefined },
@@ -188,15 +199,24 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         count,
         existingNames: [
           ...agents.map((agent: any) => agent.name),
-          codingTaskDeveloperName,
-          ...codingTaskReviewerNames
+          taskParticipantName(codingTaskDeveloperName, participantEntries),
+          ...codingTaskReviewerNames.map(reference => (
+            taskParticipantName(reference, participantEntries)
+          ))
         ].filter(Boolean)
       });
 
+      const instancesWithIds = instances.map(agent => ({
+        ...agent,
+        id: createDiscussionSelectionId(
+          lifecycle === 'temporary' ? 'tmp' : 'mem',
+          agent.name
+        )
+      }));
       if (lifecycle === 'temporary') {
-        setTemporaryTaskAgents(prev => [...prev, ...instances]);
+        setTemporaryTaskAgents(prev => [...prev, ...instancesWithIds]);
       } else {
-        for (const instance of instances) {
+        for (const instance of instancesWithIds) {
           const res = await api.saveAgent(projectPath, instance);
           if (!res.success) {
             alert(res.error || `Failed to save ${instance.name}.`);
@@ -206,7 +226,11 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
         await loadProjectData(projectPath);
       }
 
-      setCodingTaskReviewerNames(prev => [...prev, ...instances.map(agent => agent.name)]);
+      const kind = lifecycle === 'temporary' ? 'tmp' : 'member';
+      setCodingTaskReviewerNames(prev => [
+        ...prev,
+        ...instancesWithIds.map(agent => `${kind}:${agent.id}`)
+      ]);
     } catch (err: any) {
       alert(err.message || 'Error occurred while adding template agents.');
     } finally {
@@ -246,6 +270,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
               onChange={(e) => {
                 const cardId = e.target.value;
                 setSelectedTaskCardId(cardId || null);
+                setContinuedFromTaskId(null);
                 const selectedCard = taskBoardCards.find(c => c.id === cardId);
                 if (selectedCard) {
                   const detailsText = selectedCard.details ? `\n\nDetails:\n${selectedCard.details}` : '';
@@ -254,7 +279,10 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                   if (selectedCard.assignee) {
                     const matchedAgent = agents.find(a => a.name.toLowerCase() === selectedCard.assignee!.toLowerCase());
                     if (matchedAgent) {
-                      setCodingTaskDeveloperName(matchedAgent.name);
+                      const matchedEntry = participantEntries.find(
+                        entry => entry.agent === matchedAgent
+                      );
+                      setCodingTaskDeveloperName(matchedEntry?.ref || '');
                     }
                   }
                 }
@@ -310,24 +338,24 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
               style={{ height: '36px', fontSize: '0.85rem' }}
             >
               <option value="">Select Doer</option>
-              {agents.map((agent: any) => (
-                <option key={agent.name} value={agent.name}>{agent.name} - {agent.role}</option>
+              {participantEntries.map(({ agent, ref }) => (
+                <option key={ref} value={ref}>{agent.name} - {agent.role}</option>
               ))}
             </select>
           </label>
-          {selectedDoerNeedsWriteAccess && (
+          {codingSourceMissing && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', border: '1px solid hsl(var(--accent-orange) / 0.45)', borderRadius: '8px', background: 'hsl(var(--accent-orange) / 0.09)' }}>
               <span style={{ fontSize: '0.76rem', color: 'hsl(var(--text-secondary))', lineHeight: 1.4 }}>
-                This Local CLI Developer needs active Source write access for coding tasks.
+                Attach a Source folder before running coding tasks.
               </span>
               <button
                 type="button"
                 className="btn-secondary"
                 disabled={loading}
-                onClick={enableTaskRunWriteAccess}
+                onClick={onAttachSource}
                 style={{ height: '30px', padding: '0 10px', fontSize: '0.72rem', flex: '0 0 auto' }}
               >
-                Allow Write
+                Attach Folder
               </button>
             </div>
           )}
@@ -345,13 +373,13 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
               />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '112px', overflowY: 'auto' }}>
-              {agents.map((agent: any) => {
-                const selectedIndex = codingTaskReviewerNames.indexOf(agent.name);
+              {participantEntries.map(({ agent, ref }) => {
+                const selectedIndex = codingTaskReviewerNames.indexOf(ref);
                 const selected = selectedIndex !== -1;
-                const disabled = loading || agent.name === codingTaskDeveloperName;
+                const disabled = loading || ref === codingTaskDeveloperName;
                 return (
                   <label
-                    key={agent.name}
+                    key={ref}
                     className={`skill-checkbox-chip ${selected ? 'selected' : ''}`}
                     style={{ fontSize: '0.74rem', padding: '4px 10px', borderRadius: '14px', opacity: disabled && !selected ? 0.55 : 1 }}
                     title={`${agent.name} - ${agent.role}`}
@@ -362,9 +390,9 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                       disabled={disabled}
                       onChange={() => {
                         setCodingTaskReviewerNames(prev =>
-                          prev.includes(agent.name)
-                            ? prev.filter(name => name !== agent.name)
-                            : [...prev, agent.name]
+                          prev.includes(ref)
+                            ? prev.filter(reference => reference !== ref)
+                            : [...prev, ref]
                         );
                       }}
                     />
@@ -390,11 +418,13 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                   Review Sequence Order
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  {codingTaskReviewerNames.map((name, index) => {
-                    const agent = agents.find((a: any) => a.name === name);
+                  {codingTaskReviewerNames.map((reference, index) => {
+                    const agent = participantEntries.find(
+                      entry => entry.ref === reference
+                    )?.agent;
                     return (
                       <div
-                        key={name}
+                        key={reference}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -422,7 +452,7 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
                           }}>
                             {index + 1}
                           </span>
-                          <span style={{ fontWeight: 500 }}>{name}</span>
+                          <span style={{ fontWeight: 500 }}>{agent?.name || reference}</span>
                           {agent?.role && (
                             <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.7rem' }}>
                               ({agent.role})
@@ -852,13 +882,12 @@ export const TaskRunScreen: React.FC<TaskRunScreenProps> = ({
               type="button"
               disabled={loading}
               onClick={() => {
-                setTaskRunView('setup');
-                setCodingTaskMessages([]);
-                setLastCodingTaskResult(null);
-                setOpenRounds({});
-                setTemporaryTaskAgents([]);
-                setCodingTaskReviewerNames(prev => prev.filter(name => registeredProjectAgents.some((agent: any) => agent.name === name)));
-                if (!registeredProjectAgents.some((agent: any) => agent.name === codingTaskDeveloperName)) {
+                startNewTaskRun();
+                const persistedRefs = new Set(
+                  taskParticipantEntries(registeredProjectAgents, []).map(entry => entry.ref)
+                );
+                setCodingTaskReviewerNames(prev => prev.filter(reference => persistedRefs.has(reference)));
+                if (!persistedRefs.has(codingTaskDeveloperName)) {
                   setCodingTaskDeveloperName('');
                 }
               }}
