@@ -168,6 +168,7 @@ export default function App() {
     scrollToDiscussionMessage,
     startNewDiscussion,
     loadDiscussionSession,
+    deleteDiscussionSession,
     saveDiscussionOutput,
     summarizeActiveDiscussion,
     generateTasksFromActiveDiscussion,
@@ -282,7 +283,7 @@ export default function App() {
     setSelectedTaskCardId(null);
     setContinuedFromTaskId(null);
     resetDiscussion();
-    setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
+    setSelectedCodingTaskContextRefs([]);
     resetContextPicker();
     resetOnboarding();
     setHasCompletedScan(false);
@@ -562,6 +563,7 @@ export default function App() {
                 summarizeActiveDiscussion={summarizeActiveDiscussion}
                 startNewDiscussion={startNewDiscussion}
                 loadDiscussionSession={loadDiscussionSession}
+                deleteDiscussionSession={deleteDiscussionSession}
                 discussionMessages={discussionMessages}
                 highlightedDiscussionMessage={highlightedDiscussionMessage}
                 selectedDiscussionContextRefs={selectedDiscussionContextRefs}

@@ -389,8 +389,6 @@ export const TaskArchiveScreen: React.FC<TaskArchiveScreenProps> = ({
                   onClick={() => {
                     const artifactFile = selectedTaskFile.replace(/\.md$/i, '') + '-artifact.md';
                     setSelectedCodingTaskContextRefs([
-                      'workspace:overview',
-                      'workspace:structure',
                       `document:${artifactFile}`
                     ]);
                     if (associatedCardId) {

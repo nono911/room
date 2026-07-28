@@ -63,7 +63,7 @@ export function useDiscussion({
   const [discussionModeratorName, setDiscussionModeratorName] = useState<string>('');
   const [discussionAutoSummary, setDiscussionAutoSummary] = useState<boolean>(false);
   const [discussionSummaryAgentName, setDiscussionSummaryAgentName] = useState<string>('');
-  const [selectedDiscussionContextRefs, setSelectedDiscussionContextRefs] = useState<string[]>(['workspace:overview', 'workspace:structure']);
+  const [selectedDiscussionContextRefs, setSelectedDiscussionContextRefs] = useState<string[]>([]);
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(null);
   const [lastDiscussionLog, setLastDiscussionLog] = useState<any | null>(null);
   const [showInspector, setShowInspector] = useState(false);
@@ -81,7 +81,7 @@ export function useDiscussion({
     setActiveDiscussionRunId(null);
     setLastDiscussionLog(null);
     setLastDiscussionTopic('');
-    setSelectedDiscussionContextRefs(['workspace:overview', 'workspace:structure']);
+    setSelectedDiscussionContextRefs([]);
     setTemporaryDiscussionAgents([]);
     clearSelectedDiscussionAgents();
     setDiscussionInterruptMessage('');
@@ -192,6 +192,29 @@ This task note was created from a ROOM discussion. Refine it before treating it 
       setDiscussionMessages(formatDiscussionLogMessages(log));
     } catch (err: any) {
       setErrorMsg(err.message || `Failed to load ${filename}.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteDiscussionSession = async (filename: string) => {
+    if (!projectPath || activeDiscussionRunId) return;
+    const confirmed = window.confirm(
+      `Delete "${filename}" permanently from this Room? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const result = await api.deleteDiscussion(projectPath, filename);
+      if (!result.success) {
+        setErrorMsg(result.error || `Failed to delete ${filename}.`);
+        return;
+      }
+      startNewDiscussion();
+      await loadProjectData(projectPath);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : `Failed to delete ${filename}.`);
     } finally {
       setLoading(false);
     }
@@ -618,6 +641,7 @@ This task note was created from a ROOM discussion. Refine it before treating it 
     startNewDiscussion,
     loadTaskBoardCards,
     loadDiscussionSession,
+    deleteDiscussionSession,
     saveDiscussionOutput,
     summarizeActiveDiscussion,
     generateTasksFromActiveDiscussion,

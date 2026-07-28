@@ -4,7 +4,7 @@ import { renderMarkdownContent } from '../../../shared/lib/markdown/MarkdownCont
 import { ContextControl } from '../../../components/context/ContextControl.js';
 import { PixelAgentStage, type PixelAgentViewMode } from '../../pixel-agents/PixelAgentStage.js';
 import { api } from '../../../shared/ipc/client.js';
-import { agentPersonaTemplates, teamPresets } from '../../../shared/data/staticData.js';
+import { agentPersonaTemplates } from '../../../shared/data/staticData.js';
 import { useProviders } from '../../providers/context/ProvidersContext.js';
 import { resolveAgentDefaultSelection } from '../../ai-members/useAgentManagement.js';
 import { createAgentInstancesFromTemplate, type AgentLifecycle } from '../../ai-members/lib/agentInstances.js';
@@ -25,6 +25,7 @@ interface DiscussionsScreenProps {
   startNewDiscussion: () => void;
   loading: boolean;
   loadDiscussionSession: (file: string) => void;
+  deleteDiscussionSession: (file: string) => void;
   discussionMessages: UIMessage[];
   openContextPicker: (target: 'task' | 'discussion') => void;
   highlightedDiscussionMessage: number | null;
@@ -98,6 +99,7 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   startNewDiscussion,
   loading,
   loadDiscussionSession,
+  deleteDiscussionSession,
   discussionMessages,
   openContextPicker,
   highlightedDiscussionMessage,
@@ -117,7 +119,6 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
   toggleSelectedDiscussionMemberId,
   reorderSelectedDiscussionParticipants,
   selectedLegacyDiscussionAgentNames,
-  setSelectedLegacyDiscussionAgentNames,
   toggleSelectedLegacyDiscussionAgentName,
   selectedTemporaryDiscussionAgentIds,
   appendSelectedTemporaryDiscussionAgentIds,
@@ -299,6 +300,15 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
           ))}
         </select>
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button
+            className="btn-secondary"
+            type="button"
+            onClick={() => deleteDiscussionSession(activeDiscussionFile)}
+            disabled={loading || !activeDiscussionFile || !!activeDiscussionRunId}
+            style={{ padding: '7px 12px', fontSize: '0.78rem', color: 'hsl(var(--accent-orange))' }}
+          >
+            Delete Chat
+          </button>
           <button className="btn-secondary" type="button" onClick={summarizeActiveDiscussion} disabled={loading || !activeDiscussionId} style={{ padding: '7px 12px', fontSize: '0.78rem' }}>
             Summarize Chat
           </button>
@@ -321,118 +331,29 @@ export const DiscussionsScreen: React.FC<DiscussionsScreenProps> = ({
         />
 
         {pixelAgentViewMode === 'classic' && discussionMessages.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px', background: 'hsl(var(--bg-card))', border: '1px solid hsl(var(--border-dim))', borderRadius: '12px', minHeight: '350px' }}>
-            <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-              <h3 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>Choose a Room Template & Suggest Experts</h3>
-              <p style={{ color: 'hsl(var(--text-muted))', fontSize: '0.8rem', maxWidth: '580px', margin: '0 auto', lineHeight: 1.45 }}>
-                Select what type of project or analysis you are doing. ROOM will automatically configure the workflow with recommended AI specialists.
-              </p>
+          <div className="discussion-empty-state">
+            <div className="discussion-empty-orbit" aria-hidden="true">
+              <span>✦</span>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
-              {teamPresets.map(preset => {
-                const isSelected = preset.roles.every(role => selectedDiscussionAgents.includes(role)) && selectedDiscussionAgents.length === preset.roles.length;
-                return (
-                  <div
-                    key={preset.name}
-                    onClick={async () => {
-                      if (loading) return;
-                      // Auto-register any unregistered agents in the preset
-                      const registeredAgents = projectData?.agents || [];
-                      const nextSelectedMemberIds: string[] = [];
-                      const nextSelectedLegacyNames: string[] = [];
-
-                      for (const roleName of preset.roles) {
-                        const alreadyRegistered = registeredAgents.find((a: any) => a.name.toLowerCase() === roleName.toLowerCase());
-                        if (alreadyRegistered) {
-                          if (alreadyRegistered.id) {
-                            nextSelectedMemberIds.push(alreadyRegistered.id);
-                          } else {
-                            nextSelectedLegacyNames.push(alreadyRegistered.name);
-                          }
-                        } else {
-                          const tmpl = agentPersonaTemplates.find(t => t.name.toLowerCase() === roleName.toLowerCase());
-                          if (tmpl) {
-                            // Register it
-                            try {
-                              const defaults = resolveAgentDefaultSelection(providers, detectedClis, getModelOptions);
-                              const skillFiles = await ensureTemplateSkills(tmpl.skills || []);
-
-                              if (projectPath) {
-                                const memberId = createDiscussionSelectionId('mem', tmpl.name);
-                                const res = await api.saveAgent(projectPath, {
-                                  id: memberId,
-                                  name: tmpl.name,
-                                  role: tmpl.role,
-                                  provider: defaults.provider,
-                                  modelName: defaults.modelName || undefined,
-                                  cliPreset: defaults.provider === 'Local CLI'
-                                    ? defaults.cliPreset
-                                    : undefined,
-                                  stdinFormat: defaults.provider === 'Local CLI'
-                                    ? 'text'
-                                    : undefined,
-                                  permissionMode: defaults.provider === 'Local CLI'
-                                    ? 'safe'
-                                    : undefined,
-                                  systemPrompt: tmpl.prompt,
-                                  skills: skillFiles
-                                });
-                                if (res.success) {
-                                  nextSelectedMemberIds.push(memberId);
-                                }
-                              }
-                            } catch (err) {
-                              console.error("Failed to auto-provision preset agent:", err);
-                            }
-                          }
-                        }
-                      }
-                      if (projectPath) {
-                        await loadProjectData(projectPath);
-                      }
-                      clearSelectedDiscussionAgents();
-                      appendSelectedDiscussionMemberIds(nextSelectedMemberIds);
-                      setSelectedLegacyDiscussionAgentNames(nextSelectedLegacyNames);
-                    }}
-                    style={{
-                      padding: '14px',
-                      borderRadius: '8px',
-                      background: isSelected ? 'hsl(var(--accent-purple) / 0.12)' : 'hsl(var(--bg-input))',
-                      border: isSelected ? '1px solid hsl(var(--accent-purple))' : '1px solid hsl(var(--border-dim))',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                      userSelect: 'none'
-                    }}
-                    className="preset-suggest-card"
-                  >
-                    <div style={{ color: 'white', fontSize: '0.85rem', fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>{preset.name}</span>
-                      {isSelected && <span style={{ color: 'hsl(var(--accent-purple))', fontSize: '0.7rem' }}>● Active</span>}
-                    </div>
-                    <div style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.72rem', lineHeight: 1.35 }}>
-                      {preset.description}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-                      {preset.roles.map(r => (
-                        <span key={r} style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', background: 'hsl(var(--bg-sidebar))', color: 'hsl(var(--text-muted))', border: '1px solid hsl(var(--border-dim))' }}>
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+            <span className="workspace-page-eyebrow">New conversation</span>
+            <h3>Start a conversation with your AI members</h3>
+            <p>
+              Choose who should join, describe what you want to explore, then send your first message.
+              Add context only when the conversation needs specific files or prior work.
+            </p>
+            <div className="discussion-empty-steps" aria-label="How to start">
+              <span><strong>1</strong> Choose members</span>
+              <span><strong>2</strong> Enter a topic</span>
+              <span><strong>3</strong> Start chatting</span>
             </div>
-
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px', gap: '12px' }}>
-              <button type="button" className="btn-secondary" disabled={loading} onClick={() => openContextPicker('discussion')} style={{ padding: '8px 16px', fontSize: '0.78rem' }}>
-                Add Custom Context Files
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={loading}
+              onClick={() => openContextPicker('discussion')}
+            >
+              Add optional context
+            </button>
           </div>
         )}
 

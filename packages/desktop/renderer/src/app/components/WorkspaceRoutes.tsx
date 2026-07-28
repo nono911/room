@@ -89,6 +89,7 @@ interface WorkspaceRoutesProps {
   summarizeActiveDiscussion: () => void;
   startNewDiscussion: () => void;
   loadDiscussionSession: (filename: string) => void;
+  deleteDiscussionSession: (filename: string) => void;
   discussionMessages: any[];
   highlightedDiscussionMessage: any;
   selectedDiscussionContextRefs: string[];
@@ -247,6 +248,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
     summarizeActiveDiscussion,
     startNewDiscussion,
     loadDiscussionSession,
+    deleteDiscussionSession,
     discussionMessages,
     highlightedDiscussionMessage,
     selectedDiscussionContextRefs,
@@ -442,6 +444,7 @@ export function WorkspaceRoutes(props: WorkspaceRoutesProps) {
         startNewDiscussion={startNewDiscussion}
         loading={loading}
         loadDiscussionSession={loadDiscussionSession}
+        deleteDiscussionSession={deleteDiscussionSession}
         discussionMessages={discussionMessages}
         openContextPicker={openContextPicker}
         highlightedDiscussionMessage={highlightedDiscussionMessage}

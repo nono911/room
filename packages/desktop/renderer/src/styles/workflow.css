@@ -305,7 +305,7 @@
 
 .home-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -364,7 +364,7 @@
 
 .home-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -411,7 +411,7 @@
 
 .home-run-modes {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
 }
 
@@ -568,6 +568,78 @@
 
 .run-composer-content {
   min-width: 0;
+}
+
+.discussion-empty-state {
+  display: flex;
+  min-height: 350px;
+  padding: 42px 24px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 13px;
+  border: 1px solid hsl(var(--border-dim));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 18%, hsl(var(--accent-purple) / 0.13), transparent 38%),
+    hsl(var(--bg-card) / 0.72);
+  text-align: center;
+}
+
+.discussion-empty-orbit {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid hsl(var(--accent-purple) / 0.35);
+  border-radius: 50%;
+  background: hsl(var(--accent-purple) / 0.12);
+  color: hsl(var(--accent-purple));
+  box-shadow: 0 0 36px hsl(var(--accent-purple) / 0.15);
+  font-size: 1.15rem;
+}
+
+.discussion-empty-state h3 {
+  color: white;
+  font-size: 1.12rem;
+}
+
+.discussion-empty-state > p {
+  max-width: 590px;
+  color: hsl(var(--text-muted));
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.discussion-empty-steps {
+  display: flex;
+  margin: 5px 0 8px;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.discussion-empty-steps span {
+  display: inline-flex;
+  padding: 7px 10px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid hsl(var(--border-dim));
+  border-radius: 999px;
+  background: hsl(var(--bg-sidebar) / 0.75);
+  color: hsl(var(--text-secondary));
+  font-size: 0.72rem;
+}
+
+.discussion-empty-steps strong {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: hsl(var(--accent-purple) / 0.17);
+  color: hsl(var(--accent-purple));
+  font-size: 0.65rem;
 }
 
 .file-source-tabs {
@@ -1442,7 +1514,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .home-grid,
+  .home-run-modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .unified-file-layout {
     grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
   }
@@ -1463,6 +1538,11 @@
   }
 
   .home-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-metrics,
+  .home-run-modes {
     grid-template-columns: 1fr;
   }
 

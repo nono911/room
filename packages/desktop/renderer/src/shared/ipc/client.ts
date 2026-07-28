@@ -28,6 +28,8 @@ export const api = {
     window.electronAPI.listRoomTaskRuns(roomId, cursor),
   readRoomFile: (roomId: string, section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills', filename: string) =>
     window.electronAPI.readRoomFile(roomId, section, filename),
+  deleteDiscussion: (roomId: string, filename: string) =>
+    window.electronAPI.deleteDiscussion(roomId, filename),
   listWorkspaceFiles: (roomId: string, sourceId: string) =>
     window.electronAPI.listWorkspaceFiles(roomId, sourceId),
   browseWorkspaceFiles: (roomId: string, sourceId: string, directory = '', query = '') =>

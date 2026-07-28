@@ -261,6 +261,34 @@ export function registerFilesIpc(): void {
     }
   });
 
+  ipcMain.handle('delete-discussion', async (
+    _event,
+    { roomId, filename }: { roomId: string; filename: string }
+  ) => {
+    try {
+      requireBoundRoom(roomId);
+      assertUtf8Bytes(filename || '', 'Discussion filename', 255);
+      const safeFilename = sanitizeFileName(filename || '');
+      if (
+        filename !== safeFilename
+        || !/^discussion-[A-Za-z0-9_-]+\.(?:md|json)$/i.test(safeFilename)
+      ) {
+        throw new Error('Invalid discussion filename.');
+      }
+      const baseName = safeFilename.replace(/\.(?:md|json)$/i, '');
+      await withRoomStorageReconciliation(
+        requireBoundRoomWorkspace(roomId),
+        () => Promise.all([
+          fs.rm(resolveWithinRoomData(roomId, 'discussions', `${baseName}.json`), { force: true }),
+          fs.rm(resolveWithinRoomData(roomId, 'discussions', `${baseName}.md`), { force: true })
+        ])
+      );
+      return { success: true };
+    } catch (error: unknown) {
+      return { success: false, error: toPublicError(error) };
+    }
+  });
+
   ipcMain.handle('save-room-file', async (_event, { roomId, section, filename, content }: { roomId: string; section: string; filename: string; content: string }) => {
     try {
       if (!isAllowed(section, ['documents', 'tasks'] as const)) {

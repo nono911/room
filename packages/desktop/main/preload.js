@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('list-room-task-runs', { roomId, cursor }),
   readRoomFile: (roomId, section, filename) =>
     ipcRenderer.invoke('read-room-file', { roomId, section, filename }),
+  deleteDiscussion: (roomId, filename) =>
+    ipcRenderer.invoke('delete-discussion', { roomId, filename }),
   listWorkspaceFiles: (roomId, sourceId) =>
     ipcRenderer.invoke('list-source-files', { roomId, sourceId }),
   browseWorkspaceFiles: (roomId, sourceId, directory, query) =>

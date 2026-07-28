@@ -57,7 +57,7 @@ describe('useTaskRun continuation lineage', () => {
     expect(result.current.selectedTaskCardId).toBeNull();
     expect(result.current.codingTaskInput).toBe('');
     expect(result.current.selectedCodingTaskContextRefs)
-      .toEqual(['workspace:overview', 'workspace:structure']);
+      .toEqual([]);
   });
 
   it('consumes continuation lineage after a successful run', async () => {

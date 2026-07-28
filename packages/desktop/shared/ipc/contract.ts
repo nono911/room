@@ -90,6 +90,7 @@ export interface ElectronAPI {
     section: 'documents' | 'decisions' | 'tasks' | 'reviews' | 'discussions' | 'skills',
     filename: string
   ) => Promise<Result & { content?: string; sourceSection?: string }>;
+  deleteDiscussion: (roomId: string, filename: string) => Promise<Result>;
   listWorkspaceFiles: (
     roomId: string,
     sourceId: string

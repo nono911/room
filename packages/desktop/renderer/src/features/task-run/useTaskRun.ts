@@ -33,7 +33,7 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
   const [codingTaskDeveloperName, setCodingTaskDeveloperName] = useState<string>('');
   const [codingTaskReviewerNames, setCodingTaskReviewerNames] = useState<string[]>([]);
   const [codingTaskMaxCycles, setCodingTaskMaxCycles] = useState<number>(2);
-  const [selectedCodingTaskContextRefs, setSelectedCodingTaskContextRefs] = useState<string[]>(['workspace:overview', 'workspace:structure']);
+  const [selectedCodingTaskContextRefs, setSelectedCodingTaskContextRefs] = useState<string[]>([]);
   const [lastCodingTaskResult, setLastCodingTaskResult] = useState<any | null>(null);
   const [taskRunView, setTaskRunView] = useState<'setup' | 'timeline' | 'artifact' | 'trace'>('setup');
   const [openRounds, setOpenRounds] = useState<Record<number, boolean>>({});
@@ -71,7 +71,7 @@ export function useTaskRun({ projectPath, activeSourceId, projectData, loadProje
     setActiveTaskRunId(null);
     setTaskInterruptMessage('');
     setTaskInterruptPending(false);
-    setSelectedCodingTaskContextRefs(['workspace:overview', 'workspace:structure']);
+    setSelectedCodingTaskContextRefs([]);
     setSelectedTaskCardId(null);
     setContinuedFromTaskId(null);
     setTemporaryTaskAgents([]);
